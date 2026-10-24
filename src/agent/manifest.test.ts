@@ -219,3 +219,28 @@ test('a TypeScript tool whose input is not a z.object says so', async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("a project's own node_modules/mirab never stands in for mirab", async () => {
+  const root = await project(
+    "import { defineAgent } from 'mirab'\nexport default defineAgent({ name: 'gg.addis.agent.ops', model: 'anthropic/claude-sonnet-5-5' })\n",
+  )
+  try {
+    // Its own package, so 'mirab' isn't the repo's self-reference.
+    await writeFile(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'proj', type: 'module' }),
+    )
+    await mkdir(join(root, 'node_modules/mirab'), { recursive: true })
+    await writeFile(
+      join(root, 'node_modules/mirab/package.json'),
+      JSON.stringify({ name: 'mirab', type: 'module', main: 'index.js' }),
+    )
+    await writeFile(
+      join(root, 'node_modules/mirab/index.js'),
+      "export const defineAgent = () => ({ name: 'gg.evil.agent.x', model: 'anthropic/x' })\n",
+    )
+    expect((await loadManifest(root)).manifest.name).toBe('gg.addis.agent.ops')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

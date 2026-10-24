@@ -12,7 +12,7 @@ people in channels, inside the apps they help with.
 > **Status: early.** This is mirab's agent system, moved over with its
 > history: VMs through Apple's Virtualization framework (`vz`) and
 > Firecracker, containers, `mirab spawn`, and the Claude and Codex adapters.
-> `mirab init` is in; `mirab dev`, the station and channels come next.
+> `mirab init`, `mirab dev` and the station are in; channels come next.
 
 ## Make an agent
 
@@ -24,7 +24,33 @@ bun run <mirab checkout>/src/mirab.ts          # asks for the agent's harar name
 
 It writes `agent/agent.ts`, `agent/instructions.md`, and `tools/`, `skills/`,
 `subagents/`, `schedules/` and `channels/` folders. It never writes a `.env`:
-model access comes from harar. `mirab dev` (next) runs it in a VM.
+model access comes from harar.
+
+## Run it
+
+```sh
+mirab dev            # in the project: a chat with the agent, in its own VM
+mirab manifest       # what mirab reads about the agent, as JSON
+```
+
+The VM has no network of its own. Its only way out is the station on this
+machine, which lets it reach the domains in `agent.ts` (`domains`) and adds
+the model key, read from harar, on the way out. Nothing in the VM holds the
+key. `~/.config/mirab/station.json` says where harar is and which secret is
+the key:
+
+```json
+{
+  "harar": { "socket": "/var/run/harar.sock" },
+  "models": { "anthropic": { "key": "personal/anthropic/API_KEY" } }
+}
+```
+
+For now `mirab dev` starts from the project as it is: restart it to pick up
+edits (a VM boots in well under a second). What the agent writes in its VM
+stays there. The agent's files run only in its VM, never on this machine:
+the manifest is read there and checked here. The VM can spend the model key
+on its route (that is what the route is for), but never read it.
 
 mirab runs on [Bun](https://bun.sh), and so do the agents it makes (their
 `agent/` files are TypeScript, run as is). Until mirab is on npm, run it from

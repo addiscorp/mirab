@@ -101,6 +101,25 @@ program
     console.log(JSON.stringify(manifest, null, 2))
   })
 
+program
+  .command('dev [project]')
+  .description(
+    "chat with the project's agent, running in its own VM on this machine",
+  )
+  .action(async (project: string | undefined) => {
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { devInTerminal } = await import('./dev')
+    const { loadStationConfig } = await import('./station/config')
+    process.exitCode = await devInTerminal({
+      project: project ?? '.',
+      configDir,
+      station: await loadStationConfig(configDir),
+      auditLog: join(configDir, 'egress.log'),
+      log: (line) => console.error(line),
+    })
+  })
+
 // A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
 // anything else here (an option, a mistyped command) never does.
 program.action(async () => {

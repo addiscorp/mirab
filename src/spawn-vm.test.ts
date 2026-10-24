@@ -365,7 +365,7 @@ test('spawn --vm --detach starts the VM worker (no TTY needed) and reports why a
     ])
     // The detached worker got as far as booting a VM, and its reason came back.
     expect(err).toMatch(
-      /--vm failed: --vm needs a working (Firecracker|vz) setup/,
+      /--vm failed: A VM needs a working (Firecracker|vz) setup/,
     )
     expect({ code, out }).toEqual({ code: 1, out: '' })
     // Nothing ran on the host instead, and no session was left behind.

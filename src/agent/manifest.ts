@@ -15,6 +15,7 @@ import {
   toolNameProblem,
   type Tool,
 } from './define'
+import { registerAgentModules } from './modules'
 
 /** A TypeScript tool, `agent/<file>`, run by the agent loop. */
 export const typescriptToolSchema = z.strictObject({
@@ -54,6 +55,7 @@ export interface LoadedManifest {
 
 /** Reads `<project>/agent` (agent.ts, instructions.md, tools/*.ts) into a manifest. */
 export async function loadManifest(project: string): Promise<LoadedManifest> {
+  registerAgentModules()
   const dir = join(resolve(project), 'agent')
   const definition = join(dir, 'agent.ts')
   if (!existsSync(definition))
