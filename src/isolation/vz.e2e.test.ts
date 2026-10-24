@@ -73,7 +73,9 @@ describe.skipIf(!configDir)('vz microVM, live', () => {
         const arch = await run(iso, 'uname -m; nproc; free -m | sed -n 2p')
         console.log(`VZ guest: ${arch.out.replace(/\n/g, ' | ')}`)
         expect(arch.code).toBe(0)
-        expect(arch.out).toContain('aarch64')
+        expect(arch.out).toContain(
+          process.arch === 'arm64' ? 'aarch64' : 'x86_64',
+        )
         // The checkout is there and writable; the write lands in the clone only.
         expect((await run(iso, 'cat hello.txt')).out).toBe(
           'hello from the host',

@@ -34,7 +34,8 @@ import {
 export interface VzConfig {
   /** The signed mirab-vz helper. */
   helper: string
-  /** Uncompressed guest kernel (arm64 `Image`) with virtio-pci built in. */
+  /** Guest kernel with virtio-pci built in: the uncompressed arm64 `Image` on
+   *  Apple silicon, a relocatable x86_64 `bzImage` on Intel Macs. */
   kernel: string
   /** Base ext4 image; each VM boots an APFS clone of it. */
   rootfs: string
