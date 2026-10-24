@@ -118,6 +118,12 @@ VM ──HTTPS_PROXY──▶ 127.0.0.1:8790 ──vsock──▶ station ──
   device, and the domain joins that zone's whitelist. Until approvals land in
   harar's primary (harar#45), the whitelist is a file the station reads.
 - **Defaults.** A new zone's whitelist holds only what its routes need (below).
+- **Accepted risk.** Without decrypting, the station sees only the name a
+  connection asks for. Behind a shared CDN, a whitelisted name can front for
+  another site on the same provider, and a provider's encrypted-ClientHello
+  public name (such as `cloudflare-ech.com`) would front for all of it, so
+  such names are never whitelisted. The station still never leaves the
+  whitelisted names, and never reaches a non-public address.
 
 ### Which secrets: three kinds
 
