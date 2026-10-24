@@ -490,6 +490,15 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
       return done(
         `TLS server name ${name ?? 'missing or ambiguous'} isn't the host`,
       )
+    // While the tunnel is set up, the VM's socket keeps flowing into `held`:
+    // a paused socket doesn't report the VM leaving on every platform (not on
+    // Linux), and a TLS client never half-closes before its handshake is done.
+    const held: Buffer[] = []
+    const hold = (chunk: Buffer) => void held.push(chunk)
+    const gone = () => done('closed by the VM')
+    socket.on('data', hold)
+    socket.once('end', gone)
+    socket.resume()
     // The station resolves the name itself and dials an address it checked,
     // so a whitelisted name can't lead to the host, the LAN or a metadata service.
     let addresses: string[]
@@ -543,11 +552,12 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
     down += reply.length
     if (isHelloRetry(reply)) {
       let again: Buffer<ArrayBufferLike>
+      socket.off('data', hold)
       try {
         again = await readUntil(
           socket,
           nextHandshake,
-          Buffer.alloc(0),
+          Buffer.concat(held.splice(0)),
           MAX_HEAD,
           5,
         )
@@ -562,6 +572,14 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
         )
       upstream.write(again)
       up += again.length
+    }
+    // The tunnel opens: what the VM sent meanwhile goes first, then the pipe.
+    socket.off('data', hold)
+    socket.off('end', gone)
+    if (held.length) {
+      const early = Buffer.concat(held.splice(0))
+      upstream.write(early)
+      up += early.length
     }
     socket.on('data', (c) => void (up += c.length))
     upstream.on('data', (c) => void (down += c.length))
