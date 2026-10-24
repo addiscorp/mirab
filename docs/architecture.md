@@ -6,8 +6,9 @@ credential; and it meets people in channels inside the apps it helps with. Its
 identity, its grants and the channels it may join come from
 [harar](https://github.com/addiscorp/harar).
 
-Status: sections 1–4 are agreed (Sami, 24 Oct). Section 5 is a proposal for
-review. Section 7 lists what is built.
+Status: agreed with Sami, 24 Oct (section 5 as revised: a whitelist with
+escalation for where a VM connects; the station adds only long-lived keys).
+Section 7 lists what is built.
 
 ## 1. Pieces
 
@@ -65,9 +66,9 @@ eve runs the agent's loop and tools in the app process, next to the model key,
 and only the commands the model picks in a sandbox. mirab runs all of it in
 the VM. The loop is TypeScript on Bun, in the guest image.
 
-So nothing the agent runs, and nothing a tool imports, can read a credential:
-there is none in the VM. Every call out of the VM goes through the station
-(section 5).
+So nothing the agent runs, and nothing a tool imports, can read a long-lived
+credential: there is none in the VM. Every connection out of the VM goes
+through the station (section 5).
 
 ## 4. Channels
 
@@ -85,48 +86,66 @@ grants nothing else, and a message is untrusted input.
 - gild's mention bridge (`src/spawn-bridge.ts`) is where this starts: it types
   a channel's @mentions into the agent today, against gild's forge (#2).
 
-## 5. The station's outbound proxy (proposal)
+## 5. The way out of a VM
 
-The VM has no network unless a policy allows it. Calls the agent makes to
-outside services (a model provider, GitHub, an Addis app) go to the station
-instead, which decides, adds the credential and makes the call.
+Two questions, answered separately: **where** a VM may connect, and **which
+secrets** it may hold when it gets there.
+
+### Where: a whitelist per zone, with escalation
+
+The VM has no direct network. Its only way out is the station, which checks
+each connection's destination against the zone's whitelist of domains.
 
 ```
-VM                                    station (host)                     outside
-agent ──HTTP──▶ 127.0.0.1:8790 ──vsock──▶ outbound proxy ──HTTPS──▶ api.anthropic.com
-   (placeholder key)   (guest agent forward)   1. who: the zone (from the hypervisor)
-                                               2. may it? harar decides (zone, host, path)
-                                               3. swap the placeholder for the real key
-                                               4. audit: zone, host, path, status; never the key
+VM ──HTTPS_PROXY──▶ 127.0.0.1:8790 ──vsock──▶ station ──▶ registry.npmjs.org
+     (CONNECT host:443)  (guest agent forward)   1. who: the zone, from the hypervisor
+                                                 2. host on the zone's whitelist? else refuse
+                                                 3. connect; the TLS stays end to end
+                                                 4. audit: zone, host, bytes
 ```
 
-- **No TLS interception.** The agent speaks plain HTTP to its own end of the
-  tunnel, on loopback inside the VM, and the station makes the HTTPS call. SDKs
-  already take a base URL (`ANTHROPIC_BASE_URL`, `baseURL`), so the agent is
-  configured with `http://127.0.0.1:8790/anthropic` and a placeholder key.
+- **No TLS interception.** The station reads only the domain the connection
+  asks for (`CONNECT` host, checked against the TLS server name) and then
+  passes bytes. Filtering by IP can't do this: shared CDNs put unrelated
+  domains on one address.
 - **The tunnel.** The guest agent gets a `forward` mode: it listens on a
   loopback port in the VM and carries each connection to a host vsock port.
   The hypervisor names the VM on the host side, so the station knows which
-  zone is calling without trusting anything the VM says. (`vz` already relays
-  guest-to-host vsock ports for the hook relay; Firecracker does the same over
-  its vsock socket.)
-- **Routes, not a general proxy.** The station serves named routes
-  (`/anthropic`, `/openai`, `/github`), each with one upstream host and one
-  credential kind. Anything else is refused. A route's credential comes from
-  harar: on a laptop the personal vault, on a station a token the primary
-  issues for that zone.
-- **Subscriptions too.** Claude Code and Codex accept a base URL and a token,
-  so a CLI agent in a VM can use a subscription the same way: the station adds
-  the real token, and `gild vm login`'s copying of a token into the VM is gone
-  for good.
-- **Audit.** One line per call (zone, route, method, path, status, bytes),
-  into harar's audit trail once the primary records decisions (harar M4).
+  zone is calling without trusting anything the VM says.
+- **Escalation.** When an agent hits a wall, it asks for the domain
+  (`allow registry.npmjs.org for this zone`, with its reason). The request
+  goes to harar as an approval (`egress.allow`); a person approves it on their
+  device, and the domain joins that zone's whitelist. Until approvals land in
+  harar's primary (harar#45), the whitelist is a file the station reads.
+- **Defaults.** A new zone's whitelist holds only what its routes need (below).
+
+### Which secrets: three kinds
+
+| Kind | Example | How the VM gets it |
+|---|---|---|
+| **Long-lived, no narrow form** | an Anthropic API key, a Claude subscription token (`claude setup-token`, a year) | **Never.** The VM calls a station route (`http://127.0.0.1:8790/anthropic`) with a placeholder; the station adds the real one and makes the HTTPS call. |
+| **Short-lived and narrow** | a GitHub App token for one repo for an hour; a harar token for an Addis app | **Handed to the VM.** A leak is bounded to that repo or app and that hour. |
+| **None** | public package registries | Only the whitelist. |
+
+- Station routes are named (`/anthropic`, later `/openai`), each with one
+  upstream and one credential kind; there is no general credential proxy.
+- A route's credential comes from harar: on a laptop the personal vault (read
+  with the usual Touch ID approval per terminal), on a server a token the
+  primary issues for that zone.
+- mirab's own runtime uses an API key (`anthropic/api-key`); Claude Code in a
+  VM uses a subscription token (`anthropic/claude-code`), since that token is
+  meant for Claude Code itself.
+- Audit: one line per call or connection (zone, route or host, status, bytes),
+  never a credential.
 
 ## 6. Security, in one place
 
 - Nothing listens for the outside world on a station; channels and tunnels
   dial out.
-- No credential ever enters a VM. The station adds them per call, per route.
+- No long-lived credential ever enters a VM. The station adds those per call,
+  per route; a VM holds only short-lived, narrow tokens.
+- A VM reaches only the domains on its zone's whitelist, and new ones need a
+  person's approval.
 - The VM's own network is off unless a policy allows it, and it never reaches
   the LAN, the host or another VM (`docs/VM.md`).
 - An agent's powers are its harar grants. Channels carry messages, never
@@ -141,14 +160,20 @@ agent ──HTTP──▶ 127.0.0.1:8790 ──vsock──▶ outbound proxy ─
 | VMs: `vz` (Apple silicon and Intel), Firecracker, containers, host user | Built (from gild); Intel `vz` proven on the iMac (#4) |
 | Guest agent (Rust, vsock) and guest image | Built (from gild) |
 | `mirab spawn` with the Claude and Codex adapters | Built (from gild); `--as`/`--channel` wait for #2 |
-| `mirab init`, the agent runtime in the VM, `mirab dev` | Next |
-| The outbound proxy (section 5) | Next, after review |
+| `mirab init` | Built (#9) |
+| The agent runtime (load a folder, run turns with tools) | Built (#11); started inside the VM with `mirab dev` |
+| `mirab dev` | Next |
+| The way out of a VM: whitelist, routes (section 5) | Next |
+| Escalation as harar approvals | After harar#45 |
 | Station as a harar broker, `station install`, `up` | Phase 2 (needs harar's approvals and broker protocol) |
 | Channels to apps | Phase 3 (needs harar's apps and channels) |
 
-## 8. Open questions
+## 8. Decided, and open
 
-1. The proxy's route list for v1: Anthropic and GitHub only, or OpenAI too?
-2. Where a laptop's model key lives: a harar personal-vault entry
-   (`anthropic/api-key`) read with the usual Touch ID approval per terminal,
-   or a subscription token from `claude setup-token` stored the same way.
+- Decided (Sami, 24 Oct): a whitelist of domains per zone, with escalation;
+  the station adds only long-lived keys that have no narrow form.
+- v1: the Anthropic route and the whitelist; GitHub through short-lived GitHub
+  App tokens. OpenAI follows.
+- Open: whether a laptop keeps both an API key (mirab's runtime) and a
+  subscription token (Claude Code in a VM) in the personal vault, or only one.
+  Both is the recommendation.
