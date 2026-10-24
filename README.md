@@ -71,6 +71,29 @@ station as its API. The station swaps in your token on the way to
 telemetry and updates are off, and anything else it tries goes through the
 station's whitelist and audit log. One person's token, on their own machine.
 
+## Keys for any service
+
+Your project's `.env` holds only references (`harar import .env` writes
+them): `STRIPE_KEY=harar://prod/shop/STRIPE_KEY`. In `station.json`, give
+each secret the hosts it may go to:
+
+```json
+"secrets": {
+  "prod/shop/STRIPE_KEY": { "hosts": ["api.stripe.com"] },
+  "personal/github/TOKEN": { "hosts": ["github.com", "api.github.com"] }
+}
+```
+
+In the VM, `STRIPE_KEY` is a placeholder, new every session. Programs run
+unchanged (`curl`, `git`, `gh`, SDKs), with the station as their proxy. The
+VM trusts the station's own certificate authority (its key stays in
+`~/.config/mirab/station-ca`). For those hosts only, the station opens the
+request, swaps the placeholder in its headers for the real value from harar,
+and sends it on over its own TLS, checking the host's real certificate. A
+placeholder sent to any other host is refused. Bodies and URLs are never
+rewritten, and every other host stays a sealed tunnel. The model never sees a
+key, because the agent never has one.
+
 ## Try it
 
 ```sh

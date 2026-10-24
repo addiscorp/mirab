@@ -4,6 +4,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { secretsSchema } from './secrets'
 
 export const stationConfigSchema = z.strictObject({
   harar: z.strictObject({
@@ -25,6 +26,9 @@ export const stationConfigSchema = z.strictObject({
       })
       .optional(),
   }),
+  /** Keys for any service: each harar secret a project's .env may name, and
+   *  the hosts it may go to. The VM gets placeholders; the station swaps them. */
+  secrets: secretsSchema.optional(),
 })
 export type StationConfig = z.infer<typeof stationConfigSchema>
 

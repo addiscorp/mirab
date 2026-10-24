@@ -8,14 +8,9 @@
 // Anything else is refused. One audit line per connection, never a key.
 import { appendFileSync } from 'node:fs'
 import { lookup } from 'node:dns/promises'
-import {
-  BlockList,
-  connect,
-  createServer,
-  isIP,
-  type Server,
-  type Socket,
-} from 'node:net'
+import { connect, createServer, type Server, type Socket } from 'node:net'
+import { allowed, isPublic } from './hosts'
+import type { Intercept } from './intercept'
 
 /** Ports a whitelisted domain may be reached on. */
 const TLS_PORT = 443
@@ -87,86 +82,14 @@ export interface EgressOptions {
   dial?: (address: string, port: number) => Socket
   /** How a whitelisted name is resolved; tests give fixed addresses. */
   resolve?: (host: string) => Promise<string[]>
+  /** Hosts the station opens to swap placeholders for keys (intercept.ts);
+   *  every other host stays a sealed tunnel. */
+  intercept?: Intercept
 }
 
-/** Whether `host` is on the whitelist: an exact match, or under a `*.` entry. */
-export function allowed(host: string, allow: string[]): boolean {
-  const h = host.toLowerCase().replace(/\.$/, '')
-  return allow.some((entry) => {
-    const e = entry.toLowerCase()
-    return e.startsWith('*.')
-      ? h.endsWith(e.slice(1)) && h.length > e.length - 1
-      : h === e
-  })
-}
+export { allowed, isPublic }
 
-/** Addresses a whitelisted name must never lead to: the host itself, the LAN,
- *  link-local (cloud metadata), carrier-grade NAT (Tailscale), documentation,
- *  multicast, and IPv6 forms that carry an IPv4 address or a tunnel. */
-const NOT_PUBLIC_V4 = new BlockList()
-for (const [net, bits] of [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
-  ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
-  ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
-  ['192.0.2.0', 24],
-  ['192.88.99.0', 24],
-  ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
-  ['198.51.100.0', 24],
-  ['203.0.113.0', 24],
-  ['224.0.0.0', 4],
-  ['240.0.0.0', 4],
-] as const)
-  NOT_PUBLIC_V4.addSubnet(net, bits, 'ipv4')
-const NOT_PUBLIC_V6 = new BlockList()
-for (const [net, bits] of [
-  ['::', 96], // unspecified, loopback and IPv4-compatible
-  ['64:ff9b::', 96], // NAT64
-  ['64:ff9b:1::', 48],
-  ['100::', 64], // discard
-  ['2001::', 23], // IETF protocol assignments: Teredo, benchmarking, ORCHID, AMT, AS112
-  ['100:0:0:1::', 64], // dummy prefix
-  ['2620:4f:8000::', 48], // AS112
-  ['2001:db8::', 32], // documentation
-  ['2002::', 16], // 6to4
-  ['::ffff:0:0:0', 96], // SIIT: IPv4 translated
-  ['3fff::', 20], // documentation
-  ['5f00::', 16], // segment routing
-  ['fc00::', 7], // unique local
-  ['fe80::', 10], // link-local
-  ['fec0::', 10], // site-local
-  ['ff00::', 8], // multicast
-] as const)
-  NOT_PUBLIC_V6.addSubnet(net, bits, 'ipv6')
-
-/** Whether `address` is on the public internet. Each family has its own list,
- *  and IPv6 is judged in its canonical form, however it was written. */
-export function isPublic(address: string): boolean {
-  const family = isIP(address)
-  if (family === 4) return !NOT_PUBLIC_V4.check(address, 'ipv4')
-  // A zone id (fe80::1%en0) is never a public address.
-  if (family !== 6 || address.includes('%')) return false
-  let canonical: string
-  try {
-    canonical = new URL(`http://[${address}]`).hostname.slice(1, -1)
-  } catch {
-    return false
-  }
-  // An IPv4 address written as IPv6 (::ffff:a.b.c.d) is judged as IPv4.
-  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(canonical)
-  if (mapped) {
-    const hi = parseInt(mapped[1], 16)
-    const lo = parseInt(mapped[2], 16)
-    return isPublic(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
-  }
-  return !NOT_PUBLIC_V6.check(canonical, 'ipv6')
-}
-
-async function lookupAll(host: string): Promise<string[]> {
+export async function lookupAll(host: string): Promise<string[]> {
   return (await lookup(host, { all: true, verbatim: true })).map(
     (a) => a.address,
   )
@@ -384,7 +307,8 @@ function finishSocket(socket: Socket, data?: string) {
 }
 
 /** Starts serving one VM's way out. Close the returned server to stop. */
-export async function startEgress(options: EgressOptions): Promise<Server> {
+/** Writes the station's audit lines for one zone: JSON, fields clipped, never a key. */
+export function auditor(zone: string, auditLog: string) {
   const clip = (value: unknown) =>
     typeof value === 'string' && value.length > AUDIT_FIELD
       ? value.slice(0, AUDIT_FIELD) + '…'
@@ -392,18 +316,23 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
   const audit = (entry: Record<string, unknown>) => {
     const line = JSON.stringify({
       at: new Date().toISOString(),
-      zone: options.zone,
+      zone,
       ...Object.fromEntries(
         Object.entries(entry).map(([k, v]) => [k, clip(v)]),
       ),
     })
     // Synchronous so lines stay in order; each is small (fields are clipped).
     try {
-      appendFileSync(options.auditLog, line + '\n', { mode: 0o600 })
+      appendFileSync(auditLog, line + '\n', { mode: 0o600 })
     } catch {
       /* The audit log is the station's own; a failure must not open anything. */
     }
   }
+  return audit
+}
+
+export async function startEgress(options: EgressOptions): Promise<Server> {
+  const audit = auditor(options.zone, options.auditLog)
   // Each route's credential, kept for CREDENTIAL_TTL_MS so a rotated key is
   // picked up; a failure is kept briefly so a VM can't hammer the vault.
   const credentials = new Map<
@@ -452,7 +381,9 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
     const port = Number(target[2])
     const entry = { kind: 'connect', host }
     if (port !== TLS_PORT) return refuse(socket, 403, 'only port 443', entry)
-    if (!allowed(host, options.allow))
+    // A host the station holds keys for is reachable as if whitelisted.
+    const opened = options.intercept?.handles(host) ?? false
+    if (!opened && !allowed(host, options.allow))
       return refuse(socket, 403, 'not on the whitelist; ask for it', entry)
     // From here the tunnel owns the socket: whatever happens, done() runs once.
     let upstream: Socket | undefined
@@ -490,6 +421,13 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
       return done(
         `TLS server name ${name ?? 'missing or ambiguous'} isn't the host`,
       )
+    // A host the station opens: its own TLS server takes the connection from
+    // here, and each request is audited there.
+    if (opened) {
+      finished = true
+      audit({ ...entry, result: 'opened by the station' })
+      return options.intercept!.open(socket, hello)
+    }
     // While the tunnel is set up, the VM's socket keeps flowing into `held`:
     // a paused socket doesn't report the VM leaving on every platform (not on
     // Linux), and a TLS client never half-closes before its handshake is done.

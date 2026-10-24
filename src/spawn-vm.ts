@@ -15,9 +15,9 @@ import {
   type VmConfig,
 } from './isolation'
 import { privateSessionsDirectory, socketPath } from './spawn-sessions'
-import { EGRESS_HOST_PORT } from './isolation/vz'
 import type { StationConfig } from './station/config'
-import { startEgress } from './station/egress'
+import type { Upstream } from './station/intercept'
+import { vmStation, type VmStation } from './station/vm'
 import { claudeRoute, withClaudeRoute } from './station/routes'
 import {
   describeSync,
@@ -203,6 +203,8 @@ export async function startVmChild(opts: {
     auditLog: string
     /** Where the claude route goes; tests point it at a stand-in. */
     upstream?: string
+    /** Where the hosts the station opens are; tests point them at a stand-in. */
+    opened?: (host: string) => Promise<Upstream>
   }
 }): Promise<VmChild> {
   const vm = await requireVm(opts.configDir, opts.log)
@@ -276,28 +278,35 @@ export async function startVmChild(opts: {
       basename(opts.binary)
     const args: string[] = []
     for (const a of opts.args) args.push((await upload(a, false)) ?? a)
-    // Claude Code runs on the person's own subscription through the station:
-    // the VM holds a placeholder, the station adds the token from harar.
-    // Any program named claude gets the route; whatever it is, it holds only
-    // the placeholder and can reach only api.anthropic.com/v1/messages.
+    // The station is the VM's way out: Claude Code on the person's own
+    // subscription (the VM holds a placeholder, the station adds the token from
+    // harar), and the keys the project's .env names, as placeholders the
+    // station swaps on their own hosts. Any program named claude gets the
+    // route; whatever it is, it can reach only api.anthropic.com/v1/messages.
     let env = opts.env
-    const claude =
-      basename(opts.binary) === 'claude' && opts.station
+    let station: VmStation | undefined
+    const isClaude = basename(opts.binary) === 'claude'
+    if (opts.station) {
+      const claude = isClaude
         ? claudeRoute(opts.station.config, opts.station.upstream)
         : undefined
-    if (claude) {
-      await iso.onGuestConnect!(EGRESS_HOST_PORT, (socketPath) =>
-        startEgress({
-          socketPath,
-          // No harar identity for spawn sessions yet (#2): named by session.
-          zone: `vm-${opts.sessionId}`,
-          allow: [],
-          routes: { claude },
-          auditLog: opts.station!.auditLog,
-        }),
-      )
-      env = withClaudeRoute(env)
-    } else if (basename(opts.binary) === 'claude')
+      station = await vmStation({
+        project: opts.cwd,
+        station: opts.station.config,
+        configDir: opts.configDir,
+        // No harar identity for spawn sessions yet (#2): named by session.
+        zone: `vm-${opts.sessionId}`,
+        auditLog: opts.station.auditLog,
+        routes: claude ? { claude } : {},
+        allow: [],
+        upstream: opts.station.opened,
+      })
+      for (const note of station.notes) opts.log?.(note)
+      await station.attach(iso)
+      env = { ...env, ...station.env }
+      if (claude) env = withClaudeRoute(env)
+    }
+    if (isClaude && !opts.station?.config.models.claude)
       opts.log?.(
         'Claude Code in the VM has no login: add models.claude.token to station.json (the harar secret from `claude setup-token`)',
       )
@@ -332,6 +341,7 @@ export async function startVmChild(opts: {
     let disposed: Promise<SyncResult | undefined> | undefined
     let recovery: RecoveryLocation | undefined
     const dispose = async () => {
+      await station?.close()
       try {
         const result = await finishVmSync(sync, iso, vmDir, opts.log)
         recovery = result.recovery
