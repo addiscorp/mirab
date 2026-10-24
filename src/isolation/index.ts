@@ -410,7 +410,7 @@ export function statusLines(
   return lines
 }
 
-/** `mirab runner start` calls this once: a runner that cannot isolate does not start. */
+/** Called once before a session starts: one that cannot isolate does not start. */
 export function assertCanIsolate(
   host: HostConfig,
   flag?: Level,

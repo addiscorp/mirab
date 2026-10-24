@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { realAgent, agentEnvironment } from './spawn-binary'
 import { profileSchema, resolveProfile } from './agent-profiles'
-import { ensureVm, usesMultipass } from './isolation/multipass'
+import { MULTIPASS_UNAVAILABLE, usesMultipass } from './isolation/multipass'
 import { parseNudge } from './spawn-nudge'
 import type { ReportTarget } from './spawn-report'
 import type { BridgeTarget } from './spawn-bridge'
@@ -156,6 +156,12 @@ export function spawnCommands(
             channels: opts.channel,
           })
         }
+        // Without an identity provider (mirab#2), an identity or a channel
+        // would be silently ignored; say so instead.
+        if (!resolveIdentity && (opts.as || profile?.channels?.length))
+          throw Error(
+            '--as and --channel need an agent identity, which mirab gets from harar (addiscorp/mirab#2); run without them for now',
+          )
         agent = profile?.runtime ?? agent
         args = resolved?.args ?? args
         const cwd = profile?.directory ?? process.cwd()
@@ -177,13 +183,10 @@ export function spawnCommands(
         // First --vm use: fetch the published guest image here, where the
         // terminal shows its progress; the worker then finds it installed.
         if (opts.vm && usesMultipass(opts.configDir)) {
-          // macOS and Windows: Multipass. Making the VM the first time shows here.
-          await ensureVm((line) => console.error(`mirab: ${line}`)).catch(
-            (e) => {
-              throw Error(
-                `--vm: ${(e as Error).message}. It never falls back to running on the host`,
-              )
-            },
+          // macOS and Windows: Multipass, once mirab is on npm for its VM to
+          // install. Until then it refuses here, before making anything.
+          throw Error(
+            `--vm: ${MULTIPASS_UNAVAILABLE}. It never falls back to running on the host`,
           )
         } else if (opts.vm) {
           const { vmUnavailable } = await prepareVm(opts.configDir, {

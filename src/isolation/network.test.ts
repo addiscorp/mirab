@@ -74,9 +74,9 @@ test('a slot held by a dead process is taken over', () => {
 test('guest addressing the init script consumes', () => {
   const n = guestNetwork(3)
   expect(bootNetArgs(n)).toBe(
-    'mirab.ip=172.31.255.13/24 mirab.gw=172.31.255.1 mirab.dns=1.1.1.1',
+    'mirab.ip=172.31.250.13/24 mirab.gw=172.31.250.1 mirab.dns=1.1.1.1',
   )
-  expect(n.mac).toBe('06:00:ac:1f:ff:0d')
+  expect(n.mac).toBe('06:00:ac:1f:fa:0d')
 })
 
 test('container network follows the same rule', () => {

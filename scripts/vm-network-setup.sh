@@ -5,10 +5,10 @@
 #
 #   sudo scripts/vm-network-setup.sh [up|down] [--slots N] [--persist]
 #
-# Creates: bridge mirabbr0 (172.31.255.1/24) with N tap devices mirabtap0..N-1
+# Creates: bridge mirabbr0 (172.31.250.1/24) with N tap devices mirabtap0..N-1
 # owned by $SUDO_USER (isolated from each other), a docker network
-# mirab-egress on bridge mirabbr1 (172.31.254.0/24) when docker is installed, and
-# the nftables table `inet mirab_vm`. The old `inet mirab` table is not touched.
+# mirab-egress on bridge mirabbr1 (172.31.249.0/24) when docker is installed, and
+# the nftables table `inet mirab_vm`. The old `inet gild` table is not touched.
 set -eu
 
 action=up slots=16 persist=0 print_unit=0
@@ -100,7 +100,7 @@ table inet mirab_vm {
 RULES
 
 ip link show mirabbr0 >/dev/null 2>&1 || ip link add mirabbr0 type bridge
-ip addr replace 172.31.255.1/24 dev mirabbr0
+ip addr replace 172.31.250.1/24 dev mirabbr0
 ip link set mirabbr0 up
 
 i=0
@@ -114,7 +114,7 @@ while [ $i -lt "$slots" ]; do
 done
 
 if command -v docker >/dev/null 2>&1 && ! docker network inspect mirab-egress >/dev/null 2>&1; then
-  docker network create --driver bridge --subnet 172.31.254.0/24 \
+  docker network create --driver bridge --subnet 172.31.249.0/24 \
     -o com.docker.network.bridge.name=mirabbr1 \
     -o com.docker.network.bridge.enable_icc=false mirab-egress >/dev/null
 fi

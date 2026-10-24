@@ -32,7 +32,8 @@ export function usesMultipass(
   }
 }
 
-/** Where `mirab vm login claude` keeps the Claude Code token (0600, this machine only). */
+/** Where a Claude Code token for a Multipass VM would be kept (0600). mirab
+ *  never copies one into a VM: the station adds the key on the way out. */
 export const claudeTokenPath = (configDir: string) =>
   join(configDir, 'vm', 'claude.token')
 
@@ -197,6 +198,12 @@ function step(label: string, args: string[], log: (line: string) => void) {
     })
   })
 }
+
+/** Why mirab can't use Multipass yet: the VM installs the CLI from npm, and
+ *  mirab isn't published there. On macOS the `vz` backend works instead. */
+export const MULTIPASS_UNAVAILABLE =
+  "mirab can't set up a Multipass VM yet: the VM installs mirab from npm, where it isn't published. " +
+  'On macOS, use the vz backend: build the guest with scripts/build-vm-guest.sh and the helper with scripts/build-vz-helper.sh, then set "vm" in isolation.json (docs/VM.md).'
 
 /** Make or start the `mirab` VM, showing each step. */
 export async function ensureVm(log: (line: string) => void = () => {}) {
@@ -382,7 +389,8 @@ export async function startMultipassChild(opts: {
 
   const program = guestProgram(opts.binary, opts.cwd)
   if (basename(opts.binary) === 'claude') {
-    // Claude Code signs in with a token made once by `mirab vm login claude`.
+    // gild copied a Claude Code token into the VM; mirab won't (the station
+    // adds the key on the way out), so this path refuses until then.
     const token =
       process.env.CLAUDE_CODE_OAUTH_TOKEN ??
       (
@@ -390,7 +398,7 @@ export async function startMultipassChild(opts: {
       ).trim()
     if (!token)
       throw new Error(
-        'Claude Code needs signing in for the VM. Run `mirab vm login claude` once, then run this again',
+        'Claude Code in a Multipass VM needs its token copied into the VM, which mirab does not do; use the vz backend',
       )
     put(`${HOME}/.config/mirab/vm/claude.token`, token, '600')
     // A fresh Claude Code asks first-run questions and whether to trust the folder; nobody is there to answer.

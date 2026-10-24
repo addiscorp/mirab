@@ -73,7 +73,7 @@ describe.skipIf(!ready)('filtered network, live', () => {
     ...hostIps.map(
       (ip) => [`host IP ${ip}:${PORT}`, tcp(ip, PORT), false] as const,
     ),
-    [`bridge gateway 172.31.255.1:${PORT}`, tcp('172.31.255.1', PORT), false],
+    [`bridge gateway 172.31.250.1:${PORT}`, tcp('172.31.250.1', PORT), false],
     ['LAN host 192.168.1.254:80', tcp('192.168.1.254', 80), false],
     ['LAN host 192.168.1.29:80', tcp('192.168.1.29', 80), false],
     ['tailnet 100.100.100.100:80', tcp('100.100.100.100', 80), false],

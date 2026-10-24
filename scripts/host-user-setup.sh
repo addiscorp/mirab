@@ -6,7 +6,7 @@
 #   sudo scripts/host-user-setup.sh <user> <owner> --agent <mirab-guest-agent> [--dry-run] [--os linux|macos]
 #
 #   <user>   the dedicated account to create, e.g. mirab-runner or mirab-agent-ava
-#   <owner>  the login that runs `mirab runner` / `mirab spawn` (it joins <user>'s group)
+#   <owner>  the login that runs `mirab spawn` (it joins <user>'s group)
 #   --agent  a mirab-guest-agent build for THIS OS (copied to a root-owned path)
 #   --dry-run  print every command instead of running it (no root needed)
 #

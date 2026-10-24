@@ -8,19 +8,15 @@ Which VM `--vm` uses:
 
 | host | backend |
 |---|---|
-| Linux x64 | Firecracker (shipped with mirab, below) |
-| macOS, Windows | Multipass: one Ubuntu VM, made on first use and kept |
+| Linux x64 | Firecracker (on `PATH`, below) |
+| macOS, Windows | Multipass: not yet in mirab (its VM installs mirab from npm, where mirab isn't published); `--vm` refuses with that reason |
 | macOS with a `vm` block in `<config dir>/isolation.json` | Virtualization.framework (`vz`), the guest image below |
 
-## Firecracker ships with mirab (Linux x64)
+## Firecracker (Linux x64)
 
-`@gildforge/cli-linux-x64`, the package npm installs for `gildforge` on Linux
-x64, carries `bin/firecracker` next to `bin/mirab`: Firecracker v1.17.0
-(Apache-2.0; its `LICENSE`, `NOTICE` and `THIRD-PARTY` are in
-`vendor/firecracker/`). `scripts/vendor-firecracker.mjs` takes it from the
-upstream release tarball when the packages are built, and refuses it unless
-the tarball matches both the pin in `scripts/firecracker.json` and the sha256
-Firecracker publishes beside it.
+gild shipped Firecracker inside its npm platform package. mirab has no npm
+package yet, so install Firecracker v1.17.0 yourself (`scripts/firecracker.json`
+pins the version and sha256 gild used).
 
 mirab runs, in this order: `vm.firecracker` from `isolation.json`, the
 `firecracker` next to the mirab executable, then `firecracker` on `PATH`. The
@@ -70,9 +66,12 @@ binaries, built by `.github/workflows/release.yml` on GitHub's hosted runners:
 | `darwin-arm64` (vz) | `Image`, `rootfs.ext4`, `mirab-vz` | `ubuntu-24.04-arm`: `scripts/build-vm-guest.sh`; `macos-15`: `scripts/build-vz-helper.sh` (ad hoc signed) |
 
 ```
-releases.gild.gg/cli/v<version>/vm/manifest.json         version, guest protocol, commit, sha256 of every file
-releases.gild.gg/cli/v<version>/vm/<platform>/<name>.gz
+<releases>/cli/v<version>/vm/manifest.json         version, guest protocol, commit, sha256 of every file
+<releases>/cli/v<version>/vm/<platform>/<name>.gz
 ```
+
+mirab doesn't publish images yet (`<releases>` is still gild's, whose images
+use gild's names), so build the guest locally with the recipe below.
 
 On first VM use (`--vm`, `--isolation vm`, a job or host default asking for
 `vm`) mirab downloads the image for its own version and platform into

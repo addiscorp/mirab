@@ -578,7 +578,7 @@ mod tests {
             let data: Vec<u8> = (0..len).map(|i| (i * 37 + 11) as u8).collect();
             assert_eq!(b64_decode(&b64_encode(&data)).unwrap(), data);
         }
-        assert_eq!(b64_encode(b"mirab"), "Z2lsZA==");
+        assert_eq!(b64_encode(b"mirab"), "bWlyYWI=");
         assert!(b64_decode("a$b").is_err());
     }
 

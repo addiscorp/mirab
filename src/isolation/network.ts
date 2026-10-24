@@ -17,7 +17,9 @@ import { join } from 'node:path'
 
 export const BRIDGE = 'mirabbr0'
 export const SETUP_COMMAND = 'sudo scripts/vm-network-setup.sh'
-const PREFIX = '172.31.255'
+// Not gild's 172.31.255/24 (or its docker network's 172.31.254/24): both can
+// run on one host.
+const PREFIX = '172.31.250'
 
 export interface NetworkState {
   ready: boolean
@@ -60,7 +62,7 @@ export function guestNetwork(slot: number) {
   const hex = (n: number) => n.toString(16).padStart(2, '0')
   return {
     tap: `mirabtap${slot}`,
-    mac: `06:00:ac:1f:ff:${hex(10 + slot)}`,
+    mac: `06:00:ac:1f:fa:${hex(10 + slot)}`,
     ip: `${PREFIX}.${10 + slot}`,
     cidr: 24,
     gateway: `${PREFIX}.1`,

@@ -21,6 +21,10 @@ bun install
 bun run src/mirab.ts --help
 ```
 
+Run it from source for now: a compiled `bun run build` binary can't start
+agents yet, because it needs the PTY module and Firecracker beside it, which
+mirab's packaging will put there.
+
 ## License
 
 [Apache-2.0](LICENSE)

@@ -1,7 +1,8 @@
 // The published microVM guest image: built by the release workflow for each
-// VM platform, uploaded next to the CLI binaries on releases.gild.gg, and
-// fetched here on first VM use into <config dir>/vm/, so `mirab spawn --vm` and
-// `mirab runner start --isolation vm` work right after `npm i -g gildforge`.
+// VM platform, uploaded next to the CLI binaries, and fetched here on first VM
+// use into <config dir>/vm/, so `mirab spawn --vm` works without building
+// anything. mirab doesn't publish images yet: RELEASES is still gild's, whose
+// images use gild's names, so build the guest locally (docs/VM.md).
 //
 // Layout of one release (scripts/vm-release.ts writes it):
 //   cli/v<version>/vm/manifest.json            VmManifest (sha256 of every file)

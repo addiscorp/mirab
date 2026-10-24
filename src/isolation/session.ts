@@ -9,8 +9,8 @@ export const GUEST_PROTOCOL: number = shared.protocol
 /** Where the guest image is rebuilt from; printed with every mismatch. */
 export const REBUILD_HINT =
   process.platform === 'darwin'
-    ? 'Rebuild the guest image from a gildforge/cli checkout at this mirab version: `scripts/build-vm-guest.sh <dir>` (docs/VM.md)'
-    : 'Rebuild the guest image from a gildforge/cli checkout at this mirab version: `bun run vm:image` (docs/VM.md)'
+    ? 'Rebuild the guest image from a mirab checkout at this version: `scripts/build-vm-guest.sh <dir>` (docs/VM.md)'
+    : 'Rebuild the guest image from a mirab checkout at this version: `bun run vm:image` (docs/VM.md)'
 
 export interface Channel {
   write(data: Uint8Array): void
