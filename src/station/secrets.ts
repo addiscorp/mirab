@@ -30,6 +30,7 @@ export type Secrets = z.infer<typeof secretsSchema>
 
 /** Every placeholder looks like this, so the station can find them in a header. */
 export const PLACEHOLDER = /mirab-ph-[0-9a-f]{24}/g
+const HAS_PLACEHOLDER = /mirab-ph-[0-9a-f]{24}/
 
 /** One VM session's placeholders: a fresh one per secret, kept only in the station. */
 export class Placeholders {
@@ -72,7 +73,14 @@ export function referencesIn(text: string): Map<string, string> {
 }
 
 export type Swap =
-  | { ok: true; headers: string[]; used: string[] }
+  | {
+      ok: true
+      headers: string[]
+      used: string[]
+      /** Each real text the swap put in, and the placeholder text it replaced:
+       *  for taking a value back out of anything the host sends back. */
+      revealed: [real: string, placeholder: string][]
+    }
   | { ok: false; reason: string }
 
 /** Header names the station never passes on. */
@@ -92,6 +100,7 @@ export async function swapHeaders(
   value: (secret: string) => Promise<string>,
 ): Promise<Swap> {
   const used = new Set<string>()
+  const revealed: [string, string][] = []
   const swapIn = async (text: string): Promise<string | { reason: string }> => {
     let out = text
     for (const token of new Set(text.match(PLACEHOLDER) ?? [])) {
@@ -105,6 +114,7 @@ export async function swapHeaders(
       if (/[\r\n\0]/.test(real)) return { reason: `${secret} isn't one line` }
       out = out.split(token).join(real)
       used.add(secret)
+      revealed.push([real, token])
     }
     return out
   }
@@ -114,11 +124,17 @@ export async function swapHeaders(
     let text = rawHeaders[i + 1]
     if (DROP.has(name.toLowerCase())) continue
     const basic = /^(basic\s+)([A-Za-z0-9+/=]+)$/i.exec(text)
-    if (basic) {
-      const decoded = Buffer.from(basic[2], 'base64').toString('utf8')
+    const decoded = basic
+      ? Buffer.from(basic[2], 'base64').toString('utf8')
+      : undefined
+    // Basic credentials are touched only when they hold a placeholder, so any
+    // other (even binary) credential passes exactly as sent.
+    if (basic && decoded !== undefined && HAS_PLACEHOLDER.test(decoded)) {
       const swapped = await swapIn(decoded)
       if (typeof swapped !== 'string') return { ok: false, ...swapped }
-      text = basic[1] + Buffer.from(swapped, 'utf8').toString('base64')
+      const encoded = Buffer.from(swapped, 'utf8').toString('base64')
+      revealed.push([encoded, basic[2]])
+      text = basic[1] + encoded
     } else {
       const swapped = await swapIn(text)
       if (typeof swapped !== 'string') return { ok: false, ...swapped }
@@ -126,5 +142,5 @@ export async function swapHeaders(
     }
     headers.push(name, text)
   }
-  return { ok: true, headers, used: [...used] }
+  return { ok: true, headers, used: [...used], revealed }
 }

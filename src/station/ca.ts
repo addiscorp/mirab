@@ -3,7 +3,7 @@
 // can read a request to such a host and swap a placeholder for the real key.
 // Its private key stays in the config directory (0600) and never enters a VM;
 // every other host stays a sealed tunnel.
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import * as x509 from '@peculiar/x509'
 
@@ -71,8 +71,15 @@ export async function stationAuthority(dir: string): Promise<StationAuthority> {
     })
     caKey = keys.privateKey
     await mkdir(dir, { recursive: true, mode: 0o700 })
-    await writeFile(keyPath, await pemKey(keys.privateKey), { mode: 0o600 })
-    await writeFile(certPath, caCert.toString('pem'), { mode: 0o644 })
+    // Written aside and moved into place, the certificate last: a half-made
+    // authority is never loaded, and two first runs can't mix their halves.
+    const tag = `.${process.pid}.${Date.now()}`
+    await writeFile(keyPath + tag, await pemKey(keys.privateKey), {
+      mode: 0o600,
+    })
+    await writeFile(certPath + tag, caCert.toString('pem'), { mode: 0o644 })
+    await rename(keyPath + tag, keyPath)
+    await rename(certPath + tag, certPath)
   }
   return {
     cert: caCert.toString('pem'),

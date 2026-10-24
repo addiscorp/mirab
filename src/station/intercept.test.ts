@@ -14,10 +14,12 @@ import { Placeholders, referencesIn, swapHeaders } from './secrets'
 const SECRETS = {
   'prod/shop/STRIPE_KEY': { hosts: ['api.stripe.test'] },
   'personal/github/TOKEN': { hosts: ['github.test', '*.github.test'] },
+  'prod/odd/KEY': { hosts: ['api.stripe.test'] },
 }
 const REAL: Record<string, string> = {
   'prod/shop/STRIPE_KEY': 'sk_live_REAL',
   'personal/github/TOKEN': 'ghp_REAL',
+  'prod/odd/KEY': 'sk_\u00e9_not_latin1',
 }
 
 let base: string
@@ -31,6 +33,8 @@ const placeholders = new Placeholders()
 const stripe = () => placeholders.for('prod/shop/STRIPE_KEY')
 const github = () => placeholders.for('personal/github/TOKEN')
 const asked: string[] = []
+const received: Record<string, any>[] = []
+const last = () => received[received.length - 1]
 let stationCA: string
 
 beforeAll(async () => {
@@ -50,17 +54,24 @@ beforeAll(async () => {
     (req, res) => {
       let body = ''
       req.on('data', (c) => (body += c))
-      req.on('end', () =>
-        res.end(
-          JSON.stringify({
-            host: req.headers.host,
-            auth: req.headers.authorization ?? null,
-            stripe: req.headers['x-stripe-key'] ?? null,
-            body,
-            proxy: req.headers['proxy-authorization'] ?? null,
-          }),
-        ),
-      )
+      req.on('end', () => {
+        const got = {
+          host: req.headers.host,
+          hosts: req.rawHeaders.filter(
+            (_, i) => i % 2 === 0 && req.rawHeaders[i].toLowerCase() === 'host',
+          ).length,
+          url: req.url,
+          auth: req.headers.authorization ?? null,
+          stripe: req.headers['x-stripe-key'] ?? null,
+          body,
+          proxy: req.headers['proxy-authorization'] ?? null,
+          encoding: req.headers['accept-encoding'] ?? null,
+        }
+        received.push(got)
+        // A careless host that echoes what it got, in a header and the body.
+        res.setHeader('x-echo', String(got.auth))
+        res.end(JSON.stringify(got))
+      })
     },
   )
   await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', r))
@@ -142,11 +153,15 @@ test('a placeholder becomes the real key, on its own host, and only in the heade
     'https://api.stripe.test/v1/charges',
   ])
   expect(r.code).toBe(0)
-  const got = JSON.parse(r.out)
+  const got = last()
   expect(got.auth).toBe('Bearer sk_live_REAL')
   // A body is never rewritten: a placeholder there stays useless.
   expect(got.body).toBe(`body keeps ${stripe()}`)
   expect(got.proxy).toBeNull()
+  expect(got.hosts).toBe(1)
+  // The host echoed the key back; the VM gets the placeholder instead.
+  expect(r.out).not.toContain('sk_live_REAL')
+  expect(JSON.parse(r.out).auth).toBe(`Bearer ${stripe()}`)
   const audit = await readFile(auditLog, 'utf8')
   expect(audit).toContain('"used":["prod/shop/STRIPE_KEY"]')
   expect(audit).not.toContain('sk_live_REAL')
@@ -180,8 +195,11 @@ test('Basic credentials, as git sends them, are swapped too', async () => {
     `x-access-token:${github()}`,
     'https://github.test/repo.git/info/refs',
   ])
-  expect(JSON.parse(r.out).auth).toBe(
+  expect(last().auth).toBe(
     `Basic ${Buffer.from('x-access-token:ghp_REAL').toString('base64')}`,
+  )
+  expect(r.out).not.toContain(
+    Buffer.from('x-access-token:ghp_REAL').toString('base64'),
   )
 })
 
@@ -198,9 +216,9 @@ test('a chunked upload goes through whole', async () => {
     ],
     'x'.repeat(200_000),
   )
-  const got = JSON.parse(r.out)
-  expect(got.body.length).toBe(200_000)
-  expect(got.stripe).toBe('sk_live_REAL')
+  expect(r.code).toBe(0)
+  expect(last().body.length).toBe(200_000)
+  expect(last().stripe).toBe('sk_live_REAL')
 })
 
 test('the Host header must be the host the tunnel was opened for', async () => {
@@ -324,4 +342,98 @@ test("the station checks the real host's certificate on its own way out", async 
   b.close()
   s.close()
   await inner.close()
+})
+
+test('an echoed key never comes back in a header either', async () => {
+  const r = await curl([
+    '-i',
+    '-H',
+    `Authorization: Bearer ${stripe()}`,
+    'https://api.stripe.test/echo',
+  ])
+  expect(r.out).not.toContain('sk_live_REAL')
+  expect(r.out.toLowerCase()).toContain(`x-echo: bearer ${stripe()}`)
+  // Asked for a body the station can read.
+  expect(last().encoding).toBe('identity')
+})
+
+/** A raw request, as a hostile VM could write it, through the station. */
+async function rawRequest(request: string) {
+  const p = Bun.spawn(
+    [
+      'bun',
+      join(import.meta.dir, 'raw-tls-client.ts'),
+      String(proxyPort),
+      'api.stripe.test',
+      stationCA,
+    ],
+    {
+      stdin: new Blob([request]),
+      stdout: 'pipe',
+    },
+  )
+  const out = await new Response(p.stdout).text()
+  await p.exited
+  return out
+}
+
+test('a second Host header, an absolute URL or TRACE never carries a key', async () => {
+  const before = received.length
+  const auth = `Authorization: Bearer ${stripe()}`
+  const twice = await rawRequest(
+    `GET / HTTP/1.1\nHost: api.stripe.test\nhost: evil.test\n${auth}\nConnection: close\n\n`,
+  )
+  expect(twice).toStartWith('HTTP/1.1 421')
+  const absolute = await rawRequest(
+    `GET https://evil.test/x HTTP/1.1\nHost: api.stripe.test\n${auth}\nConnection: close\n\n`,
+  )
+  expect(absolute).toStartWith('HTTP/1.1 400')
+  const trace = await curl([
+    ...status,
+    '-X',
+    'TRACE',
+    '-H',
+    auth,
+    'https://api.stripe.test/',
+  ])
+  expect(trace.out).toBe('405')
+  expect(received.length).toBe(before)
+})
+
+test('a value outside plain ASCII still gets an answer, never a hung station', async () => {
+  const r = await curl([
+    ...status,
+    '-H',
+    `X-Odd: ${placeholders.for('prod/odd/KEY')}`,
+    'https://api.stripe.test/',
+  ])
+  expect(r.out).toMatch(/^\d{3}$/)
+})
+
+test('Basic credentials without a placeholder pass exactly as sent', async () => {
+  const p = new Placeholders()
+  const binary = Buffer.from([0xff, 0xfe, 0x3a, 0x80]).toString('base64')
+  const r = await swapHeaders(
+    'api.stripe.test',
+    ['authorization', `Basic ${binary}`],
+    p,
+    SECRETS,
+    async () => 'x',
+  )
+  expect(r.ok && r.headers).toEqual(['authorization', `Basic ${binary}`])
+})
+
+test('a key split across body chunks is still taken back out', async () => {
+  const { Redact } = await import('./intercept')
+  const out: Buffer[] = []
+  const t = new Redact([['sk_live_REAL', 'mirab-ph-x']])
+  t.on('data', (c: Buffer) => out.push(c))
+  const ended = new Promise((r) => t.on('end', r))
+  for (const piece of ['{"a":"sk_li', 've_RE', 'AL","b":"sk_live_REAL"}'])
+    t.write(Buffer.from(piece))
+  t.end()
+  await ended
+  expect(Buffer.concat(out).toString()).toBe(
+    '{"a":"mirab-ph-x","b":"mirab-ph-x"}',
+  )
 })

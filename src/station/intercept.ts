@@ -7,7 +7,8 @@
 // with the host's real certificate verified.
 import { mkdtemp, rm } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { Transform } from 'node:stream'
+import type { ClientRequest, IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:https'
 import { connect, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -33,6 +34,71 @@ function withoutHop(raw: string[]): string[] {
   for (let i = 0; i + 1 < raw.length; i += 2)
     if (!HOP.has(raw[i].toLowerCase())) out.push(raw[i], raw[i + 1])
   return out
+}
+
+/** An opened connection with no bytes either way for this long is closed. */
+const IDLE_MS = 5 * 60_000
+/** Time to reach one of a host's addresses. */
+const DIAL_MS = 5_000
+
+/** Whether something answers at address:port (the station dials only checked addresses). */
+function reachable(address: string, port: number): Promise<boolean> {
+  return new Promise((done) => {
+    const s = connect({ host: address, port })
+    s.setTimeout(DIAL_MS, () => (s.destroy(), done(false)))
+    s.once('connect', () => (s.destroy(), done(true)))
+    s.once('error', () => done(false))
+  })
+}
+
+/** `text` with every real value put back to its placeholder. */
+export function redactText(text: string, revealed: [string, string][]): string {
+  let out = text
+  for (const [real, placeholder] of revealed)
+    out = out.split(real).join(placeholder)
+  return out
+}
+
+/** A body stream with every real value put back to its placeholder, also
+ *  when a value is split across chunks. */
+export class Redact extends Transform {
+  private readonly pairs: [Buffer, Buffer][]
+  private readonly keep: number
+  private tail: Buffer = Buffer.alloc(0)
+
+  constructor(revealed: [string, string][]) {
+    super()
+    this.pairs = revealed.map(([r, p]) => [Buffer.from(r), Buffer.from(p)])
+    this.keep = Math.max(0, ...this.pairs.map(([r]) => r.length - 1))
+  }
+
+  private scrub(buffer: Buffer): Buffer {
+    let out = buffer
+    for (const [real, placeholder] of this.pairs) {
+      const parts: Buffer[] = []
+      let at = 0
+      for (let i = out.indexOf(real); i >= 0; i = out.indexOf(real, at)) {
+        parts.push(out.subarray(at, i), placeholder)
+        at = i + real.length
+      }
+      if (at) out = Buffer.concat([...parts, out.subarray(at)])
+    }
+    return out
+  }
+
+  override _transform(chunk: Buffer, _: string, done: () => void) {
+    const all = this.scrub(Buffer.concat([this.tail, chunk]))
+    // The last few bytes wait for the next chunk: they may begin a value.
+    const cut = Math.max(0, all.length - this.keep)
+    this.tail = all.subarray(cut)
+    if (cut) this.push(all.subarray(0, cut))
+    done()
+  }
+
+  override _flush(done: () => void) {
+    if (this.tail.length) this.push(this.scrub(this.tail))
+    done()
+  }
 }
 
 /** How long one request may take, start to finish (a big git push included). */
@@ -73,21 +139,29 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
   const where = async (host: string): Promise<Upstream> => {
     if (o.upstream) return o.upstream(host)
     const addresses = await o.resolve(host)
-    const address = addresses[0]
-    if (!address || !addresses.every(isPublic))
+    if (!addresses.length || !addresses.every(isPublic))
       throw new Error('resolves to an address that is not public')
-    return { address, port: 443 }
+    // Each checked address in turn, until one answers.
+    for (const address of addresses)
+      if (await reachable(address, 443)) return { address, port: 443 }
+    throw new Error('no address answered')
   }
 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
     const host = String(
       (req.socket as { servername?: string }).servername ?? '',
     ).toLowerCase()
-    const path = (req.url ?? '/').split('?')[0]
-    const entry = { kind: 'intercept', host, method: req.method, path }
+    const target = req.url ?? ''
+    const entry = {
+      kind: 'intercept',
+      host,
+      method: req.method,
+      path: target.split('?')[0],
+    }
     const refuse = (status: number, reason: string) => {
       o.audit({ ...entry, result: reason })
       req.resume()
+      if (res.headersSent) return void res.destroy()
       res.writeHead(status, {
         'content-type': 'text/plain',
         connection: 'close',
@@ -95,14 +169,28 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
       res.end(`mirab station: ${reason}\n`)
     }
     // The name the VM's TLS asked for (egress checked it against the CONNECT),
-    // and the request must be for that same host.
+    // and the request must be for that same host, by one Host header and an
+    // ordinary path: an absolute URL or a second Host could route it elsewhere.
     if (!hosts.some((h) => allowed(host, [h])))
       return refuse(421, 'not a host the station opens')
+    if (!/^\/(?!\/)/.test(target))
+      return refuse(400, 'a path on the host itself only')
+    if (req.method === 'TRACE' || req.method === 'CONNECT')
+      return refuse(405, `${req.method} isn't passed on`)
+    const hostHeaders = req.rawHeaders.filter(
+      (_, i) => i % 2 === 0 && req.rawHeaders[i].toLowerCase() === 'host',
+    )
     const named = String(req.headers.host ?? '')
       .toLowerCase()
       .replace(/:443$/, '')
-    if (named !== host) return refuse(421, `Host ${named} isn't ${host}`)
-    const raw = withoutHop(req.rawHeaders)
+    if (hostHeaders.length !== 1 || named !== host)
+      return refuse(421, `Host isn't ${host}`)
+    const raw = withoutHop(req.rawHeaders).filter(
+      (_, i, all) =>
+        !['host', 'accept-encoding'].includes(
+          (i % 2 ? all[i - 1] : all[i]).toLowerCase(),
+        ),
+    )
     let swapped
     try {
       swapped = await swapHeaders(host, raw, o.placeholders, o.secrets, o.value)
@@ -110,34 +198,43 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
       return refuse(502, 'the key could not be read from harar')
     }
     if (!swapped.ok) return refuse(403, swapped.reason)
-    let target: Upstream
+    const revealed = swapped.revealed
+    let upstream: Upstream
     try {
-      target = await where(host)
+      upstream = await where(host)
     } catch (e) {
       return refuse(502, (e as Error).message)
     }
-    const headers: Record<string, string | string[]> = {}
+    // Exactly one Host, the name the VM's TLS asked for; and, where a key went
+    // in, an answer the station can read, so it can take the key back out.
+    const headers: Record<string, string | string[]> = { host }
+    if (revealed.length) headers['accept-encoding'] = 'identity'
     for (let i = 0; i < swapped.headers.length; i += 2) {
-      const name = swapped.headers[i]
+      const name = swapped.headers[i].toLowerCase()
       const prev = headers[name]
       headers[name] =
         prev === undefined
           ? swapped.headers[i + 1]
           : ([] as string[]).concat(prev, swapped.headers[i + 1])
     }
-    const up = httpsRequest({
-      host: target.address,
-      port: target.port,
-      servername: host,
-      method: req.method,
-      path: req.url,
-      headers,
-      agent: false,
-      ca: target.ca,
-      // The host's own certificate, whatever address it was dialed at.
-      checkServerIdentity: (_, cert) => checkServerIdentity(host, cert),
-      timeout: REQUEST_TIMEOUT_MS,
-    })
+    let up: ClientRequest
+    try {
+      up = httpsRequest({
+        host: upstream.address,
+        port: upstream.port,
+        servername: host,
+        method: req.method,
+        path: target,
+        headers,
+        agent: false,
+        ca: upstream.ca,
+        // The host's own certificate, whatever address it was dialed at.
+        checkServerIdentity: (_, cert) => checkServerIdentity(host, cert),
+        timeout: REQUEST_TIMEOUT_MS,
+      })
+    } catch (e) {
+      return refuse(400, `the request can't be sent: ${(e as Error).message}`)
+    }
     let finished = false
     const done = (result: unknown) => {
       if (finished) return
@@ -145,9 +242,23 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
       o.audit({ ...entry, used: swapped.used, result })
     }
     up.on('response', (answer) => {
-      const back = withoutHop(answer.rawHeaders)
+      const encoding = String(answer.headers['content-encoding'] ?? 'identity')
+      if (revealed.length && encoding !== 'identity') {
+        answer.destroy()
+        return refuse(502, `a ${encoding} answer can't be checked for the key`)
+      }
+      // Whatever the host sends back, a real value goes back to its placeholder.
+      const back: string[] = []
+      const raw = withoutHop(answer.rawHeaders)
+      for (let i = 0; i < raw.length; i += 2) {
+        // The body may change length once a value is taken out.
+        if (revealed.length && raw[i].toLowerCase() === 'content-length')
+          continue
+        back.push(raw[i], redactText(raw[i + 1], revealed))
+      }
       res.writeHead(answer.statusCode ?? 502, back)
-      answer.pipe(res)
+      const body = revealed.length ? answer.pipe(new Redact(revealed)) : answer
+      body.pipe(res)
       answer.on('end', () => done(answer.statusCode))
       answer.on('error', () => done('upstream broke off'))
     })
@@ -169,7 +280,11 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
   // Bun serves the default certificate whatever the SNI, so one leaf names every host.
   const server = createServer(
     { key: leaf.key, cert: leaf.cert, ALPNProtocols: ['http/1.1'] },
-    (req, res) => void handle(req, res),
+    (req, res) =>
+      void handle(req, res).catch(() => {
+        if (!res.headersSent) res.writeHead(502, { connection: 'close' })
+        res.end()
+      }),
   )
   // Unix socket paths are limited to 104 bytes on macOS.
   const dir = await mkdtemp(join(tmpdir(), 'mi-'))
@@ -188,6 +303,8 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
       inner.on('error', () => vm.destroy())
       vm.on('error', () => inner.destroy())
       vm.on('close', () => inner.destroy())
+      // An opened connection with nothing either way for this long is closed.
+      vm.setTimeout(IDLE_MS, () => vm.destroy())
       inner.write(first)
       vm.pipe(inner)
       inner.pipe(vm)

@@ -15,6 +15,8 @@ import { Placeholders, referencesIn, type Secrets } from './secrets'
 
 /** Where the station's authority lands in the guest. */
 export const GUEST_CA = '/usr/local/share/ca-certificates/mirab-station.crt'
+/** How long a secret's value is kept before harar is asked again. */
+const VALUE_TTL_MS = 5 * 60_000
 /** The bundle curl, git, Go and OpenSSL programs read. */
 const GUEST_BUNDLE = '/etc/ssl/certs/ca-certificates.crt'
 
@@ -56,15 +58,15 @@ export async function vmStation(o: {
     secrets[secret] = configured[secret]
     env[name] = placeholders.for(secret)
   }
-  // Each secret is read from harar once per session; a failure is not kept.
-  const values = new Map<string, Promise<string>>()
+  // Each secret is read from harar at most every VALUE_TTL_MS, so a rotated
+  // key is picked up; a failure is not kept.
+  const values = new Map<string, { value: Promise<string>; until: number }>()
   const value = (secret: string) => {
-    let v = values.get(secret)
-    if (!v) {
-      v = hararGet(o.station.harar.socket, secret)
-      v.catch(() => values.delete(secret))
-      values.set(secret, v)
-    }
+    const held = values.get(secret)
+    if (held && held.until > Date.now()) return held.value
+    const v = hararGet(o.station.harar.socket, secret)
+    v.catch(() => values.delete(secret))
+    values.set(secret, { value: v, until: Date.now() + VALUE_TTL_MS })
     return v
   }
   const audit = auditor(o.zone, o.auditLog)
