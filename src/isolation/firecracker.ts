@@ -52,7 +52,7 @@ export const GUEST_WORK = '/workspace'
 
 /**
  * The Firecracker to run when isolation.json names none: the one shipped next
- * to the mirab executable (@gildforge/cli-linux-x64 bundles it), else
+ * to the mirab executable (where mirab's packaging will put it), else
  * `firecracker` on PATH. `vm.firecracker` in isolation.json wins over both.
  */
 export function defaultFirecracker(execPath = process.execPath) {

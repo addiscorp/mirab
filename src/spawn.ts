@@ -160,7 +160,7 @@ export function spawnCommands(
         // would be silently ignored; say so instead.
         if (!resolveIdentity && (opts.as || profile?.channels?.length))
           throw Error(
-            '--as and --channel need an agent identity, which mirab gets from harar (addiscorp/mirab#2); run without them for now',
+            '--as and --channel need an agent identity, which mirab gets from harar (addiscorp/mirab#2); run without --as, and remove the channels from a profile, for now',
           )
         agent = profile?.runtime ?? agent
         args = resolved?.args ?? args
@@ -170,6 +170,12 @@ export function spawnCommands(
         if (opts.detach && !supportsPty())
           throw Error(
             'Detached sessions need a PTY, unavailable on this platform',
+          )
+        // macOS and Windows: Multipass, once mirab is on npm for its VM to
+        // install. Until then it refuses here, before anything else.
+        if (opts.vm && usesMultipass(opts.configDir))
+          throw Error(
+            `--vm: ${MULTIPASS_UNAVAILABLE} It never falls back to running on the host.`,
           )
         // Detached, the guest pty is the terminal; attached, it needs a real one.
         if (
@@ -182,13 +188,7 @@ export function spawnCommands(
           )
         // First --vm use: fetch the published guest image here, where the
         // terminal shows its progress; the worker then finds it installed.
-        if (opts.vm && usesMultipass(opts.configDir)) {
-          // macOS and Windows: Multipass, once mirab is on npm for its VM to
-          // install. Until then it refuses here, before making anything.
-          throw Error(
-            `--vm: ${MULTIPASS_UNAVAILABLE}. It never falls back to running on the host`,
-          )
-        } else if (opts.vm) {
+        if (opts.vm) {
           const { vmUnavailable } = await prepareVm(opts.configDir, {
             want: true,
             log: (line) => console.error(`mirab: ${line}`),

@@ -51,9 +51,9 @@ So on Linux the agent **edits in the VM and the host commits and pushes**:
 - No token, mirab key or `mirab` binary enters a Firecracker guest; the clone's
   credential helper points at the host's mirab and is not usable inside.
 
-Multipass on macOS and Windows differs: the agent's own mirab key and
-repo-scoped token are copied into the VM, it has network, and the agent
-pushes and opens pull requests from inside; nothing is copied back.
+Multipass (macOS and Windows) is not available in mirab yet: gild copied the
+agent's key and token into that VM, which mirab won't do, and its VM installs
+mirab from npm, where mirab isn't published. `--vm` refuses with that reason.
 
 ## Published images (nothing to build)
 
@@ -124,8 +124,8 @@ packs to the same bytes; apt packages still follow the Ubuntu mirror.
 
 ## macOS (`vz`)
 
-Used only when `<config dir>/isolation.json` has a `vm` block; otherwise macOS
-runs `--vm` in Multipass. The Virtualization.framework backend boots an arm64 guest built by
+Used when `<config dir>/isolation.json` has a `vm` block; without one, `--vm`
+on macOS refuses (Multipass is not available in mirab yet). The Virtualization.framework backend boots an arm64 guest built by
 `scripts/build-vm-guest.sh <dir>` (docker or Colima); it compiles the same
 guest agent from this checkout, so the handshake below applies to both.
 
@@ -143,8 +143,8 @@ any difference stops the VM before the session starts:
 ```
 --vm failed: The guest image /home/me/.config/mirab/vm/rootfs.ext4 is outdated:
 its mirab-guest-agent (no version, before 0.2.0) speaks protocol 1, this mirab
-needs 2. Rebuild the guest image from a gildforge/cli checkout at this mirab
-version: `bun run vm:image` (docs/VM.md).
+needs 2. Rebuild the guest image from a mirab checkout at this version:
+`bun run vm:image` (docs/VM.md).
 ```
 
 Bump the number with any new guest op. Protocol 1 was ping, pty, put and

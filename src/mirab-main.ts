@@ -1,12 +1,9 @@
-import { spawnSync } from 'node:child_process'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { Command } from 'commander'
 import pkg from '../package.json'
 import { profileCommands } from './agent-profiles'
-import {
-  MULTIPASS_VM,
-  multipassMissing,
-  usesMultipass,
-} from './isolation/multipass'
+import { MULTIPASS_UNAVAILABLE, usesMultipass } from './isolation/multipass'
 import { localEvents, spawnCommands } from './spawn'
 
 export const program = new Command()
@@ -42,30 +39,19 @@ spawnCommands(program)
 
 const vmCmd = program
   .command('vm')
-  .description('agents in a VM: vz or Multipass on macOS, Firecracker on Linux')
+  .description('agents in a VM: vz on macOS, Firecracker on Linux')
 
 vmCmd
   .command('status')
-  .description('the mirab VM: whether it exists and is running')
+  .description('which VM backend mirab spawn --vm uses here')
   .action(async () => {
-    if (!usesMultipass()) {
-      console.log('On Linux, mirab spawn --vm uses Firecracker; see docs/VM.md')
-      return
-    }
-    const missing = multipassMissing()
-    if (missing) return console.log(missing)
-    const r = spawnSync(
-      'multipass',
-      ['info', MULTIPASS_VM, '--format', 'json'],
-      { encoding: 'utf8' },
-    )
-    if (r.status !== 0)
-      return console.log(
-        'No mirab VM yet. The first mirab spawn --vm makes it.',
-      )
-    const info = JSON.parse(r.stdout).info?.[MULTIPASS_VM]
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    if (usesMultipass(configDir)) return console.log(MULTIPASS_UNAVAILABLE)
     console.log(
-      `mirab VM: ${info?.state}${info?.ipv4?.length ? ` (${info.ipv4[0]})` : ''}, Ubuntu ${info?.release ?? ''}`.trim(),
+      process.platform === 'darwin'
+        ? 'mirab spawn --vm uses vz (the vm block in isolation.json); see docs/VM.md'
+        : 'mirab spawn --vm uses Firecracker; see docs/VM.md',
     )
   })
 

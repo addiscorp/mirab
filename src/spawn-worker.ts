@@ -377,7 +377,7 @@ async function main() {
       const nodePty = options.ptyModule
       if (!nodePty)
         throw new Error(
-          'spawn needs the PTY module shipped in the gildforge platform package.',
+          'spawn needs the node-pty module (run mirab from source with bun install for now).',
         )
       const require = createRequire(nodePty)
       // Keep the macOS helper executable, including installs with restrictive modes.

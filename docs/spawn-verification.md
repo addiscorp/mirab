@@ -34,10 +34,9 @@ All three npm platform packages ship the loader and native prebuild from
 includes Linux x64. Linux does not require a spawn-helper; macOS ships it with
 its executable bit set and retains the runtime chmod fix. `scripts/node-pty.json`
 records the npm tarball integrity, SHA-256, and each shipped file's SHA-256.
-`bun run test:install` checks the actual npm pack files, all-platform published
-dependency graph, fresh global npm install output, and detached spawn/send/status/
-stop. `bun run test:installed-pty` runs the CI PTY suite (including attach) through
-that install with an empty HOME. CI runs these checks on all three platforms.
+gild checked its npm packages end to end (pack files, a fresh global install,
+the PTY suite through it); mirab gets those checks back with its own npm
+packaging.
 When Node, node-pty, or PTY creation is unavailable, `spawn` silently launches
 the original agent with inherited stdio and its exit status. Windows and
 pipes/redirects also take this native path, without hooks, injection or a socket.
