@@ -42,7 +42,10 @@ the key:
 ```json
 {
   "harar": { "socket": "/var/run/harar.sock" },
-  "models": { "anthropic": { "key": "personal/anthropic/API_KEY" } }
+  "models": {
+    "anthropic": { "key": "personal/anthropic/API_KEY" },
+    "claude": { "token": "personal/claude/OAUTH_TOKEN" }
+  }
 }
 ```
 
@@ -55,6 +58,18 @@ on its route (that is what the route is for), but never read it.
 mirab runs on [Bun](https://bun.sh), and so do the agents it makes (their
 `agent/` files are TypeScript, run as is). Until mirab is on npm, run it from
 a checkout as above rather than with `npx`.
+
+## Claude Code on your own subscription
+
+`mirab spawn --vm claude` runs Claude Code in a VM on your Claude
+subscription, and the VM never holds your token. Make a token once with
+`claude setup-token`, keep it in harar
+(`harar put personal/claude/OAUTH_TOKEN`), and name it under `models.claude`
+in `station.json`. In the VM, Claude Code has a placeholder token and the
+station as its API. The station swaps in your token on the way to
+`api.anthropic.com/v1/messages`, and nothing else leaves: Claude Code's
+telemetry and updates are off, and anything else it tries goes through the
+station's whitelist and audit log. One person's token, on their own machine.
 
 ## Try it
 

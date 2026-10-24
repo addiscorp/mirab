@@ -4,13 +4,13 @@
 // station replaces on the host, so nothing in the VM ever holds it.
 import { createInterface } from 'node:readline'
 import type { ModelMessage } from 'ai'
-import { EGRESS_GUEST_PORT } from '../isolation/vz'
+import { PLACEHOLDER, guestRouteURL } from '../station/routes'
 import { loadManifest } from './manifest'
 import { loadAgent, modelFor, runTurn, type ModelEndpoint } from './runtime'
 
 export const GUEST_MODEL: ModelEndpoint = {
-  baseURL: `http://127.0.0.1:${EGRESS_GUEST_PORT}/anthropic/v1`,
-  key: 'mirab-placeholder',
+  baseURL: `${guestRouteURL('anthropic')}/v1`,
+  key: PLACEHOLDER,
 }
 
 /** A terminal chat with the agent in `project`, until its input ends. */

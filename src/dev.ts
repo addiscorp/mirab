@@ -15,11 +15,10 @@ import { guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
 import type { StationConfig } from './station/config'
 import { startEgress } from './station/egress'
-import { hararGet } from './station/harar'
+import { anthropicKeyRoute } from './station/routes'
 
 /** Where the loop lands in the guest (its tmpfs, never the workspace). */
 export const GUEST_LOOP = '/tmp/mirab/loop.js'
-export const ANTHROPIC = 'https://api.anthropic.com'
 
 let bundle: Promise<string> | undefined
 
@@ -82,8 +81,8 @@ export async function startDev(o: {
   upstream?: string
 }): Promise<Dev> {
   const project = resolve(o.project)
-  const keyPath = o.station.models.anthropic?.key
-  if (!keyPath)
+  const anthropic = anthropicKeyRoute(o.station, o.upstream)
+  if (!anthropic)
     throw new Error(
       'station.json has no models.anthropic.key: the harar secret with the API key',
     )
@@ -118,14 +117,7 @@ export async function startDev(o: {
         socketPath,
         zone,
         allow: manifest.domains,
-        routes: {
-          anthropic: {
-            upstream: o.upstream ?? ANTHROPIC,
-            header: 'x-api-key',
-            paths: ['/v1/messages'],
-            credential: () => hararGet(o.station.harar.socket, keyPath),
-          },
-        },
+        routes: { anthropic },
         auditLog: o.auditLog,
       }),
     )
