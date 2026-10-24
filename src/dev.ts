@@ -10,11 +10,11 @@ import { MANIFEST_LINE } from './agent/guest'
 import { parseManifest, type Manifest } from './agent/manifest'
 import { startVm, type Isolation } from './isolation'
 import type { PtyHandle } from './isolation/session'
-import { EGRESS_HOST_PORT } from './isolation/vz'
 import { guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
 import type { StationConfig } from './station/config'
-import { startEgress } from './station/egress'
+import type { Upstream } from './station/intercept'
+import { vmStation } from './station/vm'
 import { anthropicKeyRoute } from './station/routes'
 
 /** Where the loop lands in the guest (its tmpfs, never the workspace). */
@@ -79,6 +79,8 @@ export async function startDev(o: {
   log?: (line: string) => void
   /** Where the model route goes; tests point it at a stand-in. */
   upstream?: string
+  /** Where the hosts the station opens are; tests point them at a stand-in. */
+  opened?: (host: string) => Promise<Upstream>
 }): Promise<Dev> {
   const project = resolve(o.project)
   const anthropic = anthropicKeyRoute(o.station, o.upstream)
@@ -92,6 +94,7 @@ export async function startDev(o: {
   // No network of its own: the station is the only way out. The VM works on
   // a clone of the project; nothing it writes comes back.
   const iso = await startVm({ ...vm, egress: 'block' }, project, vmDir, o.log)
+  let closeStation = async () => {}
   try {
     await iso.put(GUEST_LOOP, loop, 0o600)
     // The agent's own files run in the VM, never here.
@@ -112,25 +115,34 @@ export async function startDev(o: {
         `mirab dev talks to anthropic models for now; ${manifest.model} isn't one`,
       )
     const zone = devZone(manifest.name)
-    await iso.onGuestConnect!(EGRESS_HOST_PORT, (socketPath) =>
-      startEgress({
-        socketPath,
-        zone,
-        allow: manifest.domains,
-        routes: { anthropic },
-        auditLog: o.auditLog,
-      }),
-    )
+    const station = await vmStation({
+      project,
+      station: o.station,
+      configDir: o.configDir,
+      zone,
+      auditLog: o.auditLog,
+      routes: { anthropic },
+      allow: manifest.domains,
+      upstream: o.opened,
+    })
+    for (const note of station.notes) o.log?.(note)
+    await station.attach(iso)
+    closeStation = () => station.close()
     const pty = await iso.pty!({
       // No auto-install: what the agent runs is in its image (its manifest's packages).
       argv: ['bun', '--no-install', GUEST_LOOP, '/workspace'],
-      env: guestEnvironment({}, {}),
+      env: { ...guestEnvironment({}, {}), ...station.env },
       cwd: '/workspace',
       cols: o.cols,
       rows: o.rows,
     })
-    return { pty, iso, zone, close: () => iso.close() }
+    const close = async () => {
+      await closeStation()
+      await iso.close()
+    }
+    return { pty, iso, zone, close }
   } catch (e) {
+    await closeStation()
     await iso.close()
     throw e
   }
