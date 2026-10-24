@@ -4,6 +4,7 @@ import {
   anthropicKeyRoute,
   claudeGuestEnvironment,
   claudeRoute,
+  withClaudeRoute,
 } from './routes'
 
 const station = {
@@ -39,4 +40,26 @@ test('Claude Code in the guest holds only the placeholder, and talks to nothing 
     'HTTP_PROXY',
     'NO_PROXY',
   ])
+})
+
+test("the host's Anthropic and Claude settings never reach a VM on the route", () => {
+  const env = withClaudeRoute({
+    PATH: '/usr/bin',
+    ANTHROPIC_API_KEY: 'sk-ant-api-host',
+    ANTHROPIC_AUTH_TOKEN: 'host',
+    ANTHROPIC_CUSTOM_HEADERS: 'x: y',
+    CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-host',
+    CLAUDE_CODE_USE_BEDROCK: '1',
+  })
+  for (const value of Object.values(env))
+    expect([
+      'sk-ant-api-host',
+      'host',
+      'x: y',
+      'sk-ant-oat01-host',
+    ]).not.toContain(value)
+  expect(env.ANTHROPIC_API_KEY).toBeUndefined()
+  expect(env.CLAUDE_CODE_USE_BEDROCK).toBeUndefined()
+  expect(env.PATH).toBe('/usr/bin')
+  expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe(PLACEHOLDER)
 })

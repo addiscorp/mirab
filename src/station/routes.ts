@@ -46,6 +46,17 @@ export function claudeRoute(
   }
 }
 
+/** The host's own Anthropic and Claude settings (keys, tokens, custom
+ *  headers, Bedrock or Vertex) never reach a VM that uses the route. */
+export function withClaudeRoute(
+  env: Record<string, string>,
+): Record<string, string> {
+  const kept = Object.fromEntries(
+    Object.entries(env).filter(([k]) => !/^(ANTHROPIC_|CLAUDE_)/.test(k)),
+  )
+  return { ...kept, ...claudeGuestEnvironment() }
+}
+
 /** Claude Code's environment in the guest: the placeholder token, the
  *  station's route as its API, and nothing else on the network (no
  *  telemetry, error reports or self-updates). Anything else it tries goes
