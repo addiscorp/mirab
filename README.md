@@ -12,7 +12,23 @@ people in channels, inside the apps they help with.
 > **Status: early.** This is mirab's agent system, moved over with its
 > history: VMs through Apple's Virtualization framework (`vz`) and
 > Firecracker, containers, `mirab spawn`, and the Claude and Codex adapters.
-> `mirab init`, the station and channels come next.
+> `mirab init` is in; `mirab dev`, the station and channels come next.
+
+## Make an agent
+
+```sh
+mkdir ops && cd ops
+bun run <mirab checkout>/src/mirab.ts          # asks for the agent's harar name
+# or: mirab init ops --name gg.addis.agent.ops
+```
+
+It writes `agent/agent.ts`, `agent/instructions.md`, and `tools/`, `skills/`,
+`subagents/`, `schedules/` and `channels/` folders. It never writes a `.env`:
+model access comes from harar. `mirab dev` (next) runs it in a VM.
+
+mirab runs on [Bun](https://bun.sh), and so do the agents it makes (their
+`agent/` files are TypeScript, run as is). Until mirab is on npm, run it from
+a checkout as above rather than with `npx`.
 
 ## Try it
 

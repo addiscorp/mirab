@@ -16,6 +16,8 @@
     "format:check": "prettier --check src scripts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "4.0.78",
+    "ai": "7.0.137",
     "chalk": "^5.6.2",
     "commander": "^14.0.1",
     "inquirer": "^12.9.4",
@@ -34,5 +36,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/addiscorp/mirab.git"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./tools": "./src/tools.ts"
   }
 }
