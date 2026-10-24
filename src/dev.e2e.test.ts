@@ -19,7 +19,8 @@ describe.skipIf(!configDir)('mirab dev in a vz VM, live', () => {
     await mkdir(join(project, 'agent'), { recursive: true })
     await writeFile(
       join(project, 'agent/agent.ts'),
-      "import { defineAgent } from 'mirab'\nexport default defineAgent({ name: 'gg.addis.agent.ops', model: 'anthropic/claude-sonnet-5-5' })\n",
+      // It leaves a mark wherever it runs: only ever in the VM's clone.
+      "import { writeFileSync } from 'node:fs'\nimport { defineAgent } from 'mirab'\nwriteFileSync(new URL('./ran-here', import.meta.url), process.platform)\nexport default defineAgent({ name: 'gg.addis.agent.ops', model: 'anthropic/claude-sonnet-5-5' })\n",
     )
     // harar on the host: the only place the real key is.
     const harar = join(base, 'h.sock')
@@ -89,6 +90,10 @@ describe.skipIf(!configDir)('mirab dev in a vz VM, live', () => {
       expect(await exited).toBe(0)
       expect(await readFile(auditLog, 'utf8')).not.toContain('sk-real')
       expect(screen).not.toContain('sk-real')
+      // The host never ran the project's code.
+      expect(await Bun.file(join(project, 'agent/ran-here')).exists()).toBe(
+        false,
+      )
     } finally {
       await dev.close()
       api.stop(true)

@@ -5,6 +5,7 @@
 import { createInterface } from 'node:readline'
 import type { ModelMessage } from 'ai'
 import { EGRESS_GUEST_PORT } from '../isolation/vz'
+import { loadManifest } from './manifest'
 import { loadAgent, modelFor, runTurn, type ModelEndpoint } from './runtime'
 
 export const GUEST_MODEL: ModelEndpoint = {
@@ -45,5 +46,17 @@ export async function chat(
   }
 }
 
-if (import.meta.main)
-  await chat(process.argv[2] ?? '/workspace', process.stdin, process.stdout)
+/** The line the guest prints the manifest on, for the host to read back. */
+export const MANIFEST_LINE = 'mirab-manifest '
+
+if (import.meta.main) {
+  const [first, second] = process.argv.slice(2)
+  // `--manifest <project>`: the agent's files run here, in the VM, never on
+  // the host, which only checks the JSON this prints.
+  if (first === '--manifest')
+    console.log(
+      MANIFEST_LINE +
+        JSON.stringify((await loadManifest(second ?? '/workspace')).manifest),
+    )
+  else await chat(first ?? '/workspace', process.stdin, process.stdout)
+}

@@ -8,7 +8,7 @@ import { z } from 'zod'
 export const stationConfigSchema = z.strictObject({
   harar: z.strictObject({
     /** The harar primary's (or per-user agent's) socket. */
-    socket: z.string().min(1),
+    socket: z.string().startsWith('/', 'the harar socket is an absolute path'),
   }),
   models: z.strictObject({
     anthropic: z

@@ -48,7 +48,9 @@ the key:
 
 For now `mirab dev` starts from the project as it is: restart it to pick up
 edits (a VM boots in well under a second). What the agent writes in its VM
-stays there.
+stays there. The agent's files run only in its VM, never on this machine:
+the manifest is read there and checked here. The VM can spend the model key
+on its route (that is what the route is for), but never read it.
 
 mirab runs on [Bun](https://bun.sh), and so do the agents it makes (their
 `agent/` files are TypeScript, run as is). Until mirab is on npm, run it from

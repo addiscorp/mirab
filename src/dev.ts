@@ -6,7 +6,8 @@
 import { randomBytes } from 'node:crypto'
 import { mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { loadManifest } from './agent/manifest'
+import { MANIFEST_LINE } from './agent/guest'
+import { parseManifest, type Manifest } from './agent/manifest'
 import { startVm, type Isolation } from './isolation'
 import type { PtyHandle } from './isolation/session'
 import { EGRESS_HOST_PORT } from './isolation/vz'
@@ -45,6 +46,29 @@ export interface Dev {
   close(): Promise<void>
 }
 
+/** Reads the manifest the guest printed; the host trusts only what the schema allows. */
+export function manifestFromGuest(lines: string[]): Manifest {
+  const line = lines.find((l) => l.startsWith(MANIFEST_LINE))
+  if (!line)
+    throw new Error(
+      `the agent didn't load in its VM: ${lines.slice(-5).join(' ').slice(0, 2000)}`,
+    )
+  let data: unknown
+  try {
+    data = JSON.parse(line.slice(MANIFEST_LINE.length))
+  } catch {
+    throw new Error("the VM's manifest isn't JSON")
+  }
+  return parseManifest(data, 'the agent in its VM')
+}
+
+/** `<org>.zone.dev-<random>`, in the agent's org. */
+export function devZone(agentName: string): string {
+  const org = /^(.+)\.agent\.[^.]+$/.exec(agentName)?.[1]
+  if (!org) throw new Error(`${agentName} isn't an agent name`)
+  return `${org}.zone.dev-${randomBytes(6).toString('hex')}`
+}
+
 export async function startDev(o: {
   project: string
   configDir: string
@@ -58,12 +82,6 @@ export async function startDev(o: {
   upstream?: string
 }): Promise<Dev> {
   const project = resolve(o.project)
-  // Checked on the host first: a broken agent never boots a VM.
-  const { manifest } = await loadManifest(project)
-  if (!manifest.model.startsWith('anthropic/'))
-    throw new Error(
-      `mirab dev talks to anthropic models for now; ${manifest.model} isn't one`,
-    )
   const keyPath = o.station.models.anthropic?.key
   if (!keyPath)
     throw new Error(
@@ -71,12 +89,30 @@ export async function startDev(o: {
     )
   const vm = await requireVm(o.configDir, o.log)
   const loop = await guestLoop()
-  const org = manifest.name.slice(0, manifest.name.indexOf('.agent.'))
-  const zone = `${org}.zone.dev-${randomBytes(6).toString('hex')}`
   const vmDir = await mkdtemp(join(await privateSessionsDirectory(), 'dev-'))
-  // No network of its own: the station is the only way out.
+  // No network of its own: the station is the only way out. The VM works on
+  // a clone of the project; nothing it writes comes back.
   const iso = await startVm({ ...vm, egress: 'block' }, project, vmDir, o.log)
   try {
+    await iso.put(GUEST_LOOP, loop, 0o600)
+    // The agent's own files run in the VM, never here.
+    const lines: string[] = []
+    await iso.exec(
+      ['bun', '--no-install', GUEST_LOOP, '--manifest', '/workspace'],
+      {
+        cwd: '/workspace',
+        env: guestEnvironment({}, {}),
+        timeoutMs: 60_000,
+        signal: new AbortController().signal,
+        onLine: async (line) => void lines.push(line),
+      },
+    )
+    const manifest = manifestFromGuest(lines)
+    if (!manifest.model.startsWith('anthropic/'))
+      throw new Error(
+        `mirab dev talks to anthropic models for now; ${manifest.model} isn't one`,
+      )
+    const zone = devZone(manifest.name)
     await iso.onGuestConnect!(EGRESS_HOST_PORT, (socketPath) =>
       startEgress({
         socketPath,
@@ -93,7 +129,6 @@ export async function startDev(o: {
         auditLog: o.auditLog,
       }),
     )
-    await iso.put(GUEST_LOOP, loop, 0o600)
     const pty = await iso.pty!({
       // No auto-install: what the agent runs is in its image (its manifest's packages).
       argv: ['bun', '--no-install', GUEST_LOOP, '/workspace'],
@@ -109,31 +144,47 @@ export async function startDev(o: {
   }
 }
 
+/** Ctrl-]: leaves mirab dev from the host, whatever the guest is doing. */
+export const ESCAPE = 0x1d
+
 /** `mirab dev` in a terminal: the person's keys to the guest, its output back. */
 export async function devInTerminal(
   options: Omit<Parameters<typeof startDev>[0], 'cols' | 'rows'>,
 ): Promise<number> {
   const out = process.stdout
-  const dev = await startDev({
-    ...options,
-    cols: out.columns || 80,
-    rows: out.rows || 24,
-  })
   const input = process.stdin
   const raw = input.isTTY
-  if (raw) input.setRawMode(true)
-  const forward = (data: Buffer) => dev.pty.write(data)
-  const resize = () => dev.pty.resize(out.columns || 80, out.rows || 24)
-  input.on('data', forward)
-  out.on('resize', resize)
-  dev.pty.onData((data) => out.write(data))
+  let dev: Dev | undefined
+  let leave: (code: number) => void = () => {}
+  const left = new Promise<number>((r) => (leave = r))
+  const forward = (data: Buffer) =>
+    data.includes(ESCAPE) ? leave(130) : dev?.pty.write(data)
+  const resize = () => dev?.pty.resize(out.columns || 80, out.rows || 24)
+  const onSignal = () => leave(143)
+  for (const signal of ['SIGTERM', 'SIGHUP'] as const)
+    process.on(signal, onSignal)
   try {
-    return await new Promise<number>((done) => dev.pty.onExit(done))
+    dev = await startDev({
+      ...options,
+      cols: out.columns || 80,
+      rows: out.rows || 24,
+    })
+    options.log?.('Ctrl-D ends the chat; Ctrl-] leaves at once.')
+    dev.pty.onData((data) => out.write(data))
+    dev.pty.onExit(leave)
+    if (raw) input.setRawMode(true)
+    input.on('data', forward)
+    // Input that ends (not a terminal) ends the chat as Ctrl-D would.
+    input.on('end', () => dev?.pty.write('\x04'))
+    out.on('resize', resize)
+    return await left
   } finally {
     input.off('data', forward)
     out.off('resize', resize)
+    for (const signal of ['SIGTERM', 'SIGHUP'] as const)
+      process.off(signal, onSignal)
     if (raw) input.setRawMode(false)
     input.pause()
-    await dev.close()
+    await dev?.close()
   }
 }
