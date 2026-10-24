@@ -10,8 +10,14 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates git iproute2 unzip curl python3 busybox-static \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
+# Pinned: the station's TLS checks rely on this Bun (1.4 sends no
+# encrypted ClientHello). Digests from the release's SHASUMS256.txt.
+ARG BUN_SHA256_X64=3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18
+ARG BUN_SHA256_AARCH64=efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21
 RUN arch=$(uname -m | sed 's/x86_64/x64/;s/aarch64/aarch64/') \
+ && case "$arch" in x64) sum=$BUN_SHA256_X64 ;; aarch64) sum=$BUN_SHA256_AARCH64 ;; *) echo "no pinned bun for $arch" >&2; exit 1 ;; esac \
  && curl -fsSL -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${arch}.zip" \
+ && echo "$sum  /tmp/bun.zip" | sha256sum -c - \
  && unzip -p /tmp/bun.zip "*/bun" > /usr/local/bin/bun && chmod 755 /usr/local/bin/bun && rm /tmp/bun.zip
 RUN printf 'root:x:0:0:root:/root:/bin/sh\nruntime:x:1000:1000:mirab runtime:/workspace:/bin/sh\n' > /etc/passwd \
  && printf 'root:x:0:\nruntime:x:1000:\n' > /etc/group \

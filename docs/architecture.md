@@ -122,6 +122,9 @@ VM ──HTTPS_PROXY──▶ 127.0.0.1:8790 ──vsock──▶ station ──
   could put a whitelisted name on the outside and any site on the same CDN
   inside, where a CDN that supports it would route. Real ones and GREASE look
   the same, so neither passes; the guest's Bun (1.4) sends neither.
+  Every ClientHello is checked, including the second one a server asks for
+  with a HelloRetryRequest; after that the station passes bytes without
+  looking.
 - **Accepted risk.** Without decrypting, the station sees only the name a
   connection asks for. A whitelisted name served by a shared CDN can still be
   used to reach other sites on that CDN where the CDN routes on the HTTP host

@@ -115,7 +115,7 @@ test('a whitelisted domain is tunnelled, TLS untouched, once its server name mat
       audit = s.audit()
     }
     expect(audit).toMatch(
-      /"host":"registry.example.test","result":"closed[^"]*","up":\d+/,
+      /"host":"registry.example.test","result":"(closed[^"]*|VM side error)","up":\d+/,
     )
   } finally {
     s.server.close()
@@ -713,5 +713,83 @@ test('one VM holds at most 64 connections', async () => {
     s.server.close()
     s.up.server.close()
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/** A server that answers the first hello with a HelloRetryRequest and records what follows. */
+function retryingUpstream() {
+  const received: Buffer[] = []
+  const hrr = (() => {
+    const random = Buffer.from(
+      'cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c',
+      'hex',
+    )
+    const body = Buffer.concat([
+      Buffer.from([3, 3]),
+      random,
+      Buffer.from([0, 0x13, 0x01, 0, 0, 0]),
+    ])
+    const handshake = Buffer.concat([Buffer.from([2, 0, 0, body.length]), body])
+    return Buffer.concat([
+      Buffer.from([0x16, 3, 3, 0, handshake.length]),
+      handshake,
+    ])
+  })()
+  const server = createServer((s) => {
+    let first = true
+    s.on('data', (c) => {
+      received.push(c)
+      if (first) {
+        first = false
+        s.write(hrr)
+      }
+    })
+  })
+  server.listen(0, '127.0.0.1')
+  const dial = () =>
+    connect({
+      host: '127.0.0.1',
+      port: (server.address() as { port: number }).port,
+    })
+  return { server, received, dial, hrr }
+}
+
+test('after a HelloRetryRequest, the second ClientHello must name the same host', async () => {
+  for (const [second, passes] of [
+    ['registry.example.test', true],
+    ['evil.example', false],
+  ] as const) {
+    const dir = scratch()
+    const up = retryingUpstream()
+    const s = await station(dir, { dial: up.dial })
+    try {
+      const vm = await open(
+        s.socketPath,
+        'CONNECT registry.example.test:443 HTTP/1.1\r\n\r\n',
+      )
+      expect(await firstReply(vm)).toStartWith('HTTP/1.1 200')
+      const fromServer: Buffer[] = []
+      vm.on('data', (c) => fromServer.push(c))
+      vm.write(helloFor('registry.example.test'))
+      await new Promise((r) => setTimeout(r, 200))
+      // The VM gets the retry request, then sends a ChangeCipherSpec and its second hello.
+      expect(Buffer.concat(fromServer).equals(up.hrr)).toBe(true)
+      vm.write(
+        Buffer.concat([Buffer.from([0x14, 3, 3, 0, 1, 1]), helloFor(second)]),
+      )
+      await new Promise((r) => setTimeout(r, 300))
+      const seen = Buffer.concat(up.received)
+      expect(seen.includes(Buffer.from(second)), second).toBe(passes)
+      if (!passes)
+        expect(s.audit()).toContain(
+          `second TLS server name ${second} isn't the host`,
+        )
+      vm.destroy()
+    } finally {
+      s.server.close()
+      s.up.server.close()
+      up.server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   }
 })

@@ -128,12 +128,12 @@ for (const [net, bits] of [
   ['64:ff9b::', 96], // NAT64
   ['64:ff9b:1::', 48],
   ['100::', 64], // discard
-  ['2001::', 32], // Teredo
+  ['2001::', 23], // IETF protocol assignments: Teredo, benchmarking, ORCHID, AMT, AS112
+  ['100:0:0:1::', 64], // dummy prefix
+  ['2620:4f:8000::', 48], // AS112
   ['2001:db8::', 32], // documentation
   ['2002::', 16], // 6to4
   ['::ffff:0:0:0', 96], // SIIT: IPv4 translated
-  ['2001:2::', 48], // benchmarking
-  ['2001:10::', 28], // ORCHID
   ['3fff::', 20], // documentation
   ['5f00::', 16], // segment routing
   ['fc00::', 7], // unique local
@@ -219,8 +219,8 @@ export function serverName(hello: Buffer): string | undefined {
     if (type === undefined || length === undefined) return
     const ext = take(length)
     if (!ext) return
-    // encrypted_client_hello, and its draft codepoint
-    if (type === 0xfe0d || type === 0xffce) return
+    // encrypted_client_hello, its earlier drafts (0xfe0x) and 0xffce
+    if ((type & 0xfff0) === 0xfe00 || type === 0xffce) return
     if (type !== 0) continue
     if (++names > 1) return
     // server_name: list length (2), then exactly one host_name entry.
@@ -329,6 +329,40 @@ function readUntil<T>(
     socket.on('close', onClose)
     socket.resume()
   })
+}
+
+/** A buffer holding at least one whole TLS record. */
+const wholeRecord = (b: Buffer) =>
+  b.length >= 5 + b.readUInt16BE(3) ? b : undefined
+
+/** HelloRetryRequest: a ServerHello whose random is this fixed value (RFC 8446 4.1.3). */
+const HELLO_RETRY_RANDOM = Buffer.from(
+  'cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c',
+  'hex',
+)
+export function isHelloRetry(record: Buffer): boolean {
+  return (
+    record.length >= 43 &&
+    record[0] === 0x16 &&
+    record[5] === 0x02 &&
+    record.subarray(11, 43).equals(HELLO_RETRY_RANDOM)
+  )
+}
+
+/** Where the first handshake record starts, after any ChangeCipherSpec
+ *  records (a client may send one before its second hello). */
+function handshakeOffset(b: Buffer): number {
+  let at = 0
+  while (at + 5 <= b.length && b[at] === 0x14) at += 5 + b.readUInt16BE(at + 3)
+  return at
+}
+
+/** A buffer holding the client's next whole handshake record. */
+const nextHandshake = (b: Buffer) => {
+  const at = handshakeOffset(b)
+  return at + 5 <= b.length && b.length >= at + 5 + b.readUInt16BE(at + 3)
+    ? b
+    : undefined
 }
 
 /** Resolves within `ms`, or fails. */
@@ -489,6 +523,46 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
     upstream.once('close', () => done('closed', true))
     upstream.write(hello)
     up += hello.length
+    // A HelloRetryRequest makes the VM send a second ClientHello on the same
+    // connection; it is held to the same check as the first before any bytes
+    // pass blindly.
+    let reply: Buffer<ArrayBufferLike>
+    try {
+      reply = await readUntil(
+        upstream,
+        wholeRecord,
+        Buffer.alloc(0),
+        MAX_HEAD,
+        5,
+      )
+    } catch {
+      return done('no answer from the server')
+    }
+    if (finished) return
+    socket.write(reply)
+    down += reply.length
+    if (isHelloRetry(reply)) {
+      let again: Buffer<ArrayBufferLike>
+      try {
+        again = await readUntil(
+          socket,
+          nextHandshake,
+          Buffer.alloc(0),
+          MAX_HEAD,
+          5,
+        )
+      } catch {
+        return done('no second TLS hello')
+      }
+      if (finished) return
+      const second = serverName(again.subarray(handshakeOffset(again)))
+      if (second !== host)
+        return done(
+          `second TLS server name ${second ?? 'missing or ambiguous'} isn't the host`,
+        )
+      upstream.write(again)
+      up += again.length
+    }
     socket.on('data', (c) => void (up += c.length))
     upstream.on('data', (c) => void (down += c.length))
     socket.pipe(upstream)
@@ -526,7 +600,7 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
     // separator that the upstream might decode into another path.
     if (
       r.paths &&
-      (/%(2f|5c|2e)/i.test(target.pathname) ||
+      (/%(25|2f|5c|2e)/i.test(target.pathname) ||
         !r.paths.some(
           (p) => target.pathname === p || target.pathname.startsWith(p + '/'),
         ))
