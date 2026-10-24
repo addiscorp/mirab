@@ -144,6 +144,10 @@ export async function startDev(o: {
   }
 }
 
+/** Handled while mirab dev runs: Ctrl-C before the terminal is raw (the VM is
+ *  still starting), and being told to stop. The VM is closed either way. */
+const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+
 /** Ctrl-]: leaves mirab dev from the host, whatever the guest is doing. */
 export const ESCAPE = 0x1d
 
@@ -161,8 +165,8 @@ export async function devInTerminal(
     data.includes(ESCAPE) ? leave(130) : dev?.pty.write(data)
   const resize = () => dev?.pty.resize(out.columns || 80, out.rows || 24)
   const onSignal = () => leave(143)
-  for (const signal of ['SIGTERM', 'SIGHUP'] as const)
-    process.on(signal, onSignal)
+  const ended = () => dev?.pty.write('\x04')
+  for (const signal of SIGNALS) process.on(signal, onSignal)
   try {
     dev = await startDev({
       ...options,
@@ -175,14 +179,14 @@ export async function devInTerminal(
     if (raw) input.setRawMode(true)
     input.on('data', forward)
     // Input that ends (not a terminal) ends the chat as Ctrl-D would.
-    input.on('end', () => dev?.pty.write('\x04'))
+    input.on('end', ended)
     out.on('resize', resize)
     return await left
   } finally {
     input.off('data', forward)
+    input.off('end', ended)
     out.off('resize', resize)
-    for (const signal of ['SIGTERM', 'SIGHUP'] as const)
-      process.off(signal, onSignal)
+    for (const signal of SIGNALS) process.off(signal, onSignal)
     if (raw) input.setRawMode(false)
     input.pause()
     await dev?.close()
