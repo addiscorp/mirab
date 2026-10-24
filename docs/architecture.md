@@ -150,6 +150,79 @@ VM ──HTTPS_PROXY──▶ 127.0.0.1:8790 ──vsock──▶ station ──
 - Audit: one line per call or connection (zone, route or host, status, bytes),
   never a credential.
 
+## 5a. The agent manifest
+
+mirab reads one thing about an agent: its **manifest**, plain data that
+mirab's schema checks. There are two ways to write one, and both produce the
+same manifest, so there is one definition of what an agent is.
+
+```
+agent/agent.ts  ─┐
+                 ├──▶  manifest (JSON)  ──▶  mirab dev · mirab up
+flake.nix       ─┘
+```
+
+| Field | What it is |
+|---|---|
+| `name` | The agent's harar name, `<org>.agent.<name>` |
+| `model` | `provider/model`, reached through the station's route |
+| `instructions` | The system prompt, from a file |
+| `tools` | TypeScript tools (`defineTool`, run by the agent loop) or command tools (below) |
+| `packages` | What its VM image holds besides the base |
+| `domains` | Its zone's whitelist (section 5) |
+| `channels` | The channels it joins (section 4) |
+
+- **TypeScript:** `agent/agent.ts` exports `defineAgent({...})`, as today, with
+  tools in `agent/tools/`.
+- **Nix:** a flake output, read with `nix eval .#agents.<name> --json`:
+
+  ```nix
+  agents.ops = {
+    name = "gg.addis.agent.ops";
+    model = "anthropic/claude-sonnet-5-5";
+    instructions = ./instructions.md;
+    packages = [ pkgs.ripgrep pkgs.git ];
+    domains = [ "api.github.com" ];
+    tools.search = {
+      description = "Search the workspace";
+      command = "${pkgs.ripgrep}/bin/rg";
+      input = { type = "object"; properties.pattern.type = "string"; };
+    };
+  };
+  ```
+
+  One `flake.lock` pins the agent and its VM image together, committed in git.
+  For people without Nix installed, mirab can evaluate the flake inside its
+  build VM.
+
+**Command tools** make an agent possible without any JavaScript: a tool is an
+executable in the VM (Python, a shell script, a Go binary) with a JSON Schema
+for its input. It gets the model's input as JSON on stdin, checked against the
+schema first, and answers with JSON on stdout. The agent loop itself stays
+TypeScript on Bun, inside the guest image, so someone writing a Nix agent never
+installs Node.
+
+**Packages and domains are what an agent asks for when it hits a wall**, and
+in a manifest they are lines in git: an escalation is a diff a person approves
+(harar approvals), and the station's whitelist for the zone is the manifest's
+`domains`.
+
+## 5b. Guest images
+
+| VM | Image | Why |
+|---|---|---|
+| Agent VMs (short-lived, many) | Built with Nix from a pinned closure, with mirab's own minimal init (boot ~130 ms on the iMac) | Identical, reproducible images; one shared read-only store for every VM |
+| The coordinator (long-running, one per station) | Full NixOS | systemd services, rollbacks, its whole system config in git |
+
+- Every package is pinned by hash in `flake.lock`; the guest's Bun, which the
+  station's TLS checks rely on (section 5), is one of them.
+- Software that expects a usual Linux layout (`/usr/lib`, prebuilt npm
+  binaries) runs through `nix-ld`.
+- Nix doesn't build Linux images natively on macOS: images are built in the
+  build VM (Colima today) or in CI.
+- The Ubuntu image stays the default until the Nix image passes the same live
+  tests: boot, the station's whitelist, Bun through the station.
+
 ## 6. Security, in one place
 
 - Nothing listens for the outside world on a station; channels and tunnels
@@ -174,7 +247,8 @@ VM ──HTTPS_PROXY──▶ 127.0.0.1:8790 ──vsock──▶ station ──
 | `mirab spawn` with the Claude and Codex adapters | Built (from gild); `--as`/`--channel` wait for #2 |
 | `mirab init` | Built (#9) |
 | The agent runtime (load a folder, run turns with tools) | Built (#11); started inside the VM with `mirab dev` |
-| `mirab dev` | Next |
+| The agent manifest (TypeScript first), command tools, the Nix front end and Nix-built guests (sections 5a, 5b) | Next, in that order |
+| `mirab dev` | Next, built on the manifest |
 | The way out of a VM: whitelist, routes (section 5) | Next |
 | Escalation as harar approvals | After harar#45 |
 | Station as a harar broker, `station install`, `up` | Phase 2 (needs harar's approvals and broker protocol) |
@@ -182,6 +256,8 @@ VM ──HTTPS_PROXY──▶ 127.0.0.1:8790 ──vsock──▶ station ──
 
 ## 8. Decided, and open
 
+- Decided (Sami, 24 Oct): one agent manifest, written in TypeScript or Nix;
+  command tools; Nix-built guest images (sections 5a, 5b).
 - Decided (Sami, 24 Oct): a whitelist of domains per zone, with escalation;
   the station adds only long-lived keys that have no narrow form.
 - v1: the Anthropic route and the whitelist; GitHub through short-lived GitHub
