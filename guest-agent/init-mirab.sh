@@ -45,4 +45,7 @@ if [ -e /sys/class/net/eth0 ]; then
     /bin/mount --bind /run/resolv.conf /etc/resolv.conf 2>/dev/null
   fi
 fi
+# The way out: 127.0.0.1:8790 goes to the station over vsock (HTTPS_PROXY and
+# the model route point there). Without a station listening, it simply fails.
+/usr/local/bin/mirab-guest-agent --forward 8790:9101 &
 exec /usr/local/bin/mirab-guest-agent --vsock 9002

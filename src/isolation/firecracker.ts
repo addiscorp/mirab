@@ -170,7 +170,13 @@ export function vsockMembers(
   listeners: Server[],
 ): Pick<
   Isolation,
-  'guestPath' | 'put' | 'exec' | 'pty' | 'files' | 'onGuestMessage'
+  | 'guestPath'
+  | 'put'
+  | 'exec'
+  | 'pty'
+  | 'files'
+  | 'onGuestMessage'
+  | 'onGuestConnect'
 > {
   const toGuest = (p: string) =>
     p === work
@@ -192,6 +198,11 @@ export function vsockMembers(
       })
       server.listen(`${uds}_${port}`)
       listeners.push(server)
+    },
+    // The path names this VM: the hypervisor delivers only its guest's
+    // connections there, so whoever serves it knows which VM is calling.
+    onGuestConnect: async (port, serve) => {
+      listeners.push(await serve(`${uds}_${port}`))
     },
   }
 }

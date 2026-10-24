@@ -46,8 +46,12 @@ export interface VzConfig {
   egress: 'auto' | 'block' | 'allow'
 }
 
-/** Guest -> host vsock ports the helper relays (the spawn --vm hook relay). */
-export const GUEST_TO_HOST_PORTS = [9100]
+/** Guest -> host vsock ports the helper relays: the spawn --vm hook relay
+ *  (9100) and the way out through the station (9101). */
+export const GUEST_TO_HOST_PORTS = [9100, 9101]
+/** The guest's loopback port for the way out, and the host vsock port it reaches. */
+export const EGRESS_GUEST_PORT = 8790
+export const EGRESS_HOST_PORT = 9101
 
 export const VZ_NETWORK_MARKER = '/etc/mirab/vz-network.json'
 export const VZ_SETUP_COMMAND = 'sudo scripts/vz-network-setup.sh'
