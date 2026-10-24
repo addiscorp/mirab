@@ -44,6 +44,12 @@ export interface Isolation {
   files?: GuestFiles
   /** Messages the guest initiates toward the host on a vsock port (hooks). */
   onGuestMessage?(port: number, handler: (message: any) => void): void
+  /** Serve the VM's guest-to-host `port` (e.g. the station's egress): `serve`
+   *  listens on the socket path given, which belongs to this VM alone. */
+  onGuestConnect?(
+    port: number,
+    serve: (socketPath: string) => Promise<import('node:net').Server>,
+  ): Promise<void>
   /** Stop the backend; preserve its workspace for recovery after incomplete sync. */
   close(options?: { preserveWorkspace?: boolean }): Promise<void>
 }

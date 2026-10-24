@@ -2,6 +2,7 @@
 // Rootfs is shared and read-only; the job work directory is packed into a
 // per-VM ext4 image attached as a second drive, so the base image is never
 // written and nothing of the host is visible to the guest.
+import { rmSync } from 'node:fs'
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
 import {
   createConnection,
@@ -170,7 +171,13 @@ export function vsockMembers(
   listeners: Server[],
 ): Pick<
   Isolation,
-  'guestPath' | 'put' | 'exec' | 'pty' | 'files' | 'onGuestMessage'
+  | 'guestPath'
+  | 'put'
+  | 'exec'
+  | 'pty'
+  | 'files'
+  | 'onGuestMessage'
+  | 'onGuestConnect'
 > {
   const toGuest = (p: string) =>
     p === work
@@ -192,6 +199,13 @@ export function vsockMembers(
       })
       server.listen(`${uds}_${port}`)
       listeners.push(server)
+    },
+    // The path names this VM: the hypervisor delivers only its guest's
+    // connections there, so whoever serves it knows which VM is calling.
+    onGuestConnect: async (port, serve) => {
+      // A socket left by an earlier VM at this path would refuse the listen.
+      rmSync(`${uds}_${port}`, { force: true })
+      listeners.push(await serve(`${uds}_${port}`))
     },
   }
 }

@@ -506,6 +506,64 @@ fn hook(args: &[String]) {
     }
 }
 
+/// The way out of the VM (mirab docs/architecture.md section 5): listen on a
+/// loopback TCP port and carry each connection to a host vsock port, where the
+/// station decides. Only loopback, so nothing else on a network can use it.
+fn forward(tcp_port: u16, vsock_port: u32) -> ! {
+    let listener = match std::net::TcpListener::bind(("127.0.0.1", tcp_port)) {
+        Ok(l) => l,
+        Err(e) => { eprintln!("mirab-guest-agent: forward listen 127.0.0.1:{tcp_port}: {e}"); std::process::exit(1) }
+    };
+    eprintln!("mirab-guest-agent: forwarding 127.0.0.1:{tcp_port} to host vsock {vsock_port}");
+    for stream in listener.incoming() {
+        let Ok(tcp) = stream else { continue };
+        std::thread::spawn(move || {
+            let Ok(host) = vsock_connect_host(vsock_port) else { return };
+            let (Ok(mut tcp_read), Ok(mut host_write)) = (tcp.try_clone(), host.try_clone()) else { return };
+            let (mut tcp_write, mut host_read) = (tcp, host);
+            let up = std::thread::spawn(move || {
+                let _ = std::io::copy(&mut tcp_read, &mut host_write);
+                let _ = host_write.flush();
+                // The VM side is done sending: tell the station, keep reading.
+                shutdown_write(&host_write);
+            });
+            let _ = std::io::copy(&mut host_read, &mut tcp_write);
+            let _ = tcp_write.shutdown(std::net::Shutdown::Both);
+            let _ = up.join();
+        });
+    }
+    std::process::exit(1)
+}
+
+fn shutdown_write(file: &std::fs::File) {
+    use std::os::fd::AsRawFd;
+    unsafe { libc::shutdown(file.as_raw_fd(), libc::SHUT_WR); }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn vsock_connect_host(_port: u32) -> std::io::Result<std::fs::File> {
+    Err(std::io::Error::other("vsock is only available inside a Linux guest"))
+}
+
+/// Connects to the host (CID 2) on `port`.
+#[cfg(target_os = "linux")]
+fn vsock_connect_host(port: u32) -> std::io::Result<std::fs::File> {
+    #[repr(C)]
+    struct SockaddrVm { family: u16, reserved: u16, port: u32, cid: u32, flags: u8, zero: [u8; 3] }
+    use std::os::fd::FromRawFd;
+    unsafe {
+        let fd = libc::socket(libc::AF_VSOCK, libc::SOCK_STREAM, 0);
+        if fd < 0 { return Err(std::io::Error::last_os_error()) }
+        let addr = SockaddrVm { family: libc::AF_VSOCK as u16, reserved: 0, port, cid: 2, flags: 0, zero: [0; 3] };
+        if libc::connect(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<SockaddrVm>() as u32) < 0 {
+            let e = std::io::Error::last_os_error();
+            libc::close(fd);
+            return Err(e);
+        }
+        Ok(std::fs::File::from_raw_fd(fd))
+    }
+}
+
 #[cfg(not(target_os = "linux"))]
 fn vsock_listen(_port: u32) -> std::io::Result<i32> {
     Err(std::io::Error::other("vsock is only available inside a Linux guest"))
@@ -555,7 +613,14 @@ fn main() {
                 std::thread::spawn(move || handle(Box::new(VsockConn(file))));
             }
         }
-        _ => { eprintln!("usage: mirab-guest-agent --vsock <port> | --stdio [--shared]"); std::process::exit(2) }
+        Some("--forward") => {
+            // `--forward 8790:9101`: loopback TCP port, host vsock port.
+            let spec = args.get(2).map(String::as_str).unwrap_or("8790:9101");
+            let parsed = spec.split_once(':').and_then(|(t, v)| Some((t.parse::<u16>().ok()?, v.parse::<u32>().ok()?)));
+            let Some((tcp, vsock)) = parsed else { eprintln!("usage: mirab-guest-agent --forward <tcp port>:<vsock port>"); std::process::exit(2) };
+            forward(tcp, vsock)
+        }
+        _ => { eprintln!("usage: mirab-guest-agent --vsock <port> | --stdio [--shared] | --forward <tcp port>:<vsock port>"); std::process::exit(2) }
     }
 }
 

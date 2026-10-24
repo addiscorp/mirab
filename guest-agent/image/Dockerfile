@@ -17,8 +17,9 @@ RUN cd guest-agent && cargo build --release --locked
 FROM ubuntu:24.04 AS rootfs
 ARG NODE_VERSION=24.21.0
 ARG NODE_SHA256=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
-ARG BUN_VERSION=1.3.14
-ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
+ARG BUN_VERSION=1.4.3
+# bun-linux-x64.zip for BUN_VERSION, from the release's SHASUMS256.txt.
+ARG BUN_SHA256=3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
