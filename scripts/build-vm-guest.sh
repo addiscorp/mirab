@@ -15,8 +15,13 @@ out=$(mkdir -p "$1" && cd "$1" && pwd)
 size=${2:-3G}
 kernel=${KERNEL_VERSION:-6.12.112}
 tag="mirab-guest-$$"
-cleanup() { docker rm -f "$tag-agent" "$tag-rootfs" "$tag-kernel" >/dev/null 2>&1 || true; }
-trap cleanup EXIT
+src=''
+cleanup() {
+  docker rm -f "$tag-agent" "$tag-kernel" >/dev/null 2>&1 || true
+  [ -z "$src" ] || rm -rf "$src"
+  rm -f "$out/mirab-guest-agent.part" "$out/rootfs.ext4.part" "$out/Image.part" "$out/bzImage.part"
+}
+trap cleanup EXIT INT TERM
 
 # Runs <script> in a new container of <image> named <name>, after copying
 # each <src>:<dest> pair in; the container is kept for `docker cp` out.
@@ -31,16 +36,17 @@ run_in() {
 if [ ! -s "$out/mirab-guest-agent" ]; then
   # The agent compiles in src/isolation/guest-protocol.json, so it needs both.
   src=$(mktemp -d "${TMPDIR:-/tmp}/mirab-guest-src.XXXXXX")
-  mkdir -p "$src/src/isolation"
-  cp -R "$here/guest-agent" "$src/guest-agent"
-  rm -rf "$src/guest-agent/target"
+  mkdir -p "$src/src/isolation" "$src/guest-agent"
+  cp -R "$here/guest-agent/Cargo.toml" "$here/guest-agent/Cargo.lock" "$here/guest-agent/src" "$src/guest-agent/"
   cp "$here/src/isolation/guest-protocol.json" "$src/src/isolation/"
   run_in "$tag-agent" rust:1-alpine '
     apk add -q musl-dev
     CARGO_TARGET_DIR=/build cargo build -q --release --locked --manifest-path /src/guest-agent/Cargo.toml
     cp /build/release/mirab-guest-agent /mirab-guest-agent' "$src/.:/src"
-  docker cp "$tag-agent:/mirab-guest-agent" "$out/mirab-guest-agent"
+  docker cp "$tag-agent:/mirab-guest-agent" "$out/mirab-guest-agent.part"
+  mv "$out/mirab-guest-agent.part" "$out/mirab-guest-agent"
   rm -rf "$src"
+  src=''
 fi
 file "$out/mirab-guest-agent"
 
@@ -51,21 +57,20 @@ if [ ! -s "$out/rootfs.ext4" ]; then
   cp "$here/guest-agent/init-mirab.sh" "$out/mirab-guest-agent" "$ctx/"
   docker build -q -t mirab-vm-rootfs "$ctx" >/dev/null
   cid=$(docker create mirab-vm-rootfs)
-  docker export "$cid" > "$out/rootfs.tar"
-  docker rm -f "$cid" >/dev/null
-  run_in "$tag-rootfs" alpine:3 "
-    apk add -q e2fsprogs
-    mkdir /r && tar -x -C /r -f /rootfs.tar
+  # The filesystem goes in on stdin and the image comes out on stdout as a
+  # sparse tar (GNU tar -S), so the mostly empty image stays sparse on the host.
+  docker export "$cid" | docker run --rm -i alpine:3 sh -euc "
+    apk add -q e2fsprogs tar >&2
+    mkdir /r && tar -x -C /r
     printf '127.0.0.1 localhost\n::1 localhost\n' > /r/etc/hosts
     printf 'nameserver 1.1.1.1\n' > /r/etc/resolv.conf
-    truncate -s $size /rootfs.ext4
+    truncate -s $size /rootfs.ext4.part
     # Fixed UUID, hash seed and filesystem timestamps (as guest-agent/image/Dockerfile).
     E2FSPROGS_FAKE_TIME=0 mke2fs -q -t ext4 -L mirab-root -U 6b1d0b9e-3f1a-4c5e-9a57-67696c64766d \\
-      -E hash_seed=6b1d0b9e-3f1a-4c5e-9a57-67696c64766d,root_owner=0:0 -d /r -F /rootfs.ext4" \
-    "$out/rootfs.tar:/rootfs.tar"
-  docker cp "$tag-rootfs:/rootfs.ext4" "$out/rootfs.ext4.part"
+      -E hash_seed=6b1d0b9e-3f1a-4c5e-9a57-67696c64766d,root_owner=0:0 -d /r -F /rootfs.ext4.part >&2
+    tar -cSf - -C / rootfs.ext4.part" | tar -xSf - -C "$out"
+  docker rm -f "$cid" >/dev/null
   mv "$out/rootfs.ext4.part" "$out/rootfs.ext4"
-  rm -f "$out/rootfs.tar"
 fi
 ls -l "$out/rootfs.ext4"
 
@@ -91,6 +96,7 @@ if [ -n "$arch" ] && [ ! -s "$out/$file" ]; then
     cp .config /kernel.built.config
     cp $image /kernel.out" "$here/guest-agent/$config:/kernel.config"
   docker cp "$tag-kernel:/kernel.built.config" "$out/$file.config"
-  docker cp "$tag-kernel:/kernel.out" "$out/$file"
+  docker cp "$tag-kernel:/kernel.out" "$out/$file.part"
+  mv "$out/$file.part" "$out/$file"
 fi
 ls -l "$out"

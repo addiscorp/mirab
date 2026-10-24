@@ -134,19 +134,20 @@ same guest agent from this checkout, so the handshake below applies to both.
 On an Intel Mac (proven on a 2020 iMac, i9, macOS 26):
 
 ```sh
-scripts/build-vz-helper.sh ~/.local/bin/mirab-vz     # x86_64, ad hoc signed; prints ok
+scripts/build-vz-helper.sh <bin>/mirab-vz            # x86_64, ad hoc signed; prints ok
 scripts/build-vm-guest.sh <dir>                       # mirab-guest-agent, rootfs.ext4, bzImage
 ```
 
 ```json
-{ "vm": { "vz": "~/.local/bin/mirab-vz", "kernel": "<dir>/bzImage", "rootfs": "<dir>/rootfs.ext4" } }
+{ "vm": { "vz": "<bin>/mirab-vz", "kernel": "<dir>/bzImage", "rootfs": "<dir>/rootfs.ext4" } }
 ```
 
 The x86_64 kernel must be relocatable (`CONFIG_RELOCATABLE`, in
 `guest-agent/kernel-x86_64-vz.config`): the framework places the kernel itself,
 and one built for a fixed address fails with "Internal Virtualization error"
-before it runs. The build script copies files in and out of docker instead of
-mounting them, because Colima only shares `$HOME` with its VM.
+before it runs. Paths in `isolation.json` are absolute (`~` is not expanded).
+The build script copies files in and out of docker instead of mounting them,
+because Colima only shares `$HOME` with its VM.
 
 ## Version handshake
 
