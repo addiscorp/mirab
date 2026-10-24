@@ -15,6 +15,10 @@ import {
   type VmConfig,
 } from './isolation'
 import { privateSessionsDirectory, socketPath } from './spawn-sessions'
+import { EGRESS_HOST_PORT } from './isolation/vz'
+import type { StationConfig } from './station/config'
+import { startEgress } from './station/egress'
+import { claudeGuestEnvironment, claudeRoute } from './station/routes'
 import {
   describeSync,
   hostManifest,
@@ -192,6 +196,14 @@ export async function startVmChild(opts: {
   cols: number
   rows: number
   log?: (line: string) => void
+  /** The station, for Claude Code on the person's own subscription. */
+  station?: {
+    config: StationConfig
+    /** Where its decisions go (JSON lines). */
+    auditLog: string
+    /** Where the claude route goes; tests point it at a stand-in. */
+    upstream?: string
+  }
 }): Promise<VmChild> {
   const vm = await requireVm(opts.configDir, opts.log)
   const kb = Number(
@@ -264,9 +276,32 @@ export async function startVmChild(opts: {
       basename(opts.binary)
     const args: string[] = []
     for (const a of opts.args) args.push((await upload(a, false)) ?? a)
+    // Claude Code runs on the person's own subscription through the station:
+    // the VM holds a placeholder, the station adds the token from harar.
+    let env = opts.env
+    const claude =
+      basename(opts.binary) === 'claude' && opts.station
+        ? claudeRoute(opts.station.config, opts.station.upstream)
+        : undefined
+    if (claude) {
+      await iso.onGuestConnect!(EGRESS_HOST_PORT, (socketPath) =>
+        startEgress({
+          socketPath,
+          // No harar identity for spawn sessions yet (#2): named by session.
+          zone: `vm-${opts.sessionId}`,
+          allow: [],
+          routes: { claude },
+          auditLog: opts.station!.auditLog,
+        }),
+      )
+      env = { ...env, ...claudeGuestEnvironment() }
+    } else if (basename(opts.binary) === 'claude')
+      opts.log?.(
+        'Claude Code in the VM has no login: add models.claude.token to station.json (the harar secret from `claude setup-token`)',
+      )
     const pty = await iso.pty!({
       argv: [program, ...args],
-      env: opts.env,
+      env,
       cwd: '/workspace',
       cols: opts.cols,
       rows: opts.rows,

@@ -17,6 +17,13 @@ export const stationConfigSchema = z.strictObject({
         key: z.string().min(1),
       })
       .optional(),
+    claude: z
+      .strictObject({
+        /** The harar secret holding Claude Code's token (`claude setup-token`),
+         *  for Claude Code in a VM on the person's own subscription. */
+        token: z.string().min(1),
+      })
+      .optional(),
   }),
 })
 export type StationConfig = z.infer<typeof stationConfigSchema>
@@ -24,17 +31,30 @@ export type StationConfig = z.infer<typeof stationConfigSchema>
 export const STATION_EXAMPLE = JSON.stringify(
   {
     harar: { socket: '/var/run/harar.sock' },
-    models: { anthropic: { key: 'personal/anthropic/API_KEY' } },
+    models: {
+      anthropic: { key: 'personal/anthropic/API_KEY' },
+      claude: { token: 'personal/claude/OAUTH_TOKEN' },
+    },
   },
   null,
   2,
 )
 
+/** station.json, or undefined when there is none and `optional` says that's fine. */
 export async function loadStationConfig(
   configDir: string,
-): Promise<StationConfig> {
+): Promise<StationConfig>
+export async function loadStationConfig(
+  configDir: string,
+  options: { optional: true },
+): Promise<StationConfig | undefined>
+export async function loadStationConfig(
+  configDir: string,
+  options?: { optional: true },
+): Promise<StationConfig | undefined> {
   const path = join(configDir, 'station.json')
   const text = await readFile(path, 'utf8').catch(() => undefined)
+  if (text === undefined && options?.optional) return undefined
   if (text === undefined)
     throw new Error(
       `${path} is missing: it says where harar is and which secret is the model key, like\n${STATION_EXAMPLE}`,

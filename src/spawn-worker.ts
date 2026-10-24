@@ -23,6 +23,7 @@ import { InjectionQueue } from './spawn-queue'
 import { startWatchdog } from './spawn-nudge-worker'
 import type { NudgeEvent } from './spawn-nudge'
 import { guestEnvironment, startVmChild, type VmChild } from './spawn-vm'
+import { loadStationConfig } from './station/config'
 import { startMultipassChild, usesMultipass } from './isolation/multipass'
 import {
   describeSync,
@@ -65,6 +66,12 @@ type Options = {
 const options: Options = JSON.parse(
   process.argv[process.argv[2] === '__vm-worker' ? 3 : 2],
 )
+/** The station for a VM session, when station.json says where harar is. */
+async function vmStation(configDir: string) {
+  const config = await loadStationConfig(configDir, { optional: true })
+  return config && { config, auditLog: join(configDir, 'egress.log') }
+}
+
 // Scoped credentials travel over IPC, never argv, env, settings or event payloads.
 function credential<T>(type: string, key: string, wanted?: boolean) {
   if (!wanted) return undefined
@@ -628,6 +635,7 @@ async function main() {
         : options.vm
           ? await startVmChild({
               configDir: options.vm.configDir,
+              station: await vmStation(options.vm.configDir),
               sessionId: options.id,
               cwd: process.cwd(),
               binary,
