@@ -1,6 +1,6 @@
 # Local PTY verification
 
-The integration fixture drives gild inside an outer Unix PTY with Python's
+The integration fixture drives mirab inside an outer Unix PTY with Python's
 standard library. The child fixture puts its terminal in raw mode. No terminal
 windows or GUI automation are involved. `bun test src/spawn.test.ts` exercises
 stdin and stdout (including invalid UTF-8 and Ctrl-C), initial dimensions and
@@ -41,7 +41,7 @@ that install with an empty HOME. CI runs these checks on all three platforms.
 When Node, node-pty, or PTY creation is unavailable, `spawn` silently launches
 the original agent with inherited stdio and its exit status. Windows and
 pipes/redirects also take this native path, without hooks, injection or a socket.
-`GILD_DEBUG` is a tooling-only diagnostic for fallback reasons.
+`MIRAB_DEBUG` is a tooling-only diagnostic for fallback reasons.
 
 Only explicit nested-session markers are removed: `CLAUDECODE`, `CLAUDE_PID`,
 `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ID`,
@@ -52,7 +52,7 @@ and `CODEX_THREAD_ID`. Authentication, provider and effort configuration is kept
 cqx-desktop currently uses a broader prefix filter; the alias intentionally
 does not inherit that filter because it would remove user configuration.
 
-The native child shares the terminal process group; gild consumes its own SIGINT
+The native child shares the terminal process group; mirab consumes its own SIGINT
 without forwarding a second copy. The worker probes a colliding named socket
 and reclaims only a refused socket with an unchanged inode/device.
 
@@ -64,29 +64,29 @@ regressions fail with their fixes disabled and restores each source afterward.
 Checked against the compiled binary through an outer PTY, with normal home and
 installed agent authentication. Agent tool access was disabled/restricted. The
 harness answered Codex's cursor-position query, accepted trust for its own
-scratch workspace, and called `gild send` from a separate process. Agent redraw
+scratch workspace, and called `mirab send` from a separate process. Agent redraw
 controls and unrelated startup text are omitted below.
 
 Claude Code 2.1.295:
 
 ```text
-gild spawn --name <session> claude -- --tools '' --strict-mcp-config \
+mirab spawn --name <session> claude -- --tools '' --strict-mcp-config \
   --mcp-config '{"mcpServers":{}}' --setting-sources '' --permission-mode plan
-gild send <session> 'Reply with exactly GILD_PTY_REPLY_OK. Do not use any tools or inspect files.'
-❯ Reply with exactly GILD_PTY_REPLY_OK. Do not use any tools or inspect files.
-⏺ GILD_PTY_REPLY_OK
+mirab send <session> 'Reply with exactly MIRAB_PTY_REPLY_OK. Do not use any tools or inspect files.'
+❯ Reply with exactly MIRAB_PTY_REPLY_OK. Do not use any tools or inspect files.
+⏺ MIRAB_PTY_REPLY_OK
 SIGTERM → terminal restored
 ```
 
 Codex CLI 0.160.1:
 
 ```text
-gild spawn --name <session> codex -- --no-daemon --no-alt-screen \
+mirab spawn --name <session> codex -- --no-daemon --no-alt-screen \
   -s read-only -a never -c check_for_update_on_startup=false
-gild send <session> 'Reply with exactly GILD_PTY_REPLY_OK. Do not use any tools or inspect files.'
-› Reply with exactly GILD_PTY_REPLY_OK. Do not use any tools or inspect files.
+mirab send <session> 'Reply with exactly MIRAB_PTY_REPLY_OK. Do not use any tools or inspect files.'
+› Reply with exactly MIRAB_PTY_REPLY_OK. Do not use any tools or inspect files.
 • Working (0s • esc to interrupt)
-• GILD_PTY_REPLY_OK
+• MIRAB_PTY_REPLY_OK
 SIGTERM → terminal restored
 ```
 

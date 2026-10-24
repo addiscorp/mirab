@@ -9,8 +9,8 @@ export const GUEST_PROTOCOL: number = shared.protocol
 /** Where the guest image is rebuilt from; printed with every mismatch. */
 export const REBUILD_HINT =
   process.platform === 'darwin'
-    ? 'Rebuild the guest image from a gildforge/cli checkout at this gild version: `scripts/build-vm-guest.sh <dir>` (docs/VM.md)'
-    : 'Rebuild the guest image from a gildforge/cli checkout at this gild version: `bun run vm:image` (docs/VM.md)'
+    ? 'Rebuild the guest image from a gildforge/cli checkout at this mirab version: `scripts/build-vm-guest.sh <dir>` (docs/VM.md)'
+    : 'Rebuild the guest image from a gildforge/cli checkout at this mirab version: `bun run vm:image` (docs/VM.md)'
 
 export interface Channel {
   write(data: Uint8Array): void
@@ -31,7 +31,7 @@ export interface ExecOptions {
 export interface Isolation {
   readonly level: Level
   readonly backend: string
-  /** What `gild status` and job logs print. */
+  /** What `mirab status` and job logs print. */
   readonly label: string
   /** Host path of the job work directory -> where the guest sees it. */
   guestPath(hostPath: string): string
@@ -178,11 +178,11 @@ export class GuestProtocolError extends Error {}
  *  with the fix, instead of failing mid-session on an op it lacks. */
 export function checkGuestProtocol(hello: GuestHello, image: string) {
   if (hello.protocol === GUEST_PROTOCOL) return
-  const agent = `gild-guest-agent ${hello.agent ?? '(no version, before 0.2.0)'}`
+  const agent = `mirab-guest-agent ${hello.agent ?? '(no version, before 0.2.0)'}`
   throw new GuestProtocolError(
     hello.protocol < GUEST_PROTOCOL
-      ? `The guest image ${image} is outdated: its ${agent} speaks protocol ${hello.protocol}, this gild needs ${GUEST_PROTOCOL}. ${REBUILD_HINT}.`
-      : `The guest image ${image} is newer than this gild: its ${agent} speaks protocol ${hello.protocol}, this gild speaks ${GUEST_PROTOCOL}. Update gild, or ${REBUILD_HINT.charAt(0).toLowerCase() + REBUILD_HINT.slice(1)}.`,
+      ? `The guest image ${image} is outdated: its ${agent} speaks protocol ${hello.protocol}, this mirab needs ${GUEST_PROTOCOL}. ${REBUILD_HINT}.`
+      : `The guest image ${image} is newer than this mirab: its ${agent} speaks protocol ${hello.protocol}, this mirab speaks ${GUEST_PROTOCOL}. Update mirab, or ${REBUILD_HINT.charAt(0).toLowerCase() + REBUILD_HINT.slice(1)}.`,
   )
 }
 
@@ -274,7 +274,7 @@ export async function guestExec(
           }
           if (r.timed_out)
             await o.onLine(
-              `[gild: step timeout after ${o.timeoutMs / 60000} minutes]`,
+              `[mirab: step timeout after ${o.timeoutMs / 60000} minutes]`,
             )
           return r.code
         }
@@ -323,7 +323,7 @@ export async function guestPty(
       if (r.t === 'out') emit(Buffer.from(r.d, 'base64'))
       else if (r.t === 'exit') done(r.code)
       else if (r.t === 'error') {
-        emit(Buffer.from(`gild: ${r.message}\r\n`))
+        emit(Buffer.from(`mirab: ${r.message}\r\n`))
         done(127)
       }
     }

@@ -2,7 +2,7 @@ import os,sys,pty,subprocess,pathlib,tempfile,json,socket,select,time,signal,fcn
 # Preserve the failing phase if the unchanged outer 20-second watchdog fires.
 faulthandler.register(signal.SIGTERM,all_threads=True,chain=True)
 ROOT=pathlib.Path(__file__).resolve().parents[2]
-CLI=json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI=json.loads(os.environ['TEST_MIRAB_COMMAND'])
 class Server(http.server.ThreadingHTTPServer):
     def server_bind(self):
         # http.server.HTTPServer.server_bind resolves the host with socket.getfqdn,
@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='ev-') as d:
         sha=subprocess.check_output(['git','-C',str(cwd),'rev-parse','HEAD'],text=True,timeout=8).strip()
         origin=f'http://127.0.0.1:{api.server_port}'
         subprocess.run(['git','-C',str(cwd),'remote','add','origin',origin+'/owner/demo.git'],check=True,timeout=8)
-        agent_file=home/'.config/gild/agents/fixture.json';agent_file.parent.mkdir(parents=True)
+        agent_file=home/'.config/mirab/agents/fixture.json';agent_file.parent.mkdir(parents=True)
         agent_file.write_text(json.dumps({'schema':1,'name':'owner/fixture','server':origin,'token':'fixture-scoped-token','publicKey':'test-public','secretKey':'test-private','requestId':'test-request','createdAt':'2026-10-08T00:00:00Z'}));agent_file.chmod(0o600)
         extra=['--as','fixture']
     if local_mode:
@@ -46,16 +46,16 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='ev-') as d:
     session='fixture' if profile_mode else 'events'
     native=['claude']
     if profile_mode:
-        profile_file=home/'.gild/agents/fixture.json';profile_file.parent.mkdir(parents=True)
+        profile_file=home/'.mirab/agents/fixture.json';profile_file.parent.mkdir(parents=True)
         profile_file.write_text(json.dumps({'name':'fixture','runtime':'claude','model':'claude-opus-5-5','effort':'high','directory':str(cwd),'args':['--allowedTools','Read'],'channels':['owner/demo'],'env':['PATH','HOME','KEEP_TEST']}))
         env.update({'KEEP_TEST':'allowed','KEEP_DROP':'blocked'})
         extra=[];native=['agent','fixture','--resume','a b','--','--as','literal']
     if stale_mode:
-        stale=home/'.gild/sessions/fixture.sock';stale.parent.mkdir(parents=True,exist_ok=True)
+        stale=home/'.mirab/sessions/fixture.sock';stale.parent.mkdir(parents=True,exist_ok=True)
         old=socket.socket(socket.AF_UNIX);old.bind(str(stale));old.close()
     m,s=pty.openpty();fcntl.ioctl(s,termios_TIOCSWINSZ:=getattr(__import__('termios'),'TIOCSWINSZ'),struct.pack('HHHH',24,80,0,0))
     proc=subprocess.Popen(CLI+['spawn']+([] if profile_mode else ['--name','events'])+extra+native,stdin=s,stdout=s,stderr=s,env=env,cwd=ROOT if profile_mode else cwd,start_new_session=True)
-    path=home/f'.gild/sessions/{session}.sock';buf=b''
+    path=home/f'.mirab/sessions/{session}.sock';buf=b''
     def read(t=.1):
         global buf
         until=time.monotonic()+t
@@ -108,7 +108,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='ev-') as d:
             assert {x['id'] for x in sessions}=={'fixture','fixture-2'},sessions
             assert all(x['profile']=='fixture' and x['cwd']==str(cwd) for x in sessions),sessions
             with socket.socket(socket.AF_UNIX) as c:
-                c.settimeout(2);c.connect(str(home/'.gild/sessions/fixture-2.sock'));c.sendall(b'{"type":"info"}\n')
+                c.settimeout(2);c.connect(str(home/'.mirab/sessions/fixture-2.sock'));c.sendall(b'{"type":"info"}\n')
                 assert json.loads(c.recv(65536))['state']=='idle'
             # Delivered straight after start: no turn has to finish first.
             sent=subprocess.run(CLI+['send','fixture-2','second session'],env=env,capture_output=True,timeout=8)
@@ -118,8 +118,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='ev-') as d:
                 if select.select([second_m],[],[],.05)[0]:second_buf+=os.read(second_m,65536)
             assert b'"line": "second session"' in second_buf,second_buf
             second.send_signal(signal.SIGTERM);assert second.wait(timeout=8)==143
-            assert not (home/'.gild/sessions/fixture-2.sock').exists()
-            assert not (home/'.gild/sessions/fixture-2/settings.json').exists()
+            assert not (home/'.mirab/sessions/fixture-2.sock').exists()
+            assert not (home/'.mirab/sessions/fixture-2/settings.json').exists()
             reports.clear() # Subsequent assertions concern the original live receipt.
         if reporting:
             argv=subprocess.check_output(['ps','-p',str(status()['pid']),'-o','command='],text=True,timeout=8)
@@ -140,7 +140,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='ev-') as d:
         hook('Stop');os.write(m,b'paste\x1b[200~one\ntwo\x1b[201~');send('third');read(.2);assert lines()==['first','second']
         os.write(m,b'\x03');wait(lambda:lines()==['first','second','third'])
         hook('Stop');assert status()['state']=='idle'
-        settings=home/f'.gild/sessions/{session}/settings.json';assert settings.stat().st_mode&0o777==0o600
+        settings=home/f'.mirab/sessions/{session}/settings.json';assert settings.stat().st_mode&0o777==0o600
         proc.send_signal(signal.SIGTERM);assert proc.wait(timeout=8)==143
         assert not path.exists() and not settings.exists()
         assert [hashlib.sha256(p.read_bytes()).hexdigest() for p in configs]==before

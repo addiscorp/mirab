@@ -1,8 +1,8 @@
 [package]
-name = "gild-guest-agent"
+name = "mirab-guest-agent"
 version = "0.2.0"
 edition = "2021"
-description = "Guest side of gild isolation: runs steps inside a microVM or container and streams their output"
+description = "Guest side of mirab isolation: runs steps inside a microVM or container and streams their output"
 
 [dependencies]
 libc = "0.2"

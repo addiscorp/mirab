@@ -14,7 +14,7 @@ def turn_complete():
     p=subprocess.run(notify_command()+[json.dumps({'type':'agent-turn-complete','thread-id':'fixture-thread'})],capture_output=True)
     assert p.returncode==0,p.stderr
 # Codex draws its first screen over a few hundred milliseconds and then sits
-# at its composer; nothing tells gild it is ready.
+# at its composer; nothing tells mirab it is ready.
 for part in ['\x1b[2J', 'OpenAI Codex\r\n', '› Ask Codex to do anything\r\n']:
     os.write(1,part.encode());time.sleep(.2)
 emit({'ready':True,'argv':sys.argv[1:]})

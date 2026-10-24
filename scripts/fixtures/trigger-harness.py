@@ -1,11 +1,11 @@
-"""Trigger bridge end to end: fake forge + `gild spawn agent` alice (trigger) and bob (channel).
+"""Trigger bridge end to end: fake forge + `mirab spawn agent` alice (trigger) and bob (channel).
 
 alice carries `--on issues.labeled:triage`; bob is a plain channel agent. Labeling
 an issue wakes alice once; her unprompted `chat send "@bob ..."` wakes bob.
 """
 import os,sys,pty,subprocess,pathlib,tempfile,json,socket,select,time,signal,fcntl,struct,http.server,threading,urllib.parse,termios,re,socketserver
 ROOT=pathlib.Path(__file__).resolve().parents[2]
-CLI=json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI=json.loads(os.environ['TEST_MIRAB_COMMAND'])
 AGENTS={'fixture-token-alice':'owner/alice','fixture-token-bob':'owner/bob'}
 class Server(http.server.ThreadingHTTPServer):
     def server_bind(self):
@@ -71,15 +71,15 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='trigger-') as d:
     api=Server(('127.0.0.1',0),API);threading.Thread(target=api.serve_forever,daemon=True).start()
     origin=f'http://127.0.0.1:{api.server_port}'
     for label,token in [('alice','fixture-token-alice'),('bob','fixture-token-bob')]:
-        agent_file=home/f'.config/gild/agents/{label}.json';agent_file.parent.mkdir(parents=True,exist_ok=True)
+        agent_file=home/f'.config/mirab/agents/{label}.json';agent_file.parent.mkdir(parents=True,exist_ok=True)
         agent_file.write_text(json.dumps({'schema':1,'name':f'owner/{label}','server':origin,'token':token,'publicKey':'test-public','secretKey':'test-private','requestId':'test-request','createdAt':'2026-10-08T00:00:00Z'}));agent_file.chmod(0o600)
     for label,profile in [('alice',{'name':'alice','runtime':'claude','directory':str(home/'work-alice'),'args':[],'channels':['owner/demo'],'on':['issues.labeled:triage'],'env':['PATH','HOME']}),('bob',{'name':'bob','runtime':'claude','directory':str(home/'work-bob'),'args':[],'channels':['owner/demo'],'env':['PATH','HOME']})]:
         pathlib.Path(profile['directory']).mkdir()
-        profile_file=home/f'.gild/agents/{label}.json';profile_file.parent.mkdir(parents=True,exist_ok=True)
+        profile_file=home/f'.mirab/agents/{label}.json';profile_file.parent.mkdir(parents=True,exist_ok=True)
         profile_file.write_text(json.dumps(profile))
     class Run:
         def __init__(self,label):
-            self.label=label;self.path=home/f'.gild/sessions/{label}.sock'
+            self.label=label;self.path=home/f'.mirab/sessions/{label}.sock'
             self.m,self.s=pty.openpty();fcntl.ioctl(self.s,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
             self.proc=subprocess.Popen(CLI+['spawn','agent',label],stdin=self.s,stdout=self.s,stderr=self.s,env=env,cwd=ROOT,start_new_session=True)
             self.buf=b'';self.stream=None;self.events=b''
@@ -109,7 +109,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='trigger-') as d:
             p=subprocess.run(CLI+['hook','--session',self.label],input=json.dumps({'hook_event_name':name,**extra}).encode(),env=env,capture_output=True,timeout=3)
             assert p.returncode==0 and p.stdout==b'' and p.stderr==b''
         def lines(self):return [json.loads(l)['line'] for l in self.buf.splitlines() if l.startswith(b'{') and 'line' in json.loads(l)]
-        def prompts(self):return [l for l in self.lines() if '[gild]' in l]
+        def prompts(self):return [l for l in self.lines() if '[mirab]' in l]
         def stages(self,kind,mid=None):
             out=[]
             for l in self.events.decode().splitlines():
@@ -133,12 +133,12 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='trigger-') as d:
         issue(12,'Triage me',label='triage')
         alice.wait(lambda:len(alice.prompts())==1)
         first=alice.prompts()[0]
-        assert '[gild] issue #12 "Triage me" labeled triage in owner/demo by sami' in first,first
+        assert '[mirab] issue #12 "Triage me" labeled triage in owner/demo by sami' in first,first
         context=re.search(r'Read:  (.+) issue view owner/demo#12',first)
         post=re.search(r'Post:  (.+) chat send owner/demo --agent alice',first)
         assert context and post and context[1]==post[1],first
-        expected=os.environ.get('TEST_GILD_PROMPT_COMMAND')
-        assert context[1]==expected if expected else context[1]!='gild' and 'gild' in context[1],first
+        expected=os.environ.get('TEST_MIRAB_PROMPT_COMMAND')
+        assert context[1]==expected if expected else context[1]!='mirab' and 'mirab' in context[1],first
         assert 'issue view owner/demo#12 --agent alice' in first and 'clone owner/demo --agent alice' in first,first
         # A non-matching label and a duplicate of the delivered event add nothing.
         issue(13,'Not it',label='wontfix')
@@ -148,7 +148,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='trigger-') as d:
         assert [s for _,s in alice.stages('trigger','issues:12:labeled:1')]==['received','queued','delivered'],alice.events.decode()
         assert alice.stages('trigger','issues:13:labeled:2')==[],alice.events.decode()
         assert bob.prompts()==[],bob.prompts()
-        saved=json.loads(pathlib.Path(home/'.gild/sessions/alice.mentions.json').read_text())
+        saved=json.loads(pathlib.Path(home/'.mirab/sessions/alice.mentions.json').read_text())
         assert saved['delivered']==['trigger:owner/demo#12:issues.labeled:triage'] and saved['cursors']['owner/demo']==str(len(forge['events'])),saved
         # Restart: the persisted cursor and delivered ids stop any replay.
         alice.hook('Stop');alice.stop();alice=None

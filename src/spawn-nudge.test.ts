@@ -127,7 +127,7 @@ test('idle fires once, re-arms after busy, and respects the repeat limit', () =>
   clock.advance(20 * MIN - 1)
   expect(prompts).toEqual([])
   clock.advance(1)
-  expect(prompts).toEqual([`[gild] nudge: idle 20m. ${IDLE_PROMPT}`])
+  expect(prompts).toEqual([`[mirab] nudge: idle 20m. ${IDLE_PROMPT}`])
   expect(events).toEqual([
     {
       type: 'nudge',
@@ -140,7 +140,7 @@ test('idle fires once, re-arms after busy, and respects the repeat limit', () =>
   ])
   expect(notes).toEqual([
     {
-      text: '[gild nudge] idle 20m; asked the agent for a status report',
+      text: '[mirab nudge] idle 20m; asked the agent for a status report',
       repo: undefined,
     },
   ])
@@ -179,7 +179,7 @@ test('idle uses its custom message and is cancelled by activity', () => {
   clock.advance(9 * MIN)
   expect(prompts).toEqual([])
   clock.advance(1 * MIN)
-  expect(prompts).toEqual(['[gild] nudge: idle 10m. wrap up and report'])
+  expect(prompts).toEqual(['[mirab] nudge: idle 10m. wrap up and report'])
 })
 
 test('a draft holds the nudge until the composer is clear', async () => {
@@ -206,7 +206,7 @@ test('a draft holds the nudge until the composer is clear', async () => {
   expect(queue.held?.reason).toStartWith('unsent draft')
   queue.userInput(Buffer.from('\x15'))
   await Bun.sleep(300)
-  expect(written.join('')).toContain('[gild] nudge: idle 1m.')
+  expect(written.join('')).toContain('[mirab] nudge: idle 1m.')
   expect(written.at(-1)).toBe('\r')
   queue.close()
   w.close()
@@ -294,7 +294,7 @@ test("ci fires only for this agent's PRs and only while idle", () => {
   expect(prompts).toEqual([])
   w.events('owner/demo', [run(6, 'claude/nudges')])
   expect(prompts).toEqual([
-    '[gild] nudge: ci owner/demo: workflow "CI" failure on claude/nudges (run #6, https://gild.gg/owner/demo/actions/6). Read the result and continue.',
+    '[mirab] nudge: ci owner/demo: workflow "CI" failure on claude/nudges (run #6, https://gild.gg/owner/demo/actions/6). Read the result and continue.',
   ])
   expect(events).toMatchObject([
     {
@@ -306,7 +306,7 @@ test("ci fires only for this agent's PRs and only while idle", () => {
     },
   ])
   expect(notes[0].repo).toBe('owner/demo')
-  expect(notes[0].text).toStartWith('[gild nudge] ci owner/demo:')
+  expect(notes[0].text).toStartWith('[mirab nudge] ci owner/demo:')
   // A pull_request-triggered run by this agent counts without a seen PR event.
   w.events('owner/demo', [run(7, 'fresh', { event: 'pull_request' })])
   expect(prompts.length).toBe(2)
@@ -343,7 +343,7 @@ test('mention-unanswered fires, and does not fire after a reply', async () => {
   clock.advance(10 * MIN)
   await Bun.sleep(0)
   expect(prompts).toEqual([
-    '[gild] nudge: mention unanswered 10m. @sami in owner/demo (message 5) has no reply from you yet. Reply in the channel with your status.',
+    '[mirab] nudge: mention unanswered 10m. @sami in owner/demo (message 5) has no reply from you yet. Reply in the channel with your status.',
   ])
   expect(events).toMatchObject([
     {

@@ -29,7 +29,7 @@ const mutations = [
     'version',
     image,
     [['if (manifest.version !== version)', 'if (false)']],
-    'another gild version',
+    'another mirab version',
   ],
   [
     'protocol',

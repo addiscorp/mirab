@@ -1,14 +1,14 @@
-"""gild spawn --vm --detach: an orchestrator-style VM child with no terminal.
+"""mirab spawn --vm --detach: an orchestrator-style VM child with no terminal.
 
 spawn returns the id; send, sync, attach --watch and stop work on it; the
 guest's last changes reach the host when it is stopped. Needs a Firecracker
 host (isolation.json with `vm`) and a guest image with python3.
-  TEST_GILD_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-detach-harness.py
+  TEST_MIRAB_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-detach-harness.py
 """
 import os, subprocess, pathlib, tempfile, json, time, socket
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CLI = json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI = json.loads(os.environ['TEST_MIRAB_COMMAND'])
 CONFIG = os.environ['TEST_VM_CONFIG_DIR']
 
 with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmdetach-') as d:
@@ -19,16 +19,16 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmdetach-') as d:
     for name, text in {'marker.txt': 'host\n', 'gone.txt': 'bye\n', 'run.sh': '#!/bin/sh\necho hi\n', 'both.txt': 'original\n'}.items():
         (project / name).write_text(text)
     env = {**os.environ, 'HOME': d, 'PATH': str(bindir) + os.pathsep + os.environ['PATH']}
-    sock = home / '.gild/sessions/vmd.sock'
+    sock = home / '.mirab/sessions/vmd.sock'
 
-    def gild(*args, ok=True, cwd=None):
+    def mirab(*args, ok=True, cwd=None):
         p = subprocess.run(CLI + list(args), env=env, capture_output=True, timeout=60, cwd=cwd or project,
                            stdin=subprocess.DEVNULL)
         assert not ok or p.returncode == 0, (args, p.returncode, p.stdout, p.stderr)
         return p
 
     def output_log():
-        logs = list((home / '.gild/sessions').glob('**/output.log'))
+        logs = list((home / '.mirab/sessions').glob('**/output.log'))
         return logs[0].read_bytes() if logs else b''
 
     def wait(check, what, timeout=30):
@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmdetach-') as d:
 
     t0 = time.monotonic()
     # No terminal at all: stdin is /dev/null and stdout a pipe, as for an orchestrator.
-    started = gild('spawn', '--vm', '--detach', '--config-dir', CONFIG, '--name', 'vmd', '--idle-ms', '100', 'sync-agent')
+    started = mirab('spawn', '--vm', '--detach', '--config-dir', CONFIG, '--name', 'vmd', '--idle-ms', '100', 'sync-agent')
     started_s = time.monotonic() - t0
     try:
         assert started.stdout.decode().strip() == 'vmd', started
@@ -53,10 +53,10 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmdetach-') as d:
         assert info['childPid'] == -1 and info['detached'] is True, info
 
         (project / 'both.txt').write_text('host version\n')
-        gild('send', 'vmd', 'round1')
+        mirab('send', 'vmd', 'round1')
         wait(lambda: b'"done": "round1"' in output_log(), 'round1 done')
         assert not (project / 'new.txt').exists()
-        out = gild('sync', 'vmd').stdout.decode()
+        out = mirab('sync', 'vmd').stdout.decode()
         assert 'both.txt' in out, out
         assert (project / 'new.txt').read_text() == 'created in the guest\n'
         assert (project / 'marker.txt').read_text() == 'edited in the guest\n'
@@ -70,10 +70,10 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmdetach-') as d:
         assert b'"done": "round1"' in wout, wout
 
         # Work after the on-demand sync comes back when the session is stopped.
-        gild('send', 'vmd', 'round2')
+        mirab('send', 'vmd', 'round2')
         wait(lambda: b'"done": "round2"' in output_log(), 'round2 done')
         assert not (project / 'later.txt').exists()
-        gild('stop', 'vmd')
+        mirab('stop', 'vmd')
         wait(lambda: not sock.exists(), 'session gone after stop')
         wait(lambda: (project / 'later.txt').exists(), 'final sync at stop', 15)
         assert (project / 'later.txt').read_text() == 'written after the on-demand sync\n'

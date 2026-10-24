@@ -18,7 +18,7 @@ export function realAgent(
   if (platform === 'win32') return agent
   let visited: string[] = []
   try {
-    const chain = JSON.parse(process.env.GILD_SPAWN_CHAIN ?? '[]')
+    const chain = JSON.parse(process.env.MIRAB_SPAWN_CHAIN ?? '[]')
     if (Array.isArray(chain))
       visited = chain.filter((p): p is string => typeof p === 'string')
   } catch {}
@@ -32,9 +32,12 @@ export function realAgent(
       accessSync(candidate, constants.X_OK)
       const real = realpathSync(candidate)
       if (visited.includes(real)) continue
-      if (real === realpathSync(process.execPath) && basename(agent) === 'gild')
+      if (
+        real === realpathSync(process.execPath) &&
+        basename(agent) === 'mirab'
+      )
         continue
-      // Shell/script wrappers that re-enter gild cannot be the native agent.
+      // Shell/script wrappers that re-enter mirab cannot be the native agent.
       const fd = openSync(candidate, 'r')
       const buffer = Buffer.alloc(8192)
       let prefix: string
@@ -45,13 +48,13 @@ export function realAgent(
       } finally {
         closeSync(fd)
       }
-      if (prefix.startsWith('#!') && /\bgild\s+spawn\b/.test(prefix)) continue
-      if (basename(real) === 'gild' || basename(real) === 'gild.js') continue
+      if (prefix.startsWith('#!') && /\bmirab\s+spawn\b/.test(prefix)) continue
+      if (basename(real) === 'mirab' || basename(real) === 'mirab.js') continue
       return candidate
     } catch {}
   }
   throw new Error(
-    `No native ${agent} executable found on PATH (gild spawn wrappers are skipped)`,
+    `No native ${agent} executable found on PATH (mirab spawn wrappers are skipped)`,
   )
 }
 export function agentEnvironment(binary?: string, allowlist?: string[]) {
@@ -64,7 +67,7 @@ export function agentEnvironment(binary?: string, allowlist?: string[]) {
 
   let chain: string[] = []
   try {
-    const previous = JSON.parse(process.env.GILD_SPAWN_CHAIN ?? '[]')
+    const previous = JSON.parse(process.env.MIRAB_SPAWN_CHAIN ?? '[]')
     if (Array.isArray(previous))
       chain = previous.filter((p): p is string => typeof p === 'string')
   } catch {}
@@ -77,11 +80,11 @@ export function agentEnvironment(binary?: string, allowlist?: string[]) {
     } finally {
       closeSync(fd)
     }
-    // Native executables cannot re-enter gild as shell shims. Do not carry their
+    // Native executables cannot re-enter mirab as shell shims. Do not carry their
     // paths into an agent's own later spawn command.
     if (script) chain.push(realpathSync(binary))
     else chain = []
   }
-  env.GILD_SPAWN_CHAIN = JSON.stringify(chain)
+  env.MIRAB_SPAWN_CHAIN = JSON.stringify(chain)
   return env
 }

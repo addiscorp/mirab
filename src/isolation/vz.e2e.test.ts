@@ -83,7 +83,7 @@ describe.skipIf(!configDir)('vz microVM, live', () => {
         // Root is a per-VM clone: a write in VM 0 is not seen by VM 1.
         const seen = await run(
           iso,
-          'cat /etc/gild-e2e 2>/dev/null; echo vm' + i + ' > /etc/gild-e2e',
+          'cat /etc/mirab-e2e 2>/dev/null; echo vm' + i + ' > /etc/mirab-e2e',
         )
         expect(seen.code).toBe(0)
         expect(seen.out).toBe('')
@@ -131,7 +131,7 @@ describe.skipIf(!configDir)('vz microVM, live', () => {
       const got = new Promise<any>((r) => iso.onGuestMessage!(9100, r))
       const sent = await run(
         iso,
-        `echo '{"x":1}' | gild-guest-agent hook --session s-e2e --agent claude`,
+        `echo '{"x":1}' | mirab-guest-agent hook --session s-e2e --agent claude`,
       )
       console.log(`VZ hook: ${JSON.stringify(sent)}`)
       const m = await Promise.race([

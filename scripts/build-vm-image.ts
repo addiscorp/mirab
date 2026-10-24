@@ -33,7 +33,7 @@ function arg(name: string) {
   return i < 0 ? undefined : process.argv[i + 1]
 }
 const configDir = resolve(
-  arg('--config-dir') ?? join(homedir(), '.config', 'gild'),
+  arg('--config-dir') ?? join(homedir(), '.config', 'mirab'),
 )
 const paths = vmImagePaths(configDir)
 const sha256 = (data: Uint8Array) =>

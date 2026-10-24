@@ -1,5 +1,5 @@
 import { runNative, debugFallback, supportsPty } from './spawn-native'
-import { promptGild } from './gild-invocation'
+import { promptMirab } from './invocation'
 import { createRequire } from 'node:module'
 import { chmodSync, unlinkSync } from 'node:fs'
 import { chmod } from 'node:fs/promises'
@@ -59,7 +59,7 @@ type Options = {
   envAllowlist?: string[]
   nudges?: string[]
   detach?: { cols: number; rows: number }
-  /** `gild spawn --vm`: run the agent in a microVM; configDir holds isolation.json. */
+  /** `mirab spawn --vm`: run the agent in a microVM; configDir holds isolation.json. */
   vm?: { configDir: string }
 }
 const options: Options = JSON.parse(
@@ -143,7 +143,7 @@ function broadcast(event: AgentEvent | BridgeEvent | NudgeEvent) {
     else socket.write(line)
   }
 }
-/** True while the busy state is gild's own inference from an Enter, not a
+/** True while the busy state is mirab's own inference from an Enter, not a
  * report from the agent (Codex reports only turn ends). */
 let inferredBusy = false
 const quiet = adapter?.quiet
@@ -194,7 +194,7 @@ const output = new TerminalOutput(
 function killGroup(signal: NodeJS.Signals) {
   if (!child) return
   if ('dispose' in child) return child.kill() // the guest hangs up its own group
-  // node-pty's forkpty/setsid child owns this group, never gild's terminal group.
+  // node-pty's forkpty/setsid child owns this group, never mirab's terminal group.
   try {
     process.kill(-child.pid, signal)
   } catch (error) {
@@ -229,7 +229,7 @@ function restore() {
   host?.cleanup()
   server.close()
 }
-/** The final event: subscribers (and a `gild stop` caller) learn the exit
+/** The final event: subscribers (and a `mirab stop` caller) learn the exit
  * code, and are closed in order before the socket goes. */
 let exitFlushed: Promise<unknown> = Promise.resolve()
 function announceExit(code: number, recovery?: RecoveryLocation) {
@@ -270,16 +270,16 @@ function finish(code: number, terminate = true) {
                 recovery = r.recovery
                 if (recovery) code ||= 1
                 console.error(
-                  `gild: working directory synced from the VM: ${describeSync(r)}`,
+                  `mirab: working directory synced from the VM: ${describeSync(r)}`,
                 )
                 for (const c of r.conflicts)
                   console.error(
-                    `gild: kept the host copy of ${c.path} (${c.reason})${c.saved ? `; recovery entry: ${c.saved}` : ''}`,
+                    `mirab: kept the host copy of ${c.path} (${c.reason})${c.saved ? `; recovery entry: ${c.saved}` : ''}`,
                   )
               })
               .catch((error) => {
                 console.error(
-                  `gild: final VM sync failed: ${(error as Error).message}; recovery workspace retained`,
+                  `mirab: final VM sync failed: ${(error as Error).message}; recovery workspace retained`,
                 )
                 code ||= 1
                 if (child && 'dispose' in child) recovery = child.recovery
@@ -287,7 +287,7 @@ function finish(code: number, terminate = true) {
           : undefined
       void Promise.allSettled([reporter?.close(), vm]).then(async () => {
         if (recovery) {
-          const notice = `gild: VM workspace retained for recovery: ${recovery.directory}\r\n`
+          const notice = `mirab: VM workspace retained for recovery: ${recovery.directory}\r\n`
           host?.push(Buffer.from(notice))
         }
         // Subscribers and stop callers stay connected until final sync/recovery
@@ -316,15 +316,15 @@ function failed(error: unknown) {
     error: String((error as Error)?.message ?? error),
   })
   console.error(
-    `gild spawn: ${error instanceof Error ? error.message : String(error)}`,
+    `mirab spawn: ${error instanceof Error ? error.message : String(error)}`,
   )
   finish(1)
 }
 process.on('SIGTERM', () => finish(143))
 process.on('SIGHUP', () => finish(129))
-// Raw-mode Ctrl-C goes down stdin. An externally delivered SIGINT hangs up gild.
+// Raw-mode Ctrl-C goes down stdin. An externally delivered SIGINT hangs up mirab.
 process.on('SIGINT', () => finish(130))
-// A detached worker outlives the `gild spawn --detach` that started it.
+// A detached worker outlives the `mirab spawn --detach` that started it.
 if (!options.detach) process.on('disconnect', () => finish(1))
 process.on('uncaughtException', failed)
 process.on('unhandledRejection', failed)
@@ -340,9 +340,9 @@ async function fallback(error: unknown) {
     // Never quietly run an agent that was asked to be isolated on the host.
     const message = `--vm failed: ${(error as Error)?.message ?? error}`
     restore()
-    // After restore: `gild spawn --detach` returns on this message, with the session already gone.
+    // After restore: `mirab spawn --detach` returns on this message, with the session already gone.
     await reportDetached(options.detach, { type: 'failed', error: message })
-    console.error(`gild: ${message}`)
+    console.error(`mirab: ${message}`)
     process.exit(1)
   }
   debugFallback(error)
@@ -448,7 +448,7 @@ async function main() {
         }
         if (request.type === 'sync') {
           if (!child || !('dispose' in child))
-            throw new Error('sync applies to gild spawn --vm sessions only')
+            throw new Error('sync applies to mirab spawn --vm sessions only')
           socket.setTimeout(0)
           void child.sync().then(
             (r) => socket.end(JSON.stringify(summary(r)) + '\n'),
@@ -623,7 +623,7 @@ async function main() {
             agent: options.profile?.name ?? options.identity?.split('/')[1],
             cols: options.detach?.cols ?? (process.stdout.columns || 80),
             rows: options.detach?.rows ?? (process.stdout.rows || 24),
-            log: (line) => console.error(`gild: ${line}`),
+            log: (line) => console.error(`mirab: ${line}`),
           })
         : options.vm
           ? await startVmChild({
@@ -635,7 +635,7 @@ async function main() {
               env: guestEnvironment(env, baseEnv, options.envAllowlist),
               cols: options.detach?.cols ?? (process.stdout.columns || 80),
               rows: options.detach?.rows ?? (process.stdout.rows || 24),
-              log: (line) => console.error(`gild: ${line}`),
+              log: (line) => console.error(`mirab: ${line}`),
             })
           : pty!.spawn(binary, prepared?.args ?? options.args, {
               name: 'xterm-256color',
@@ -692,7 +692,7 @@ async function main() {
       client: new GildClient(target.server + '/api/v1', target.token),
       agent: target.agent,
       label: options.profile.name,
-      gild: promptGild(options.hookCommand),
+      gild: promptMirab(options.hookCommand),
       session: options.id,
       repos: options.profile.channels ?? [],
       triggers: options.profile.on ?? [],
@@ -737,7 +737,7 @@ function summary(r: SyncResult): SyncSummary {
     conflicts: r.conflicts.slice(0, 100),
   }
 }
-/** `gild stop`: the agent gets the same hangup a closed terminal gives it,
+/** `mirab stop`: the agent gets the same hangup a closed terminal gives it,
  * then SIGKILL after the grace period; its exit then ends the session. */
 let stopping: ReturnType<typeof setTimeout> | undefined
 function stop(graceMs: unknown) {

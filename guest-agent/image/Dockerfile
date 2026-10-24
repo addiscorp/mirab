@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# The `gild spawn --vm` / `gild runner --isolation vm` guest root filesystem.
+# The `mirab spawn --vm` / `mirab runner --isolation vm` guest root filesystem.
 # Build it with `bun run vm:image` (scripts/build-vm-image.ts), never by hand:
 # the build context is the repository root, and the result is one ext4 file.
 # Every download is pinned by version and sha256.
@@ -33,11 +33,11 @@ RUN curl -fsSLo /tmp/node.tar.xz https://nodejs.org/dist/v${NODE_VERSION}/node-v
  && echo "${BUN_SHA256}  /tmp/bun.zip" | sha256sum -c - \
  && unzip -q /tmp/bun.zip -d /tmp && install -m 0755 /tmp/bun-linux-x64/bun /usr/local/bin/bun \
  && rm -rf /tmp/bun.zip /tmp/bun-linux-x64
-# Mount points init-gild.sh uses.
+# Mount points init-mirab.sh uses.
 RUN mkdir -p /workspace /artifacts
-COPY --from=agent /build/guest-agent/target/release/gild-guest-agent /usr/local/bin/gild-guest-agent
-COPY guest-agent/init-gild.sh /init-gild.sh
-RUN chmod 0755 /init-gild.sh /usr/local/bin/gild-guest-agent
+COPY --from=agent /build/guest-agent/target/release/mirab-guest-agent /usr/local/bin/mirab-guest-agent
+COPY guest-agent/init-mirab.sh /init-mirab.sh
+RUN chmod 0755 /init-mirab.sh /usr/local/bin/mirab-guest-agent
 
 # 3. Pack it into an ext4 image as root, so ownership and setuid bits survive.
 FROM debian:trixie-slim AS image
@@ -47,12 +47,12 @@ COPY --from=rootfs / /rootfs
 # Fixed UUID, hash seed and filesystem timestamps, so packing the same tree
 # twice gives the same bytes (apt package versions still move with the mirror).
 ARG SOURCE_DATE_EPOCH=0
-# resolv.conf is a build-time mount above; init-gild.sh bind-mounts over this file.
+# resolv.conf is a build-time mount above; init-mirab.sh bind-mounts over this file.
 RUN rm -rf /rootfs/proc/* /rootfs/sys/* /rootfs/dev/* /rootfs/etc/resolv.conf \
  && : > /rootfs/etc/resolv.conf \
  && mb=$(( $(du -sm /rootfs | cut -f1) * 3 / 2 + 256 )) \
  && mkdir /out \
- && E2FSPROGS_FAKE_TIME=${SOURCE_DATE_EPOCH} SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} mke2fs -q -t ext4 -L gild-rootfs \
+ && E2FSPROGS_FAKE_TIME=${SOURCE_DATE_EPOCH} SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} mke2fs -q -t ext4 -L mirab-rootfs \
       -U 6b1d0b9e-3f1a-4c5e-9a57-67696c64766d -E hash_seed=6b1d0b9e-3f1a-4c5e-9a57-67696c64766d,root_owner=0:0 \
       -d /rootfs /out/rootfs.ext4 ${mb}M
 

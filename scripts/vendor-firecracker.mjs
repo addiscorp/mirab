@@ -1,5 +1,5 @@
 // Firecracker (Apache-2.0) ships inside @gildforge/cli-linux-x64 as
-// bin/firecracker, next to gild, with its LICENSE, NOTICE and THIRD-PARTY in
+// bin/firecracker, next to mirab, with its LICENSE, NOTICE and THIRD-PARTY in
 // vendor/firecracker/. Only pinned upstream bytes are shipped: the release
 // tarball must match both the pin and the sha256 Firecracker publishes for it.
 import { mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'

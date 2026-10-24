@@ -1,8 +1,8 @@
-"""Drive gild through a real outer PTY, without opening terminal windows."""
+"""Drive mirab through a real outer PTY, without opening terminal windows."""
 import errno, fcntl, json, os, pathlib, pty, select, signal, socket, struct, subprocess, sys, tempfile, termios, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CLI = json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI = json.loads(os.environ['TEST_MIRAB_COMMAND'])
 CASE = sys.argv[1]
 
 class Session:
@@ -17,20 +17,20 @@ class Session:
         self.env = {**os.environ, 'HOME': self.home.name, 'CLAUDE_CODE_SESSION_ID': 'fixture-session', 'CLAUDE_CODE_MESSAGING_TOKEN': 'fixture-session-marker', 'CLAUDECODE': 'outer', 'CLAUDE_PID': '123', 'CLAUDE_EFFORT': 'high', 'CLAUDE_CODE_CHILD_SESSION': 'outer', 'CLAUDE_CODE_OAUTH_TOKEN': 'fixture-config', 'CLAUDE_CODE_USE_BEDROCK': '1', 'CODEX_SESSION_ID': 'outer', 'CODEX_THREAD_ID': 'outer', 'KEEP_TEST': 'kept', 'CLAUDE_OTHER': 'kept', 'CODEX_OTHER': 'kept'}
         if CASE == 'terminal':
             # Hold only the real Node worker after its actual socket unlink. Runtime
-            # exit must not reset termios before we inspect Gild's explicit cleanup.
+            # exit must not reset termios before we inspect Mirab's explicit cleanup.
             self.barrier = pathlib.Path(self.home.name) / 'terminal-cleanup-barrier'
             preload = ROOT / 'scripts/fixtures/terminal-cleanup-barrier.cjs'
-            self.env['TEST_GILD_TERMINAL_BARRIER'] = str(self.barrier)
+            self.env['TEST_MIRAB_TERMINAL_BARRIER'] = str(self.barrier)
             self.env['NODE_OPTIONS'] = self.env.get('NODE_OPTIONS', '') + ' --require=' + json.dumps(str(preload))
         command = CLI + ['spawn', '--name', name, '--idle-ms', str(idle), str(ROOT / 'scripts/fixtures/spawn-agent.py'), mode]
         if stale:
-            path = pathlib.Path(self.home.name)/'.gild/sessions'/ (name+'.sock')
+            path = pathlib.Path(self.home.name)/'.mirab/sessions'/ (name+'.sock')
             path.parent.mkdir(parents=True)
             old = socket.socket(socket.AF_UNIX); old.bind(str(path)); old.close()
         self.proc = subprocess.Popen(command, stdin=self.slave, stdout=self.slave, stderr=self.slave, cwd=ROOT, env=self.env, start_new_session=True)
         self.buffer = b''
         self.events = []
-        self.path = pathlib.Path(self.home.name) / '.gild/sessions' / (name + '.sock')
+        self.path = pathlib.Path(self.home.name) / '.mirab/sessions' / (name + '.sock')
         try: self.ready = self.wait_event('ready')
         except BaseException: self.close(); raise
     def read(self, duration=0.05):
@@ -58,7 +58,7 @@ class Session:
             for event in self.events:
                 if key in event and (value is None or event[key] == value): return event
             if self.proc.poll() is not None: break
-        raise AssertionError(f'{key}={value!r} missing; gild status={self.proc.poll()}, stream={self.buffer!r}')
+        raise AssertionError(f'{key}={value!r} missing; mirab status={self.proc.poll()}, stream={self.buffer!r}')
     def cli(self, *args, stdin=None):
         return subprocess.run(CLI + list(args), cwd=ROOT, env=self.env, input=stdin, capture_output=True, timeout=10)
     def send(self, text, stdin=False):
@@ -174,7 +174,7 @@ try:
         s = Session()
         cm, cs = pty.openpty()
         saved = termios.tcgetattr(cs)
-        failure = subprocess.Popen(CLI + ['spawn', '--name', 'bad', '/gild-fixture-no-such-agent'], stdin=cs, stdout=cs, stderr=cs, cwd=ROOT, env=s.env, start_new_session=True)
+        failure = subprocess.Popen(CLI + ['spawn', '--name', 'bad', '/mirab-fixture-no-such-agent'], stdin=cs, stdout=cs, stderr=cs, cwd=ROOT, env=s.env, start_new_session=True)
         deadline = time.monotonic() + 8
         try:
             while failure.poll() is None and time.monotonic() < deadline:

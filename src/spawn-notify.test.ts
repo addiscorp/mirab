@@ -20,13 +20,13 @@ async function fixture(run: (root: string) => Promise<void>) {
   }
 }
 const cli = () =>
-  process.env.TEST_GILD_HOOK_COMMAND
-    ? (JSON.parse(process.env.TEST_GILD_HOOK_COMMAND) as string[])
+  process.env.TEST_MIRAB_HOOK_COMMAND
+    ? (JSON.parse(process.env.TEST_MIRAB_HOOK_COMMAND) as string[])
     : [process.execPath, 'run', resolve('src/mirab.ts')]
 
 test('Codex user notify runs after forwarding with its fixed args and identical notification argument, including absent sockets', async () => {
   await fixture(async (root) => {
-    await mkdir(join(root, '.gild/sessions'), { recursive: true })
+    await mkdir(join(root, '.mirab/sessions'), { recursive: true })
     const forwarded = join(root, 'forwarded.json')
     const observed = join(root, 'observed.json')
     const script = join(root, 'notify.py')
@@ -73,7 +73,7 @@ test('Codex user notify runs after forwarding with its fixed args and identical 
       socket.on('end', () => writeFileSync(forwarded, message))
     })
     await new Promise<void>((r) =>
-      server.listen(join(root, '.gild/sessions/test.sock'), r),
+      server.listen(join(root, '.mirab/sessions/test.sock'), r),
     )
     const raw =
       '{ "type": "agent-turn-complete", "thread-id": "fixture", "last-assistant-message": "same argv 🦊" }'
@@ -145,7 +145,7 @@ test('Codex notify CLI overrides replace user notify in order and remain chained
         'notify=["positional"]',
       ])
       const prepared = await codexAdapter.prepare(
-        { id: 'test', directory: root, command: ['/gild'] },
+        { id: 'test', directory: root, command: ['/mirab'] },
         input,
       )
       const generated = JSON.parse(prepared.args[1].slice(7))
@@ -164,12 +164,12 @@ test('Codex notify CLI overrides replace user notify in order and remain chained
         .command,
     ).toEqual([])
     const prepared = await codexAdapter.prepare(
-      { id: 'test', directory: root, command: ['/gild'] },
+      { id: 'test', directory: root, command: ['/mirab'] },
       ['-c', 'notify=[]'],
     )
     expect(prepared.args).toEqual([
       '-c',
-      'notify=["/gild","hook","--session","test","--agent","codex"]',
+      'notify=["/mirab","hook","--session","test","--agent","codex"]',
       ...SESSION_CONFIG,
     ])
     prepared.cleanup()

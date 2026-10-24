@@ -1,13 +1,13 @@
-"""gild spawn --vm working-directory sync: on demand (`gild sync`) and at exit.
+"""mirab spawn --vm working-directory sync: on demand (`mirab sync`) and at exit.
 
 Needs a Firecracker host (isolation.json with `vm`) and a guest image with
 python3. Fixture agent only.
-  TEST_GILD_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-sync-harness.py
+  TEST_MIRAB_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-sync-harness.py
 """
 import os, pty, subprocess, pathlib, tempfile, json, select, time, fcntl, struct, termios
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CLI = json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI = json.loads(os.environ['TEST_MIRAB_COMMAND'])
 CONFIG = os.environ['TEST_VM_CONFIG_DIR']
 
 
@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmsync-') as d:
             if text in buf: return
         raise AssertionError(buf)
 
-    def gild(*args):
+    def mirab(*args):
         p = subprocess.run(CLI + list(args), env=env, capture_output=True, timeout=60)
         assert p.returncode == 0, (args, p.stdout, p.stderr)
         return p.stdout.decode()
@@ -57,14 +57,14 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmsync-') as d:
         wait(b'"ready": true')
         # The host edits a file the guest will also edit: a conflict, the host copy wins.
         (project / 'both.txt').write_text('host version\n')
-        gild('send', 'vmsync', 'round1')
+        mirab('send', 'vmsync', 'round1')
         wait(b'"done": "round1"')
         # The guest works on a copy: nothing reached the host yet.
         assert not (project / 'new.txt').exists()
         assert (project / 'marker.txt').read_text() == 'host\n'
 
         t0 = time.monotonic()
-        out = gild('sync', 'vmsync')
+        out = mirab('sync', 'vmsync')
         sync_s = time.monotonic() - t0
         assert 'conflicts' in out and 'both.txt' in out, out
         assert (project / 'new.txt').read_text() == 'created in the guest\n'
@@ -77,14 +77,14 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vmsync-') as d:
         saved = pathlib.Path(out.split('guest copy: ')[1].split()[0])
         assert saved.read_text() == 'guest version\n' and not str(saved).startswith(str(project))
         # A second sync with no new guest changes carries nothing.
-        again = gild('sync', 'vmsync')
+        again = mirab('sync', 'vmsync')
         assert again.startswith('vmsync: 0 written, 0 deleted, 0 conflicts'), again
 
         # Changes after the on-demand sync arrive when the agent exits.
-        gild('send', 'vmsync', 'round2')
+        mirab('send', 'vmsync', 'round2')
         wait(b'"done": "round2"')
         assert not (project / 'later.txt').exists()
-        gild('send', 'vmsync', 'quit')
+        mirab('send', 'vmsync', 'quit')
         code, tail = drain_wait(proc, m, 30); buf += tail
         assert code == 0, buf
         if b'synced from the VM' not in buf: wait(b'synced from the VM', 5)

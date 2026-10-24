@@ -1,10 +1,10 @@
-// `gild spawn --vm` on macOS and Windows: the agent runs in a Multipass VM
+// `mirab spawn --vm` on macOS and Windows: the agent runs in a Multipass VM
 // (Ubuntu), driven only through the `multipass` command and its JSON output.
 //
-// One VM, `gild`, is made on first use and kept. Each session copies the
-// working directory in (no mounts), plus the agent's own gild key and its
+// One VM, `mirab`, is made on first use and kept. Each session copies the
+// working directory in (no mounts), plus the agent's own mirab key and its
 // repo-scoped token, so the agent clones, pushes and opens pull requests from
-// inside the VM. Your own gild key never enters it. Work leaves the VM through
+// inside the VM. Your own mirab key never enters it. Work leaves the VM through
 // git; the session's copy stays in the VM until you remove it.
 import pkg from '../../package.json'
 import { spawn, spawnSync } from 'node:child_process'
@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises'
 import { basename, isAbsolute, join, relative, sep } from 'node:path'
 import type { VmChild } from '../spawn-vm'
 
-export const MULTIPASS_VM = 'gild'
+export const MULTIPASS_VM = 'mirab'
 const HOME = '/home/ubuntu'
 
 /** macOS and Windows run `--vm` in Multipass, unless isolation.json in the
@@ -32,14 +32,14 @@ export function usesMultipass(
   }
 }
 
-/** Where `gild vm login claude` keeps the Claude Code token (0600, this machine only). */
+/** Where `mirab vm login claude` keeps the Claude Code token (0600, this machine only). */
 export const claudeTokenPath = (configDir: string) =>
   join(configDir, 'vm', 'claude.token')
 
 // One-time setup of the VM: what an agent needs to work from inside it. Run
 // as plain commands after launch (a cloud-init file left the VM without a
 // network address on macOS); a marker file says it finished.
-const READY = `${HOME}/.gild-ready`
+const READY = `${HOME}/.mirab-ready`
 const SETUP = `set -e
 export DEBIAN_FRONTEND=noninteractive
 sudo apt-get update -qq
@@ -59,15 +59,15 @@ function multipassPath() {
 
 /** Multipass could not open its SSH connection into the VM. On macOS that is
  *  Local Network privacy refusing the connection, typically once the terminal
- *  or SSH session that started gild has gone; on any host, briefly, a VM whose
+ *  or SSH session that started mirab has gone; on any host, briefly, a VM whose
  *  network is still coming up. */
 export const noRoute = (output: string) => /no route to host/i.test(output)
 
 export function noRouteError(platform: NodeJS.Platform = process.platform) {
   return new Error(
     platform === 'darwin'
-      ? 'Multipass cannot reach the gild VM (No route to host). macOS Local Network privacy is blocking it: allow Multipass in System Settings → Privacy & Security → Local Network, and keep the terminal or SSH session that starts gild open until the agent has started'
-      : 'Multipass cannot reach the gild VM (No route to host). Check `multipass list` and the host firewall, then run this again',
+      ? 'Multipass cannot reach the mirab VM (No route to host). macOS Local Network privacy is blocking it: allow Multipass in System Settings → Privacy & Security → Local Network, and keep the terminal or SSH session that starts mirab open until the agent has started'
+      : 'Multipass cannot reach the mirab VM (No route to host). Check `multipass list` and the host firewall, then run this again',
   )
 }
 
@@ -126,7 +126,7 @@ export function readiness(r: {
   if (r.status === 0 && answer === 'missing') return false
   if (noRoute(`${r.stderr}${r.stdout}`)) throw noRouteError()
   throw new Error(
-    `checking the gild VM: ${(r.stderr || r.stdout).trim() || `multipass exited ${r.status}`}`,
+    `checking the mirab VM: ${(r.stderr || r.stdout).trim() || `multipass exited ${r.status}`}`,
   )
 }
 
@@ -150,7 +150,7 @@ export function multipassMissing(): string | null {
   return null
 }
 
-/** Make or start the `gild` VM. */
+/** Make or start the `mirab` VM. */
 /** One step of making the VM: a spinner, its elapsed time and, while Ubuntu
  *  downloads, Multipass's own percentage; a plain line when not on a terminal. */
 function step(label: string, args: string[], log: (line: string) => void) {
@@ -198,7 +198,7 @@ function step(label: string, args: string[], log: (line: string) => void) {
   })
 }
 
-/** Make or start the `gild` VM, showing each step. */
+/** Make or start the `mirab` VM, showing each step. */
 export async function ensureVm(log: (line: string) => void = () => {}) {
   const missing = multipassMissing()
   if (missing) throw new Error(missing)
@@ -219,7 +219,7 @@ export async function ensureVm(log: (line: string) => void = () => {}) {
       ]),
     )
   const setup = () =>
-    log('setting up the gild VM (first time only, a few minutes)')
+    log('setting up the mirab VM (first time only, a few minutes)')
   if (fresh) {
     setup()
     await step(
@@ -241,20 +241,20 @@ export async function ensureVm(log: (line: string) => void = () => {}) {
       log,
     )
   } else if (state !== 'Running')
-    await step('Start the gild VM', ['start', MULTIPASS_VM], log)
+    await step('Start the mirab VM', ['start', MULTIPASS_VM], log)
   if (isReady()) {
-    // The VM's gild follows this one: an agent in the VM signs, clones and
+    // The VM's mirab follows this one: an agent in the VM signs, clones and
     // pushes with it, so an upgrade here upgrades it there.
     const inside = mp([
       'exec',
       MULTIPASS_VM,
       '--',
-      'gild',
+      'mirab',
       '--version',
     ]).stdout.trim()
     if (inside !== pkg.version)
       await step(
-        `Update gild in the VM to ${pkg.version}`,
+        `Update mirab in the VM to ${pkg.version}`,
         [
           'exec',
           MULTIPASS_VM,
@@ -273,7 +273,7 @@ export async function ensureVm(log: (line: string) => void = () => {}) {
   }
   if (!fresh) setup()
   await step(
-    'Install Node, git, Claude Code and gild',
+    'Install Node, git, Claude Code and mirab',
     ['exec', MULTIPASS_VM, '--', 'sh', '-c', SETUP],
     log,
   )
@@ -346,7 +346,7 @@ export async function startMultipassChild(opts: {
   log?: (line: string) => void
 }): Promise<VmChild> {
   await ensureVm(opts.log)
-  const dir = `${HOME}/gild/sessions/${opts.sessionId}`
+  const dir = `${HOME}/mirab/sessions/${opts.sessionId}`
   const ws = `${dir}/${basename(opts.cwd)}`
   must(
     [
@@ -382,7 +382,7 @@ export async function startMultipassChild(opts: {
 
   const program = guestProgram(opts.binary, opts.cwd)
   if (basename(opts.binary) === 'claude') {
-    // Claude Code signs in with a token made once by `gild vm login claude`.
+    // Claude Code signs in with a token made once by `mirab vm login claude`.
     const token =
       process.env.CLAUDE_CODE_OAUTH_TOKEN ??
       (
@@ -390,9 +390,9 @@ export async function startMultipassChild(opts: {
       ).trim()
     if (!token)
       throw new Error(
-        'Claude Code needs signing in for the VM. Run `gild vm login claude` once, then run this again',
+        'Claude Code needs signing in for the VM. Run `mirab vm login claude` once, then run this again',
       )
-    put(`${HOME}/.config/gild/vm/claude.token`, token, '600')
+    put(`${HOME}/.config/mirab/vm/claude.token`, token, '600')
     // A fresh Claude Code asks first-run questions and whether to trust the folder; nobody is there to answer.
     must(
       [
@@ -415,7 +415,7 @@ json.dump(c,open(p,'w'))`,
     // The agent's own key and repo-scoped token: it pushes and opens pull requests from the VM.
     const file = join(opts.configDir, 'agents', `${opts.agent}.json`)
     put(
-      `${HOME}/.config/gild/agents/${opts.agent}.json`,
+      `${HOME}/.config/mirab/agents/${opts.agent}.json`,
       await readFile(file, 'utf8'),
       '600',
     )
@@ -431,7 +431,7 @@ json.dump(c,open(p,'w'))`,
         `git rev-parse --git-dir >/dev/null 2>&1 || exit 0
 for k in $(git config --name-only --get-regexp '^credential\\..*helper$' | sort -u); do git config --unset-all "$k"; done
 o=$(git remote get-url origin 2>/dev/null | sed -E 's#^(https?://[^/]+).*#\\1#')
-[ -n "$o" ] && git config --add "credential.$o.helper" "!gild credential --agent ${opts.agent}"; exit 0`,
+[ -n "$o" ] && git config --add "credential.$o.helper" "!mirab credential --agent ${opts.agent}"; exit 0`,
       ],
       'wiring git in the VM',
     )
@@ -449,7 +449,7 @@ o=$(git remote get-url origin 2>/dev/null | sed -E 's#^(https?://[^/]+).*#\\1#')
   const command = [
     `echo $$ > ${quote(dir + '/pid')}`,
     `stty cols ${opts.cols} rows ${opts.rows}`,
-    `t=${quote(HOME + '/.config/gild/vm/claude.token')}; [ -f "$t" ] && export CLAUDE_CODE_OAUTH_TOKEN="$(cat "$t")"`,
+    `t=${quote(HOME + '/.config/mirab/vm/claude.token')}; [ -f "$t" ] && export CLAUDE_CODE_OAUTH_TOKEN="$(cat "$t")"`,
     `exec env ${Object.entries(env)
       .map(([k, v]) => quote(`${k}=${v}`))
       .join(' ')} ${[program, ...opts.args].map(quote).join(' ')}`,
@@ -472,7 +472,7 @@ o=$(git remote get-url origin 2>/dev/null | sed -E 's#^(https?://[^/]+).*#\\1#')
       stdio: ['pipe', 'pipe', 'pipe'],
     },
   )
-  // Return once the program runs in the VM: `gild spawn --detach` reports the
+  // Return once the program runs in the VM: `mirab spawn --detach` reports the
   // session ready only then, so the session that started it is still there
   // while Multipass connects (macOS Local Network privacy refuses it after).
   await started(p, `${dir}/pid`)
@@ -496,7 +496,7 @@ o=$(git remote get-url origin 2>/dev/null | sed -E 's#^(https?://[^/]+).*#\\1#')
       p.stderr.on('data', (d: Buffer) => {
         cb(d)
         if (noRoute(d.toString()))
-          cb(Buffer.from(`\r\ngild: ${noRouteError().message}\r\n`))
+          cb(Buffer.from(`\r\nmirab: ${noRouteError().message}\r\n`))
       })
     },
     onExit: (cb) =>

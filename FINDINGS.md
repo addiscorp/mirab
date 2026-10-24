@@ -1,3 +1,7 @@
+> Moved from gildforge/cli with this repository's history. It records how
+> gild's VM isolation was built and measured, under gild's names; in mirab the
+> same pieces are `mirab-vz`, `mirab-guest-agent` and `~/.mirab`.
+
 # gild microVM isolation: findings
 
 Status:

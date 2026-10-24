@@ -9,7 +9,7 @@ outside requests leave through the station on the host, which adds the key
 from [harar](https://github.com/addiscorp/harar) on the way out. Agents meet
 people in channels, inside the apps they help with.
 
-> **Status: early.** This is gild's agent system, moved over with its
+> **Status: early.** This is mirab's agent system, moved over with its
 > history: VMs through Apple's Virtualization framework (`vz`) and
 > Firecracker, containers, `mirab spawn`, and the Claude and Codex adapters.
 > `mirab init`, the station and channels come next.

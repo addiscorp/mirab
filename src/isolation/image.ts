@@ -1,7 +1,7 @@
 // The published microVM guest image: built by the release workflow for each
 // VM platform, uploaded next to the CLI binaries on releases.gild.gg, and
-// fetched here on first VM use into <config dir>/vm/, so `gild spawn --vm` and
-// `gild runner start --isolation vm` work right after `npm i -g gildforge`.
+// fetched here on first VM use into <config dir>/vm/, so `mirab spawn --vm` and
+// `mirab runner start --isolation vm` work right after `npm i -g gildforge`.
 //
 // Layout of one release (scripts/vm-release.ts writes it):
 //   cli/v<version>/vm/manifest.json            VmManifest (sha256 of every file)
@@ -23,7 +23,7 @@ import { GUEST_PROTOCOL } from './session'
 
 /** Where release binaries and guest images live. */
 export const RELEASES = 'https://releases.gild.gg/cli'
-export const GILD_VERSION: string = pkg.version
+export const MIRAB_VERSION: string = pkg.version
 
 /** Where the guest kernel, rootfs and (macOS) vz helper live, published or
  *  built by `bun run vm:image`; `vm` uses them when isolation.json names no
@@ -34,7 +34,7 @@ export function vmImagePaths(configDir: string) {
     dir,
     kernel: join(dir, 'vmlinux'),
     rootfs: join(dir, 'rootfs.ext4'),
-    vz: join(dir, 'gild-vz'),
+    vz: join(dir, 'mirab-vz'),
     record: join(dir, 'image.json'),
   }
 }
@@ -42,7 +42,7 @@ export function vmImagePaths(configDir: string) {
 /** The VM platforms a release publishes, and the file each role is built as. */
 export const VM_PLATFORMS = {
   'linux-x64': { kernel: 'vmlinux', rootfs: 'rootfs.ext4' },
-  'darwin-arm64': { kernel: 'Image', rootfs: 'rootfs.ext4', vz: 'gild-vz' },
+  'darwin-arm64': { kernel: 'Image', rootfs: 'rootfs.ext4', vz: 'mirab-vz' },
 } as const
 export type VmPlatform = keyof typeof VM_PLATFORMS
 export type VmRole = 'kernel' | 'rootfs' | 'vz'
@@ -114,7 +114,7 @@ const rolesOf = (platform: VmPlatform) =>
 /** The published image for this CLI version and platform is installed and intact (cheap: sizes). */
 export function releaseImageInstalled(
   configDir: string,
-  version = GILD_VERSION,
+  version = MIRAB_VERSION,
   platform = vmPlatform(),
 ): boolean {
   const record = readRecord(configDir)
@@ -149,7 +149,7 @@ export interface EnsureOptions {
 }
 
 /**
- * Make sure <config dir>/vm holds the published guest image for this gild
+ * Make sure <config dir>/vm holds the published guest image for this mirab
  * version and platform: nothing to do when it is already there (offline is
  * fine), otherwise download, verify and install it. Throws VmImageError with
  * the reason and the fallback when it cannot.
@@ -157,7 +157,7 @@ export interface EnsureOptions {
 export async function ensureVmImage(
   o: EnsureOptions,
 ): Promise<'installed' | 'downloaded' | 'local'> {
-  const version = o.version ?? GILD_VERSION,
+  const version = o.version ?? MIRAB_VERSION,
     platform = o.platform ?? vmPlatform(),
     base = o.base ?? RELEASES,
     log = o.log ?? (() => {})
@@ -171,7 +171,7 @@ export async function ensureVmImage(
   const url = `${base}/v${version}/vm/manifest.json`
   const offline = (why: string) =>
     new VmImageError(
-      `could not fetch the VM image for gild ${version} (${platform}) from ${url}: ${why}; ${VM_IMAGE_FALLBACK_HINT}`,
+      `could not fetch the VM image for mirab ${version} (${platform}) from ${url}: ${why}; ${VM_IMAGE_FALLBACK_HINT}`,
     )
   let res: Response
   try {
@@ -195,11 +195,11 @@ export async function ensureVmImage(
   }
   if (manifest.version !== version)
     throw new VmImageError(
-      `refusing the VM image manifest ${url}: it is for gild ${manifest.version}, this is gild ${version}`,
+      `refusing the VM image manifest ${url}: it is for mirab ${manifest.version}, this is mirab ${version}`,
     )
   if (manifest.protocol !== GUEST_PROTOCOL)
     throw new VmImageError(
-      `refusing the VM image manifest ${url}: its guest agent speaks protocol ${manifest.protocol}, this gild speaks ${GUEST_PROTOCOL}`,
+      `refusing the VM image manifest ${url}: its guest agent speaks protocol ${manifest.protocol}, this mirab speaks ${GUEST_PROTOCOL}`,
     )
   const files = manifest.platforms[platform] as
     Partial<Record<VmRole, VmFileEntry>> | undefined
@@ -215,7 +215,7 @@ export async function ensureVmImage(
   try {
     const total = roles.reduce((n, r) => n + files[r]!.size, 0)
     log(
-      `downloading the VM image for gild ${version} (${platform}, ${mb(total)}) into ${paths.dir}`,
+      `downloading the VM image for mirab ${version} (${platform}, ${mb(total)}) into ${paths.dir}`,
     )
     for (const role of roles)
       await download(
@@ -239,7 +239,7 @@ export async function ensureVmImage(
     }
     // Written last: an interrupted download leaves no record, so it is retried.
     await writeFile(paths.record, JSON.stringify(record, null, 2) + '\n')
-    log(`VM image for gild ${version} verified and installed`)
+    log(`VM image for mirab ${version} verified and installed`)
     return 'downloaded'
   } finally {
     await rm(stage, { recursive: true, force: true })

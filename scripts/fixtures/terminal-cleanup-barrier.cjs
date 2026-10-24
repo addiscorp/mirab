@@ -3,14 +3,14 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const { syncBuiltinESMExports } = require('node:module')
-const barrier = process.env.TEST_GILD_TERMINAL_BARRIER
+const barrier = process.env.TEST_MIRAB_TERMINAL_BARRIER
 if (
   barrier &&
   /[\\/]spawn-worker-[a-f0-9]{16}\.mjs$/.test(process.argv[1] ?? '')
 ) {
   const socket = path.join(
     path.dirname(barrier),
-    '.gild',
+    '.mirab',
     'sessions',
     'test.sock',
   )

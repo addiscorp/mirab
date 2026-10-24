@@ -12,8 +12,8 @@ import { StateReporter } from './spawn-report'
 import { forwardHook } from './spawn-hook'
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const command = () =>
-  process.env.TEST_GILD_COMMAND
-    ? (JSON.parse(process.env.TEST_GILD_COMMAND) as string[])
+  process.env.TEST_MIRAB_COMMAND
+    ? (JSON.parse(process.env.TEST_MIRAB_COMMAND) as string[])
     : [process.execPath, 'run', resolve('src/mirab.ts')]
 
 async function hook(
@@ -22,8 +22,8 @@ async function hook(
   stdin: string | ReadableStream = '{}',
 ) {
   const start = performance.now()
-  const hookCommand = process.env.TEST_GILD_HOOK_COMMAND
-    ? (JSON.parse(process.env.TEST_GILD_HOOK_COMMAND) as string[])
+  const hookCommand = process.env.TEST_MIRAB_HOOK_COMMAND
+    ? (JSON.parse(process.env.TEST_MIRAB_HOOK_COMMAND) as string[])
     : command()
   const proc = Bun.spawn([...hookCommand, 'hook', ...args], {
     env: { ...process.env, HOME: home },
@@ -66,7 +66,7 @@ test('hook bounds unfinished stdin to a 200ms forwarding deadline and releases i
 test('hook forwards raw stdin and notify argv; absent sockets and incomplete stdin finish silently', async () => {
   await mkdir('.tmp', { recursive: true })
   const home = await mkdtemp(resolve('.tmp/h-'))
-  await mkdir(join(home, '.gild/sessions'), { recursive: true })
+  await mkdir(join(home, '.mirab/sessions'), { recursive: true })
   const messages: any[] = []
   const server = createServer((socket) => {
     let text = ''
@@ -74,7 +74,7 @@ test('hook forwards raw stdin and notify argv; absent sockets and incomplete std
     socket.on('end', () => messages.push(JSON.parse(text)))
   })
   await new Promise<void>((r) =>
-    server.listen(join(home, '.gild/sessions/test.sock'), r),
+    server.listen(join(home, '.mirab/sessions/test.sock'), r),
   )
   try {
     const raw = { hook_event_name: 'Stop', session_id: 'real' }
@@ -183,7 +183,7 @@ test('Codex notify translates only turn completion; generated spawn config is na
       {
         id: 'test',
         directory: '/fixture',
-        command: ['/gild'],
+        command: ['/mirab'],
         // A private Codex home keeps a machine's real ~/.codex notify setting
         // out of the generated config; CODEX_HOME is what the Codex CLI honours.
         environment: {
@@ -196,7 +196,7 @@ test('Codex notify translates only turn completion; generated spawn config is na
     )
     expect(prepared.args).toEqual([
       '-c',
-      'notify=["/gild","hook","--session","test","--agent","codex"]',
+      'notify=["/mirab","hook","--session","test","--agent","codex"]',
       // An injected prompt must never land in Codex's "Update available" menu,
       // nor be held as a paste whose Enter never submits.
       '-c',
@@ -387,7 +387,7 @@ test('Claude settings are private, preserve source bytes, add hooks for explicit
     await Bun.write(user, '{"hooks":{"Stop":[]},"theme":"dark"}')
     const before = await readFile(user)
     const prepared = await claudeAdapter.prepare(
-      { id: 'test', directory: root, command: ['/fixture/gild'] },
+      { id: 'test', directory: root, command: ['/fixture/mirab'] },
       ['--settings', user, '--resume'],
     )
     expect(prepared.args.slice(-3)).toEqual(['--settings', user, '--resume'])
@@ -406,7 +406,7 @@ test('state reporting coalesces, uses scoped token, hides raw/text/arguments and
   const calls: { at: number; body: any }[] = []
   const reporter = new StateReporter(
     {
-      server: 'https://gild.test',
+      server: 'https://mirab.test',
       token: 'fixture-scoped-token',
       agent: 'owner/label',
       owner: 'owner',
@@ -458,7 +458,7 @@ test('a slow forge still receives the state report (live gild.gg took 2–4.5 s)
     aborted = false
   const reporter = new StateReporter(
     {
-      server: 'https://gild.test',
+      server: 'https://mirab.test',
       token: 'fixture-scoped-token',
       agent: 'owner/label',
       owner: 'owner',
@@ -493,7 +493,7 @@ test('PTY events, hook command, status, subscription, gating and settings cleanu
   const proc = Bun.spawn(
     ['python3', resolve('scripts/fixtures/events-harness.py')],
     {
-      env: { ...process.env, TEST_GILD_COMMAND: JSON.stringify(command()) },
+      env: { ...process.env, TEST_MIRAB_COMMAND: JSON.stringify(command()) },
       stdout: 'pipe',
       stderr: 'pipe',
     },
@@ -511,7 +511,7 @@ test('safe alias preserves pipes, redirect output, signal exits and raw argv whi
   const proc = Bun.spawn(
     ['python3', resolve('scripts/fixtures/alias-harness.py')],
     {
-      env: { ...process.env, TEST_GILD_COMMAND: JSON.stringify(command()) },
+      env: { ...process.env, TEST_MIRAB_COMMAND: JSON.stringify(command()) },
       stdout: 'pipe',
       stderr: 'pipe',
     },
@@ -594,7 +594,7 @@ test.skip('linked PTY sessions upload only state with scoped credentials, coales
   const proc = Bun.spawn(
     ['python3', resolve('scripts/fixtures/events-harness.py'), '--report'],
     {
-      env: { ...process.env, TEST_GILD_COMMAND: JSON.stringify(command()) },
+      env: { ...process.env, TEST_MIRAB_COMMAND: JSON.stringify(command()) },
       stdout: 'pipe',
       stderr: 'pipe',
     },
@@ -615,7 +615,7 @@ test('native -- terminator makes bare/settings words positional and retains the 
   const root = await mkdtemp(resolve('.tmp/args-'))
   try {
     const prepared = await claudeAdapter.prepare(
-      { id: 'test', directory: root, command: ['/gild'] },
+      { id: 'test', directory: root, command: ['/mirab'] },
       ['--', '--settings', 'literal'],
     )
     expect(prepared.args.slice(-3)).toEqual(['--', '--settings', 'literal'])
@@ -628,7 +628,7 @@ test('native -- terminator makes bare/settings words positional and retains the 
 
 test('native executables clear the wrapper chain for later nested agent launches', async () => {
   const { agentEnvironment } = await import('./spawn-binary')
-  expect(agentEnvironment('/bin/cat').GILD_SPAWN_CHAIN).toBe('[]')
+  expect(agentEnvironment('/bin/cat').MIRAB_SPAWN_CHAIN).toBe('[]')
 })
 
 test('Windows native fallback leaves command suffix lookup to the native process launcher', async () => {

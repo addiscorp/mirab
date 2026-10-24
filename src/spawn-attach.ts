@@ -5,8 +5,8 @@ import { readFile } from 'node:fs/promises'
 import { endedLogPath, type StartMessage } from './spawn-detach'
 import { privateSessionsDirectory, socketPath } from './spawn-sessions'
 
-/** Caller side of detached sessions: `gild spawn --detach`, `gild attach`,
- * `gild stop`. The worker side is spawn-detach.ts. */
+/** Caller side of detached sessions: `mirab spawn --detach`, `mirab attach`,
+ * `mirab stop`. The worker side is spawn-detach.ts. */
 export const DETACH_KEY = 0x1d // Ctrl-], as in telnet
 const CTRL_C = 0x03
 
@@ -19,7 +19,7 @@ export function dimension(value: string) {
 
 /** The worker runs in its own session (setsid) with none of the caller's
  * stdio, so a caller without a terminal (an agent's Bash tool) gets EOF as
- * soon as `gild spawn --detach` exits; only the IPC channel is shared. */
+ * soon as `mirab spawn --detach` exits; only the IPC channel is shared. */
 export function detachedSpawn(cwd: string): SpawnOptions {
   return { cwd, detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] }
 }
@@ -71,7 +71,7 @@ export async function attachSession(id: string, watch: boolean) {
   const terminal = !!process.stdin.isTTY && !!process.stdout.isTTY
   if (!watch && !terminal)
     throw new Error(
-      'gild attach needs a terminal; use gild attach --watch to stream output read-only',
+      'mirab attach needs a terminal; use mirab attach --watch to stream output read-only',
     )
   const size = () => ({
     cols: process.stdout.columns || 80,
@@ -215,7 +215,7 @@ export function detachCommands(program: Command) {
     .option('--watch', 'stream output read-only (several may watch at once)')
     .addHelpText(
       'after',
-      '\nPress Ctrl-] to detach; the agent keeps running (gild stop <id> ends it).\n' +
+      '\nPress Ctrl-] to detach; the agent keeps running (mirab stop <id> ends it).\n' +
         'Ctrl-C goes to the agent. With --watch, Ctrl-C also detaches.',
     )
     .action((id: string, opts: { watch?: boolean }) =>

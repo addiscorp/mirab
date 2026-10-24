@@ -31,7 +31,7 @@ export interface OciConfig {
 /** Global engine flags that pick the endpoint; empty for the local default. */
 const endpoint = (host?: string) => (host ? ['--host', host] : [])
 
-export const EGRESS_NETWORK = 'gild-egress'
+export const EGRESS_NETWORK = 'mirab-egress'
 
 function egressNetworkReady(engine: string, host?: string) {
   try {
@@ -88,7 +88,7 @@ export function ociAvailable(engine: string, agent: string, host?: string) {
 function execChannel(engine: string, name: string, host?: string): Channel {
   const child = spawn(
     engine,
-    [...endpoint(host), 'exec', '-i', name, '/gild-guest-agent', '--stdio'],
+    [...endpoint(host), 'exec', '-i', name, '/mirab-guest-agent', '--stdio'],
     {
       stdio: ['pipe', 'pipe', 'ignore'],
     },
@@ -113,7 +113,7 @@ export function startOci(
   work: string,
   log: (line: string) => void = () => {},
 ): Isolation {
-  const name = 'gild-' + randomBytes(6).toString('hex'),
+  const name = 'mirab-' + randomBytes(6).toString('hex'),
     me = userInfo()
   const setup = cfg.where ? COLIMA_NETWORK_SETUP : NETWORK_SETUP
   const network = containerNetwork(
@@ -149,14 +149,14 @@ export function startOci(
       cfg.memory,
       '--cpus',
       cfg.cpus,
-      // No network unless the filtered gild-egress bridge exists (set up by
+      // No network unless the filtered mirab-egress bridge exists (set up by
       // scripts/vm-network-setup.sh); never the default bridge.
       '--network',
       network,
       '--user',
       `${me.uid}:${me.gid}`,
       '-v',
-      `${cfg.agent}:/gild-guest-agent:ro`,
+      `${cfg.agent}:/mirab-guest-agent:ro`,
       '-v',
       `${work}:${GUEST_WORK}`,
       '-w',

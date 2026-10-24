@@ -1,4 +1,4 @@
-// gild-vz: the macOS `vm` backend's launcher (Virtualization.framework).
+// mirab-vz: the macOS `vm` backend's launcher (Virtualization.framework).
 //
 // One process per microVM. It boots a Linux kernel with a copy-on-write root
 // disk, an optional virtio-fs share and optional NAT, then exposes the guest's
@@ -9,9 +9,9 @@
 //                  (only ports named with --listen).
 // The VM stops when stdin closes, on SIGTERM/SIGINT, or when the guest powers off.
 //
-//   gild-vz check                 entitlement + host support; prints "ok" and exits 0
-//   gild-vz clone <src> <dst>     APFS clonefile (copy-on-write) of a file or a whole directory tree
-//   gild-vz run --kernel K --rootfs R --cmdline C --vsock SOCK --serial LOG
+//   mirab-vz check                 entitlement + host support; prints "ok" and exits 0
+//   mirab-vz clone <src> <dst>     APFS clonefile (copy-on-write) of a file or a whole directory tree
+//   mirab-vz run --kernel K --rootfs R --cmdline C --vsock SOCK --serial LOG
 //               [--cpus N] [--memory MiB] [--share TAG=DIR] [--net none|nat] [--listen PORT]...
 //
 // Built and ad-hoc signed with the com.apple.security.virtualization
@@ -25,7 +25,7 @@ signal(SIGPIPE, SIG_IGN)
 setvbuf(stdout, nil, _IOLBF, 0)
 
 func die(_ message: String, _ code: Int32 = 2) -> Never {
-  FileHandle.standardError.write(("gild-vz: " + message + "\n").data(using: .utf8)!)
+  FileHandle.standardError.write(("mirab-vz: " + message + "\n").data(using: .utf8)!)
   exit(code)
 }
 
@@ -208,7 +208,7 @@ final class Machine: NSObject, VZVirtualMachineDelegate, VZVirtioSocketListenerD
     FileManager.default.createFile(atPath: o.serial, contents: nil, attributes: [.posixPermissions: 0o600])
     guard let out = FileHandle(forWritingAtPath: o.serial),
       let input = FileHandle(forReadingAtPath: "/dev/null")
-    else { throw NSError(domain: "gild-vz", code: 1, userInfo: [NSLocalizedDescriptionKey: "cannot open \(o.serial)"]) }
+    else { throw NSError(domain: "mirab-vz", code: 1, userInfo: [NSLocalizedDescriptionKey: "cannot open \(o.serial)"]) }
     let console = VZVirtioConsoleDeviceSerialPortConfiguration()
     console.attachment = VZFileHandleSerialPortAttachment(fileHandleForReading: input, fileHandleForWriting: out)
     c.serialPorts = [console]
@@ -301,7 +301,7 @@ case "check":
   print("ok")
   exit(0)
 case "clone":
-  guard args.count == 3 else { die("usage: gild-vz clone <src> <dst>") }
+  guard args.count == 3 else { die("usage: mirab-vz clone <src> <dst>") }
   if clonefile(args[1], args[2], UInt32(CLONE_NOFOLLOW)) != 0 {
     die("clone \(args[1]): \(String(cString: strerror(errno)))", 1)
   }
@@ -325,5 +325,5 @@ case "run":
   DispatchQueue.main.async { machine.start() }
   withExtendedLifetime(sources) { dispatchMain() }
 default:
-  die("usage: gild-vz check | clone <src> <dst> | run --kernel K --rootfs R --cmdline C --vsock SOCK --serial LOG [...]")
+  die("usage: mirab-vz check | clone <src> <dst> | run --kernel K --rootfs R --cmdline C --vsock SOCK --serial LOG [...]")
 }

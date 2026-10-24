@@ -56,12 +56,12 @@ for (const scenario of ['no-tty', 'send', 'attach', 'stop']) {
   test(`detached session: ${scenario}`, async () => {
     await mkdir(resolve('.tmp'), { recursive: true })
     const command =
-      process.env.TEST_GILD_COMMAND ??
+      process.env.TEST_MIRAB_COMMAND ??
       JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')])
     const proc = Bun.spawn(
       ['python3', resolve('scripts/fixtures/detach-harness.py'), scenario],
       {
-        env: { ...process.env, TEST_GILD_COMMAND: command },
+        env: { ...process.env, TEST_MIRAB_COMMAND: command },
         stdout: 'pipe',
         stderr: 'pipe',
       },

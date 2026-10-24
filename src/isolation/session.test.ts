@@ -28,7 +28,7 @@ function agentReplying(reply: unknown): Opener {
 }
 
 test('an agent from before the handshake is refused with the rebuild command', async () => {
-  // gild-guest-agent 0.1.0 (the 0.6.0 rootfs) answers a ping with a bare ok.
+  // mirab-guest-agent 0.1.0 (the 0.6.0 rootfs) answers a ping with a bare ok.
   const hello = await guestPing(agentReplying({ t: 'ok' }))
   expect(hello).toEqual({ protocol: 1, agent: undefined })
   let error: unknown
@@ -40,7 +40,7 @@ test('an agent from before the handshake is refused with the rebuild command', a
   expect(error).toBeInstanceOf(GuestProtocolError)
   const message = (error as Error).message
   expect(message).toContain('/images/rootfs.ext4 is outdated')
-  expect(message).toContain(`protocol 1, this gild needs ${GUEST_PROTOCOL}`)
+  expect(message).toContain(`protocol 1, this mirab needs ${GUEST_PROTOCOL}`)
   expect(message).toContain(REBUILD_HINT)
 })
 
@@ -49,7 +49,7 @@ test('a newer agent is refused too, and a matching one passes', async () => {
     agentReplying({ t: 'ok', protocol: GUEST_PROTOCOL + 1, agent: '9.0.0' }),
   )
   expect(() => checkGuestProtocol(newer, '/r.ext4')).toThrow(
-    /newer than this gild: its gild-guest-agent 9\.0\.0.*Update gild/,
+    /newer than this mirab: its mirab-guest-agent 9\.0\.0.*Update mirab/,
   )
   const same = await guestPing(
     agentReplying({ t: 'ok', protocol: GUEST_PROTOCOL, agent: '0.2.0' }),

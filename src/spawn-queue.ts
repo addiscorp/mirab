@@ -66,7 +66,7 @@ export class InjectionQueue {
   changed() {
     this.schedule()
   }
-  /** Why queued messages are not being typed yet, for `gild status`. */
+  /** Why queued messages are not being typed yet, for `mirab status`. */
   get held() {
     if (!this.pending.length) return undefined
     return {

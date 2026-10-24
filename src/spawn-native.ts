@@ -16,8 +16,8 @@ export function agentEnvironment() {
   return env
 }
 export function debugFallback(reason: unknown) {
-  if (process.env.GILD_DEBUG)
-    console.error(`gild spawn: native fallback: ${String(reason)}`)
+  if (process.env.MIRAB_DEBUG)
+    console.error(`mirab spawn: native fallback: ${String(reason)}`)
 }
 export function supportsPty(platform = process.platform) {
   return platform !== 'win32'

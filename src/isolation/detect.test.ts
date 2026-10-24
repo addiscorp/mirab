@@ -15,12 +15,12 @@ import type { Marker } from './host-user'
 
 const marker: Marker = {
   version: 1,
-  user: 'gild-runner',
+  user: 'mirab-runner',
   uid: 1501,
   gid: 1501,
   owner: 'sami',
-  agent: '/usr/local/libexec/gild/gild-guest-agent',
-  workRoot: '/var/lib/gild-host/gild-runner/work',
+  agent: '/usr/local/libexec/mirab/mirab-guest-agent',
+  workRoot: '/var/lib/mirab-host/mirab-runner/work',
   network: 'lan-denied',
 }
 const colimaUp: ColimaState = {
@@ -54,8 +54,8 @@ function machine(have: {
         ? { ok: true, marker }
         : {
             ok: false,
-            reason: 'gild-runner is not set up',
-            fix: 'Needs Sami: sudo scripts/host-user-setup.sh gild-runner sami --agent <…>',
+            reason: 'mirab-runner is not set up',
+            fix: 'Needs Sami: sudo scripts/host-user-setup.sh mirab-runner sami --agent <…>',
           },
   }
 }
@@ -63,7 +63,7 @@ function machine(have: {
 const everything: HostConfig = {
   vm: {
     firecracker: 'firecracker',
-    vz: 'gild-vz',
+    vz: 'mirab-vz',
     kernel: '/k',
     rootfs: '/r',
     memoryMiB: 512,
@@ -73,13 +73,13 @@ const everything: HostConfig = {
   container: {
     engine: 'docker',
     image: 'debian:12',
-    agent: '/Users/sami/.config/gild/gild-guest-agent',
+    agent: '/Users/sami/.config/mirab/mirab-guest-agent',
     memory: '1g',
     cpus: '1',
     pids: 128,
     egress: 'block',
   },
-  host: { user: 'gild-runner' },
+  host: { user: 'mirab-runner' },
 }
 
 describe('resolution order: vm, container, host, refuse', () => {
@@ -137,13 +137,13 @@ describe('resolution order: vm, container, host, refuse', () => {
   })
 })
 
-describe('gild status reports each backend honestly', () => {
+describe('mirab status reports each backend honestly', () => {
   test('host tier configured', () => {
     const text = statusLines(everything, {}, machine({ hostUser: true })).join(
       '\n',
     )
     expect(text).toContain(
-      'host tier: configured, steps run as gild-runner (uid 1501), LAN denied',
+      'host tier: configured, steps run as mirab-runner (uid 1501), LAN denied',
     )
     expect(text).toContain(
       'isolation: host (dedicated OS user), requested by auto',

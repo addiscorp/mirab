@@ -38,7 +38,7 @@ import {
 export interface FirecrackerConfig {
   firecracker: string
   kernel: string
-  /** Read-only base image containing gild-guest-agent and /init-gild.sh. */
+  /** Read-only base image containing mirab-guest-agent and /init-mirab.sh. */
   rootfs: string
   memoryMiB: number
   vcpus: number
@@ -52,7 +52,7 @@ export const GUEST_WORK = '/workspace'
 
 /**
  * The Firecracker to run when isolation.json names none: the one shipped next
- * to the gild executable (@gildforge/cli-linux-x64 bundles it), else
+ * to the mirab executable (@gildforge/cli-linux-x64 bundles it), else
  * `firecracker` on PATH. `vm.firecracker` in isolation.json wins over both.
  */
 export function defaultFirecracker(execPath = process.execPath) {
@@ -240,7 +240,7 @@ export async function startFirecracker(
   const plan = planNetwork(
     cfg.egress,
     networkState(),
-    join(tmpdir(), `gild-vm-slots-${process.getuid?.() ?? 0}`),
+    join(tmpdir(), `mirab-vm-slots-${process.getuid?.() ?? 0}`),
   )
   log(plan.note)
   const serial = await openFile(join(vmDir, 'serial.log'), 'w', 0o600)
@@ -265,7 +265,7 @@ export async function startFirecracker(
       kernel_image_path: cfg.kernel,
       // i8042 flags skip a 500 ms keyboard probe; measured 1.2 s -> 0.3 s boot.
       boot_args:
-        'console=ttyS0 reboot=k panic=1 pci=off init=/init-gild.sh i8042.noaux i8042.nokbd i8042.nopnp i8042.dumbkbd quiet loglevel=1' +
+        'console=ttyS0 reboot=k panic=1 pci=off init=/init-mirab.sh i8042.noaux i8042.nokbd i8042.nopnp i8042.dumbkbd quiet loglevel=1' +
         (plan.net ? ' ' + bootNetArgs(plan.net) : ''),
     })
     await api(apiSock, 'PUT', '/drives/rootfs', {

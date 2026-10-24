@@ -4,7 +4,7 @@
 //
 //   bun scripts/vm-release.ts build linux-x64 <out>     vmlinux, rootfs.ext4 (x86_64 Linux + Docker BuildKit)
 //   bun scripts/vm-release.ts build darwin-arm64 <out>  Image, rootfs.ext4 (arm64 Linux + Docker; scripts/build-vm-guest.sh)
-//   scripts/build-vz-helper.sh <out>/gild-vz            the signed vz helper (macOS)
+//   scripts/build-vz-helper.sh <out>/mirab-vz            the signed vz helper (macOS)
 //   gzip -n <out>/*                                     what is uploaded
 //   bun scripts/vm-release.ts manifest <vm dir>         <vm dir>/manifest.json from <vm dir>/<platform>/*.gz
 //

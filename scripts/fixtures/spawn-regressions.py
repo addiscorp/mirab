@@ -1,7 +1,7 @@
 """Native fallback preconditions, preserved configuration and one terminal SIGINT."""
 import json, os, pathlib, pty, select, signal, subprocess, sys, tempfile, time
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CLI = json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI = json.loads(os.environ['TEST_MIRAB_COMMAND'])
 NODE = os.environ['TEST_NODE']
 if CLI[0] == 'node': CLI[0] = NODE
 WORKER = os.environ['TEST_WORKER']
@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp', prefix='r-') as d:
     root=pathlib.Path(d)
     native=root/'claude'
     native.write_text('#!'+sys.executable+'\nimport json,os,sys,signal,time\n'
-        'print(json.dumps({"args":sys.argv[1:],"oauth":os.getenv("CLAUDE_CODE_OAUTH_TOKEN"),"bedrock":os.getenv("CLAUDE_CODE_USE_BEDROCK"),"effort":os.getenv("CLAUDE_EFFORT"),"marker":os.getenv("CLAUDECODE"),"chain":os.getenv("GILD_SPAWN_CHAIN")}),flush=True)\n'
+        'print(json.dumps({"args":sys.argv[1:],"oauth":os.getenv("CLAUDE_CODE_OAUTH_TOKEN"),"bedrock":os.getenv("CLAUDE_CODE_USE_BEDROCK"),"effort":os.getenv("CLAUDE_EFFORT"),"marker":os.getenv("CLAUDECODE"),"chain":os.getenv("MIRAB_SPAWN_CHAIN")}),flush=True)\n'
         'if "interrupt" in sys.argv:\n'
         ' def interrupted(*_):\n'
         '  with open(os.environ["COUNTS"],"a") as f:f.write("SIGINT\\n")\n'
@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp', prefix='r-') as d:
         'sys.exit(37)\n')
     native.chmod(0o755)
     env={**os.environ,'HOME':d,'CLAUDECODE':'nested','CLAUDE_CODE_CHILD_SESSION':'nested','CLAUDE_CODE_OAUTH_TOKEN':'fixture-config','CLAUDE_CODE_USE_BEDROCK':'1','CLAUDE_EFFORT':'high','COUNTS':str(root/'counts')}
-    env.pop('GILD_DEBUG',None)
+    env.pop('MIRAB_DEBUG',None)
     interactive=CASE!='native-env' and CASE!='native-interrupt'
     args=['interrupt'] if CASE=='native-interrupt' else ['payload']
     cmd=CLI+['spawn',str(native)]+args
@@ -69,8 +69,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp', prefix='r-') as d:
         assert result['args']==args,result
         assert result['oauth']=='fixture-config' and result['bedrock']=='1' and result['effort']=='high',result
         assert result['marker'] is None,result
-        assert not list(root.glob('.gild/sessions/*')),list(root.glob('.gild/sessions/*'))
-        assert not list(root.glob('.gild/sessions/*/settings.json'))
+        assert not list(root.glob('.mirab/sessions/*')),list(root.glob('.mirab/sessions/*'))
+        assert not list(root.glob('.mirab/sessions/*/settings.json'))
         print(json.dumps({'case':CASE,'passed':True}))
     finally:
         if 'proc' in locals() and proc.poll() is None:proc.kill();proc.wait()

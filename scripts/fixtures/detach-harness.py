@@ -1,10 +1,10 @@
-"""Drive `gild spawn --detach`, `gild attach` and `gild stop` the way an
+"""Drive `mirab spawn --detach`, `mirab attach` and `mirab stop` the way an
 orchestrator agent does: no terminal for spawn/send/status/stop, a real (pty)
 terminal only for an interactive attach. Headless; fixture agents only."""
 import errno, fcntl, json, os, pathlib, pty, select, socket, struct, subprocess, sys, tempfile, termios, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CLI = json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI = json.loads(os.environ['TEST_MIRAB_COMMAND'])
 CASE = sys.argv[1]
 AGENT = ROOT / 'scripts/fixtures/detach-agent.py'
 
@@ -15,14 +15,14 @@ for name in ['claude', 'plain']: (BIN / name).symlink_to(AGENT)
 # Claude settings the fixture must never touch (the adapter adds a plugin dir).
 (HOME / '.claude').mkdir(); (HOME / '.claude/settings.json').write_text('{"hooks":{}}')
 ENV = {**os.environ, 'HOME': home.name, 'PATH': str(BIN) + os.pathsep + os.environ['PATH']}
-SESSIONS = HOME / '.gild/sessions'
+SESSIONS = HOME / '.mirab/sessions'
 started = []  # worker pids this harness started, killed by PID on failure
 
 def cli(*args, stdin=b'', timeout=10):
     return subprocess.run(CLI + list(args), input=stdin, capture_output=True, env=ENV, cwd=ROOT, timeout=timeout)
 
 def spawn(name, agent='claude', *extra, args=()):
-    """`gild spawn --detach` from a Bash-tool-like caller: stdin /dev/null,
+    """`mirab spawn --detach` from a Bash-tool-like caller: stdin /dev/null,
     stdout and stderr pipes. communicate() needs EOF on both pipes."""
     t = time.monotonic()
     proc = subprocess.Popen(CLI + ['spawn', '--detach', '--name', name, *extra, agent, *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV, cwd=ROOT)

@@ -1,6 +1,6 @@
 // `host` level: steps run on this machine as a dedicated, unprivileged OS user
-// (the old gild's `sandbox = "host"`, Layer 1). The owner creates the user once
-// with scripts/host-user-setup.sh (needs root); gild never runs sudo for setup,
+// (the old mirab's `sandbox = "host"`, Layer 1). The owner creates the user once
+// with scripts/host-user-setup.sh (needs root); mirab never runs sudo for setup,
 // it only uses the one sudo rule that script installs: run the guest agent as
 // that user. Same exec contract as a VM or container (`--stdio`), so runner
 // code does not change. What it isolates: the owner's files (home, other
@@ -32,9 +32,9 @@ import {
   type Opener,
 } from './session'
 
-export const MARKER_DIR = '/etc/gild/host-users'
+export const MARKER_DIR = '/etc/mirab/host-users'
 
-/** What scripts/host-user-setup.sh wrote to /etc/gild/host-users/<user>.json. */
+/** What scripts/host-user-setup.sh wrote to /etc/mirab/host-users/<user>.json. */
 export interface Marker {
   version: 1
   user: string
@@ -95,7 +95,7 @@ export type HostUserState =
   { ok: true; marker: Marker } | { ok: false; reason: string; fix: string }
 
 export const setupCommand = (user: string, owner: string) =>
-  `sudo scripts/host-user-setup.sh ${user} ${owner} --agent <gild-guest-agent for this OS>`
+  `sudo scripts/host-user-setup.sh ${user} ${owner} --agent <mirab-guest-agent for this OS>`
 
 /** Is the host tier for `user` set up, and set up safely? Never runs sudo. */
 export function hostUserState(user: string, probe: HostProbe): HostUserState {

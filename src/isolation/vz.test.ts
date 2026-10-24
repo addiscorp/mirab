@@ -35,7 +35,7 @@ describe('vz network: NAT only behind the pf anchor', () => {
 
 describe('vz network marker', () => {
   test('absent marker: not filtered', () => {
-    expect(vzNetworkState('/nonexistent/gild/vz-network.json')).toEqual(open)
+    expect(vzNetworkState('/nonexistent/mirab/vz-network.json')).toEqual(open)
   })
   test('a marker the runner user could have written is not trusted', () => {
     const dir = mkdtempSync(join(process.env.TMPDIR ?? '.', 'vzm-'))
@@ -54,10 +54,10 @@ test('kernel command line: host time always, DHCP only with NAT', () => {
   const at = new Date('2026-10-09T12:00:00Z')
   const none = kernelCommandLine('none', at)
   expect(none).toContain('console=hvc0')
-  expect(none).toContain('init=/init-gild.sh')
-  expect(none).toContain(`gild.time=${at.getTime() / 1000}`)
-  expect(none).not.toContain('gild.net=')
-  expect(kernelCommandLine('nat', at)).toContain('gild.net=dhcp')
+  expect(none).toContain('init=/init-mirab.sh')
+  expect(none).toContain(`mirab.time=${at.getTime() / 1000}`)
+  expect(none).not.toContain('mirab.net=')
+  expect(kernelCommandLine('nat', at)).toContain('mirab.net=dhcp')
 })
 
 test('vz is never available off macOS', () => {

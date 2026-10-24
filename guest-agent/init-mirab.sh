@@ -10,11 +10,11 @@
 /bin/mount -t tmpfs tmpfs /artifacts
 for kv in $(cat /proc/cmdline); do
   case $kv in
-    gild.ip=*) ip=${kv#gild.ip=} ;;
-    gild.gw=*) gw=${kv#gild.gw=} ;;
-    gild.dns=*) dns=${kv#gild.dns=} ;;
-    gild.net=*) net=${kv#gild.net=} ;;
-    gild.time=*) now=${kv#gild.time=} ;;
+    mirab.ip=*) ip=${kv#mirab.ip=} ;;
+    mirab.gw=*) gw=${kv#mirab.gw=} ;;
+    mirab.dns=*) dns=${kv#mirab.dns=} ;;
+    mirab.net=*) net=${kv#mirab.net=} ;;
+    mirab.time=*) now=${kv#mirab.time=} ;;
   esac
 done
 # vz has no clock source the guest trusts at boot; the host passes its time.
@@ -23,7 +23,7 @@ done
 if [ -b /dev/vdb ]; then
   /bin/mount /dev/vdb /workspace
 else
-  /bin/mount -t virtiofs workspace /workspace 2>/dev/null || echo "gild: no workspace"
+  /bin/mount -t virtiofs workspace /workspace 2>/dev/null || echo "mirab: no workspace"
 fi
 /bin/ip link set lo up
 if [ -e /sys/class/net/eth0 ]; then
@@ -45,4 +45,4 @@ if [ -e /sys/class/net/eth0 ]; then
     /bin/mount --bind /run/resolv.conf /etc/resolv.conf 2>/dev/null
   fi
 fi
-exec /usr/local/bin/gild-guest-agent --vsock 9002
+exec /usr/local/bin/mirab-guest-agent --vsock 9002

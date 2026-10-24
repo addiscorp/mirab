@@ -15,8 +15,8 @@ import { basename, dirname, join } from 'node:path'
 import type { Socket } from 'node:net'
 import type { RecoveryLocation } from './isolation/sync'
 
-/** Worker side of `gild spawn --detach`: output kept while nobody watches,
- * and the viewers of `gild attach`. The terminal-facing client is spawn-attach.ts. */
+/** Worker side of `mirab spawn --detach`: output kept while nobody watches,
+ * and the viewers of `mirab attach`. The terminal-facing client is spawn-attach.ts. */
 export const DEFAULT_COLS = 120
 export const DEFAULT_ROWS = 40
 export const RING_BYTES = 256 * 1024
@@ -175,7 +175,7 @@ export class DetachedHost {
       throw new Error('Invalid attach mode')
     if (interactive && this.info.interactive)
       throw new Error(
-        'Another viewer is attached interactively; use gild attach --watch',
+        'Another viewer is attached interactively; use mirab attach --watch',
       )
     socket.setTimeout(0)
     socket.write(
@@ -236,7 +236,7 @@ export class DetachedHost {
   }
   /** Removes the session's private files but keeps its latest output as
    * `<sessions>/<id>.output.log`, so it can be read after the session ended
-   * (`gild attach --watch <id>`); only the newest KEPT_LOGS are kept. */
+   * (`mirab attach --watch <id>`); only the newest KEPT_LOGS are kept. */
   cleanup() {
     this.log?.close()
     if (!this.directory) return
@@ -284,7 +284,7 @@ export function endSocket(socket: Socket, last?: string) {
 }
 export type StartMessage =
   { type: 'ready'; id: string } | { type: 'failed'; error: string }
-/** The worker tells `gild spawn --detach` over IPC that it is ready, or why not. */
+/** The worker tells `mirab spawn --detach` over IPC that it is ready, or why not. */
 export function reportDetached(
   detach: unknown,
   message: StartMessage,

@@ -1,6 +1,6 @@
-// Working-directory sync for `gild spawn --vm`. Stock Firecracker has no
+// Working-directory sync for `mirab spawn --vm`. Stock Firecracker has no
 // virtio-fs, so the guest works on a copy of the directory (an ext4 drive) and
-// its changes come back to the host at exit and on demand (`gild sync <id>`).
+// its changes come back to the host at exit and on demand (`mirab sync <id>`).
 //
 // The rule, per path, three-way against the baseline (the tree as it was copied
 // into the guest, or as of the last sync):

@@ -13,7 +13,7 @@ const launcher = join(
   'node_modules',
   'gildforge',
   'bin',
-  'gild.js',
+  'mirab.js',
 )
 const require = createRequire(launcher)
 const platform = require.resolve(
@@ -49,10 +49,10 @@ const child = spawn(
         join(root, '.tmp', 'install', 'prefix', 'bin') +
         delimiter +
         process.env.PATH,
-      TEST_GILD_COMMAND: JSON.stringify(['node', launcher]),
-      TEST_GILD_PROMPT_COMMAND: 'gild',
-      TEST_GILD_HOOK_COMMAND: JSON.stringify([
-        join(platform, '..', 'bin', 'gild'),
+      TEST_MIRAB_COMMAND: JSON.stringify(['node', launcher]),
+      TEST_MIRAB_PROMPT_COMMAND: 'mirab',
+      TEST_MIRAB_HOOK_COMMAND: JSON.stringify([
+        join(platform, '..', 'bin', 'mirab'),
       ]),
     },
   },

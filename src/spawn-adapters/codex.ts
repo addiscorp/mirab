@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { originalNotify } from './codex-notify'
 import { CodexLogs } from './codex-logs'
 import { event, payload, type AgentAdapter } from './types'
-/** Codex settings every gild session needs, because gild types its prompts.
+/** Codex settings every mirab session needs, because mirab types its prompts.
  * - The startup "Update available" menu would swallow the first prompt (its
  *   Enter picks "Update now").
  * - Paste-burst detection treats typed prompt text as a paste and the Enter

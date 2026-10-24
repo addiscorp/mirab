@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import type { AgentState } from './spawn-events'
 
-/** Watchdog nudges: gild pokes a stalled spawned agent through the ordinary
- * injection queue. Rules come from the agent profile and `gild spawn --nudge`. */
+/** Watchdog nudges: mirab pokes a stalled spawned agent through the ordinary
+ * injection queue. Rules come from the agent profile and `mirab spawn --nudge`. */
 export type NudgeRule =
   | {
       spec: string
@@ -317,7 +317,7 @@ export class Watchdog {
       for (const s of slots) {
         const what = `workflow ${JSON.stringify(run.name ?? 'run')} ${run.conclusion ?? 'finished'} on ${run.head_branch} (run #${run.id}${run.html_url ? `, ${run.html_url}` : ''})`
         this.fire(s, {
-          prompt: `[gild] nudge: ci ${repo}: ${what}. Read the result and continue.`,
+          prompt: `[mirab] nudge: ci ${repo}: ${what}. Read the result and continue.`,
           note: `ci ${repo}: ${what}; nudged the agent`,
           repo,
           run: run.id,
@@ -375,7 +375,7 @@ export class Watchdog {
     s.armed = false
     s.streak++
     this.fire(s, {
-      prompt: `[gild] nudge: idle ${s.rule.after}. ${s.rule.message ?? IDLE_PROMPT}`,
+      prompt: `[mirab] nudge: idle ${s.rule.after}. ${s.rule.message ?? IDLE_PROMPT}`,
       note: `idle ${s.rule.after}; asked the agent for a status report`,
     })
   }
@@ -404,7 +404,7 @@ export class Watchdog {
     const answered = await this.o.replied?.(repo, cursor).catch(() => false)
     if (answered || this.closed) return
     this.fire(s, {
-      prompt: `[gild] nudge: mention unanswered ${s.rule.after}. ${author ? `@${author}` : 'A mention'} in ${repo} (message ${cursor}) has no reply from you yet. Reply in the channel with your status.`,
+      prompt: `[mirab] nudge: mention unanswered ${s.rule.after}. ${author ? `@${author}` : 'A mention'} in ${repo} (message ${cursor}) has no reply from you yet. Reply in the channel with your status.`,
       note: `mention ${cursor} unanswered for ${s.rule.after}; nudged the agent`,
       repo,
       message: cursor,
@@ -441,6 +441,6 @@ export class Watchdog {
       ...(f.run !== undefined ? { run: f.run } : {}),
       ...(error ? { error } : {}),
     })
-    void this.o.note?.(`[gild nudge] ${f.note}`, f.repo)?.catch(() => {})
+    void this.o.note?.(`[mirab nudge] ${f.note}`, f.repo)?.catch(() => {})
   }
 }

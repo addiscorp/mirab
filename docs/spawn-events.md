@@ -4,18 +4,18 @@ The native terminal remains the sole display. Events use the same private
 0600 Unix socket as local sends; nothing is parsed from terminal output.
 
 ```sh
-alias claude='gild spawn claude'
-gild spawn --name work claude --resume
-gild status work
-gild send work 'Please review the diff when this turn finishes'
-gild events work
-# In a repository on the agent's joined gild server:
-gild spawn --as ava --name work claude
+alias claude='mirab spawn claude'
+mirab spawn --name work claude --resume
+mirab status work
+mirab send work 'Please review the diff when this turn finishes'
+mirab events work
+# In a repository on the agent's joined mirab server:
+mirab spawn --as ava --name work claude
 ```
 
-All gild options precede the agent name. Every following argument belongs to
+All mirab options precede the agent name. Every following argument belongs to
 the native agent, including `--`. Pipes and redirects bypass the PTY, adapters,
-socket and injection entirely. PATH resolution skips recognizable gild shims;
+socket and injection entirely. PATH resolution skips recognizable mirab shims;
 private recursion markers also skip opaque wrappers on re-entry. The normal
 path prints nothing. `--print-id` explicitly writes the ID to stderr.
 
@@ -24,7 +24,7 @@ Local JSONL events have one `AgentEvent` definition in `src/spawn-events.ts`:
 tool_start, tool_end, waiting and message. Subscribe directly by sending
 `{"type":"subscribe"}\n` to the session socket. A subscriber gets the current
 state when known, then future events. Slow subscribers are disconnected at a
-1 MiB write backlog. `gild events tail` continues to stream forge events.
+1 MiB write backlog. `mirab events tail` continues to stream forge events.
 
 Status includes state, current tool, last activity, native session ID and
 transcript path when available. Running tools use `tool_start`; tool completion
@@ -50,16 +50,16 @@ Messages API. This exercises Claude's own hooks, tools, permission dialog and
 composer; no provider credentials, paid requests or screen windows are needed.
 
 Isolated user, project and local settings each registered a recorder for the
-same hook names. With gild's per-session `--settings`, all four sources ran.
+same hook names. With mirab's per-session `--settings`, all four sources ran.
 The user/project/local hook commands remained intact and executed on both
 turns. Hashes before and after were identical. The real user's settings file
 was also hashed before/after without editing it.
 
 The refreshed `--repeat-settings` experiment passed two `--settings` files. Only the last CLI file's
 hooks ran; user/project/local hooks still merged. Therefore, if the caller
-already passes `--settings`, gild additionally loads its observer as a
+already passes `--settings`, mirab additionally loads its observer as a
 per-session `--plugin-dir`. The caller's arguments and settings file are left
-untouched. A second live TUI run verified all original sources plus gild's
+untouched. A second live TUI run verified all original sources plus mirab's
 plugin hooks, with identical before/after file hashes. Both temporary settings
 and plugin files are removed on exit. `--bare` and `--safe-mode` keep their
 native no-hooks behavior and use the fallback adapter.
@@ -90,9 +90,9 @@ an `agent_id`, so a subagent Stop cannot unlock the main composer.
 Reproduce the live checks (all launches are headless):
 
 ```sh
-TEST_GILD_COMMAND='["bun","run","/Volumes/Projects/codex/gild-cli-fixspawn/src/gild.ts"]' python3 scripts/fixtures/live-events.py
-TEST_GILD_COMMAND='["bun","run","/Volumes/Projects/codex/gild-cli-fixspawn/src/gild.ts"]' python3 scripts/fixtures/live-events.py --explicit-settings
-TEST_GILD_COMMAND='["bun","run","/Volumes/Projects/codex/gild-cli-fixspawn/src/gild.ts"]' python3 scripts/fixtures/live-events.py --repeat-settings
+TEST_MIRAB_COMMAND='["bun","run","/Volumes/Projects/codex/mirab-cli-fixspawn/src/mirab.ts"]' python3 scripts/fixtures/live-events.py
+TEST_MIRAB_COMMAND='["bun","run","/Volumes/Projects/codex/mirab-cli-fixspawn/src/mirab.ts"]' python3 scripts/fixtures/live-events.py --explicit-settings
+TEST_MIRAB_COMMAND='["bun","run","/Volumes/Projects/codex/mirab-cli-fixspawn/src/mirab.ts"]' python3 scripts/fixtures/live-events.py --repeat-settings
 ```
 
 ## Codex 0.160.1 capabilities
@@ -105,21 +105,21 @@ defines `notify` as a command receiving notification JSON. Official
 tool and permission hooks, additive sources, and mandatory trust review for
 non-managed hooks. We preserve that review policy rather than bypass it.
 
-The adapter supplies `-c notify=[gild,hook,--session,id,--agent,codex]` with the
+The adapter supplies `-c notify=[mirab,hook,--session,id,--agent,codex]` with the
 appropriate development or compiled executable prefix. Codex appends its JSON
 payload to argv. `agent-turn-complete` becomes idle. User PTY submission becomes
-busy. Gild reads root `notify` from `$CODEX_HOME/config.toml` (default
+busy. Mirab reads root `notify` from `$CODEX_HOME/config.toml` (default
 `~/.codex/config.toml`) using a TOML parser, overlays the selected
 `<profile>.config.toml` (including `--profile`/`-p`), then applies notify CLI
 overrides in order. System `config.toml` supplies lower-priority defaults;
 project config cannot override notify. Codex 0.160.1 resolves `notify` from root `cfg.notify`;
-CLI config overrides replace it. Gild wraps that effective command: its hook
+CLI config overrides replace it. Mirab wraps that effective command: its hook
 forwards first, then invokes the original command with its fixed arguments and
-the exact JSON argument Codex appended. An absent/dead gild socket still runs
+the exact JSON argument Codex appended. An absent/dead mirab socket still runs
 the caller's notifier after the forwarding deadline. Other CLI arguments stay
 in order and `--` ends config-option parsing. User config files are never edited.
 An empty notify command disables only the caller's notifier, leaving observation
-active. The forwarding deadline bounds gild, not the caller's command runtime.
+active. The forwarding deadline bounds mirab, not the caller's command runtime.
 
 Only the executable-chain recursion guard remains; the unused depth counter
 was removed. Windows fallback defers executable-suffix lookup to native spawning.
@@ -135,7 +135,7 @@ missing transcripts and unknown shapes reduce coverage; the first turn's tools
 are not observable before the thread is bound. Claude transcript tailing is
 optional and is not enabled here.
 
-## Reporting to gild
+## Reporting to mirab
 
 `--as <label>` reads an approved scoped token from the existing CLI agent store.
 The current repository must have an origin on that identity's joined server

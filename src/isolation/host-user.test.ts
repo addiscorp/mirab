@@ -21,12 +21,12 @@ import {
 
 const good: Marker = {
   version: 1,
-  user: 'gild-runner',
+  user: 'mirab-runner',
   uid: 1501,
   gid: 1501,
   owner: 'sami',
-  agent: '/usr/local/libexec/gild/gild-guest-agent',
-  workRoot: '/var/lib/gild-host/gild-runner/work',
+  agent: '/usr/local/libexec/mirab/mirab-guest-agent',
+  workRoot: '/var/lib/mirab-host/mirab-runner/work',
   network: 'lan-denied',
 }
 
@@ -94,25 +94,25 @@ describe('host tier detection never runs sudo and refuses unsafe setups', () => 
   ]
   for (const [name, o, reason] of cases)
     test(name, () => {
-      const s = hostUserState('gild-runner', probe(o))
+      const s = hostUserState('mirab-runner', probe(o))
       expect(s.ok).toBe(false)
       if (!s.ok) expect(s.reason).toMatch(reason)
     })
 
   test('not in the group: the fix is a re-login, not a re-run of setup', () => {
-    const s = hostUserState('gild-runner', probe({ me: { groups: [20] } }))
+    const s = hostUserState('mirab-runner', probe({ me: { groups: [20] } }))
     expect(!s.ok && s.fix).toMatch(/log out and in/)
   })
 
   test('the missing-setup fix is the exact setup command', () => {
-    const s = hostUserState('gild-runner', probe({ marker: undefined }))
+    const s = hostUserState('mirab-runner', probe({ marker: undefined }))
     expect(!s.ok && s.fix).toBe(
-      'Needs Sami: sudo scripts/host-user-setup.sh gild-runner sami --agent <gild-guest-agent for this OS>',
+      'Needs Sami: sudo scripts/host-user-setup.sh mirab-runner sami --agent <mirab-guest-agent for this OS>',
     )
   })
 
   test('a correct setup is configured', () => {
-    expect(hostUserState('gild-runner', probe({}))).toEqual({
+    expect(hostUserState('mirab-runner', probe({}))).toEqual({
       ok: true,
       marker: good,
     })
@@ -125,7 +125,7 @@ describe('host tier detection never runs sudo and refuses unsafe setups', () => 
         'sh',
         [
           resolve('scripts/host-user-setup.sh'),
-          'gild-runner',
+          'mirab-runner',
           'sami',
           '--agent',
           '/x',
@@ -137,7 +137,7 @@ describe('host tier detection never runs sudo and refuses unsafe setups', () => 
       )
       expect(r.status).toBe(0)
       expect(r.stdout).toContain(
-        'sami ALL=(gild-runner) NOPASSWD: /usr/local/libexec/gild/gild-guest-agent --stdio --shared',
+        'sami ALL=(mirab-runner) NOPASSWD: /usr/local/libexec/mirab/mirab-guest-agent --stdio --shared',
       )
       const line = r.stdout
         .split('\n')
@@ -147,7 +147,7 @@ describe('host tier detection never runs sudo and refuses unsafe setups', () => 
       )
       expect(
         hostUserState(
-          'gild-runner',
+          'mirab-runner',
           probe({
             marker: JSON.stringify(written),
             work: written.workRoot === good.workRoot ? undefined : null,
@@ -156,17 +156,17 @@ describe('host tier detection never runs sudo and refuses unsafe setups', () => 
       ).toBe(os === 'linux') // the fake probe only knows the Linux paths
       expect(written.workRoot).toBe(
         os === 'linux'
-          ? '/var/lib/gild-host/gild-runner/work'
-          : '/Users/Shared/gild-host/gild-runner/work',
+          ? '/var/lib/mirab-host/mirab-runner/work'
+          : '/Users/Shared/mirab-host/mirab-runner/work',
       )
       expect(r.stdout).toContain(
         os === 'linux'
-          ? 'meta skuid "gild-runner" ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 } reject'
-          : 'block return out quick inet proto { tcp udp } from any to { 127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 } user gild-runner',
+          ? 'meta skuid "mirab-runner" ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16 } reject'
+          : 'block return out quick inet proto { tcp udp } from any to { 127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 } user mirab-runner',
       )
     })
 
-  test('setup refuses names outside gild-*', () => {
+  test('setup refuses names outside mirab-*', () => {
     const r = spawnSync(
       'sh',
       [
@@ -185,7 +185,7 @@ describe('host tier detection never runs sudo and refuses unsafe setups', () => 
 
 // Real staging and exec through the agent, as the current user (runAs = []):
 // proves everything except the privilege switch, which needs Sami's setup.
-const agent = process.env.GILD_TEST_AGENT
+const agent = process.env.MIRAB_TEST_AGENT
 test.skipIf(!agent)(
   'host tier: job dir staged under the shared root, steps run there, files group-shared, dir restored',
   async () => {

@@ -30,7 +30,7 @@ describe('guestProgram', () => {
 describe('No route to host', () => {
   test('is recognised in Multipass output', () => {
     expect(noRoute(NO_ROUTE)).toBe(true)
-    expect(noRoute('exec failed: instance "gild" is not running')).toBe(false)
+    expect(noRoute('exec failed: instance "mirab" is not running')).toBe(false)
   })
   test('on macOS the error names the Local Network setting', () => {
     const message = noRouteError('darwin').message
@@ -82,6 +82,6 @@ describe('readiness', () => {
     ).toThrow('No route to host')
     expect(() =>
       readiness({ status: 2, stdout: '', stderr: 'exec failed: boom' }),
-    ).toThrow('checking the gild VM: exec failed: boom')
+    ).toThrow('checking the mirab VM: exec failed: boom')
   })
 })

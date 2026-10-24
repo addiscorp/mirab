@@ -14,19 +14,19 @@ test('workspace image sizing stays positive across the signed 32-bit boundary', 
     expect(() => workImageBytes(n)).toThrow()
 })
 
-test('Firecracker: isolation.json first, then the one shipped next to gild, then PATH', async () => {
+test('Firecracker: isolation.json first, then the one shipped next to mirab, then PATH', async () => {
   await mkdir(resolve('.tmp'), { recursive: true })
   const dir = await mkdtemp(resolve('.tmp/fc-bundled-'))
   try {
-    const gild = join(dir, 'gild')
-    // Nothing next to gild: PATH.
-    expect(defaultFirecracker(gild)).toBe('firecracker')
+    const mirab = join(dir, 'mirab')
+    // Nothing next to mirab: PATH.
+    expect(defaultFirecracker(mirab)).toBe('firecracker')
     // Present but not executable: still PATH.
     await writeFile(join(dir, 'firecracker'), '', { mode: 0o644 })
-    expect(defaultFirecracker(gild)).toBe('firecracker')
-    // The npm package's layout: bin/gild and bin/firecracker.
+    expect(defaultFirecracker(mirab)).toBe('firecracker')
+    // The npm package's layout: bin/mirab and bin/firecracker.
     await chmod(join(dir, 'firecracker'), 0o755)
-    expect(defaultFirecracker(gild)).toBe(join(dir, 'firecracker'))
+    expect(defaultFirecracker(mirab)).toBe(join(dir, 'firecracker'))
     // isolation.json's own choice wins over the default.
     const { vm } = hostConfigSchema(dir).parse({
       vm: { firecracker: '/opt/fc/firecracker' },

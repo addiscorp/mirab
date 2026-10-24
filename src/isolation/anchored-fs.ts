@@ -207,7 +207,7 @@ export class AnchoredDirectory {
     }
   }
   put(name: string, e: Entry, data?: Buffer, replaceDirectory = false) {
-    const temp = cstr(`.gild-sync-${randomBytes(12).toString('hex')}`),
+    const temp = cstr(`.mirab-sync-${randomBytes(12).toString('hex')}`),
       dest = cstr(name)
     let made = false
     try {

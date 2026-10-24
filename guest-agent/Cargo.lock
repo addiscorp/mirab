@@ -57,7 +57,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gild-guest-agent"
+name = "mirab-guest-agent"
 version = "0.2.0"
 dependencies = [
  "libc",

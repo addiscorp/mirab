@@ -64,7 +64,7 @@ export async function forwardHook(
 
 export async function runHook(args: string[]) {
   await forwardHook(args)
-  // The forwarding deadline bounds gild only; the caller's notifier retains its
+  // The forwarding deadline bounds mirab only; the caller's notifier retains its
   // own runtime and receives exactly the payload argument Codex appended.
   const index = args.indexOf('--notify-command')
   if (index >= 0) {

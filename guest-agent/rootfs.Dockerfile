@@ -13,10 +13,10 @@ RUN apt-get update \
 RUN arch=$(uname -m | sed 's/x86_64/x64/;s/aarch64/aarch64/') \
  && curl -fsSL -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-${arch}.zip" \
  && unzip -p /tmp/bun.zip "*/bun" > /usr/local/bin/bun && chmod 755 /usr/local/bin/bun && rm /tmp/bun.zip
-RUN printf 'root:x:0:0:root:/root:/bin/sh\nruntime:x:1000:1000:gild runtime:/workspace:/bin/sh\n' > /etc/passwd \
+RUN printf 'root:x:0:0:root:/root:/bin/sh\nruntime:x:1000:1000:mirab runtime:/workspace:/bin/sh\n' > /etc/passwd \
  && printf 'root:x:0:\nruntime:x:1000:\n' > /etc/group \
  && mkdir -p /workspace /artifacts /toolchain \
  && printf '[safe]\n\tdirectory = *\n' > /etc/gitconfig
-COPY init-gild.sh /init-gild.sh
-COPY gild-guest-agent /usr/local/bin/gild-guest-agent
-RUN chmod 755 /init-gild.sh /usr/local/bin/gild-guest-agent
+COPY init-mirab.sh /init-mirab.sh
+COPY mirab-guest-agent /usr/local/bin/mirab-guest-agent
+RUN chmod 755 /init-mirab.sh /usr/local/bin/mirab-guest-agent

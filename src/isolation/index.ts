@@ -61,17 +61,17 @@ export const hostConfigSchema = (configDir: string) =>
     default: level.optional(),
     vm: z
       .strictObject({
-        /** Linux: the bundled one next to gild, else `firecracker` on PATH. */
+        /** Linux: the bundled one next to mirab, else `firecracker` on PATH. */
         firecracker: z.string().default(() => defaultFirecracker()),
         /** macOS: the signed Virtualization.framework helper: the published
-         *  one in <config dir>/vm when it was fetched, else `gild-vz` on PATH
+         *  one in <config dir>/vm when it was fetched, else `mirab-vz` on PATH
          *  (scripts/build-vz-helper.sh). */
         vz: z
           .string()
           .default(() =>
             existsSync(vmImagePaths(configDir).vz)
               ? vmImagePaths(configDir).vz
-              : 'gild-vz',
+              : 'mirab-vz',
           ),
         kernel: z.string().default(vmImagePaths(configDir).kernel),
         rootfs: z.string().default(vmImagePaths(configDir).rootfs),
@@ -94,7 +94,7 @@ export const hostConfigSchema = (configDir: string) =>
     /** `host` level: the dedicated OS user scripts/host-user-setup.sh created. */
     host: z
       .strictObject({
-        user: z.string().regex(/^gild-[a-z0-9-]{1,30}$/),
+        user: z.string().regex(/^mirab-[a-z0-9-]{1,30}$/),
       })
       .optional(),
   })
@@ -153,7 +153,7 @@ export interface PreparedVm {
 /**
  * Load isolation.json and, when this run asks for `vm` and the owner did not
  * point it at their own kernel and rootfs, make sure the published guest
- * image for this gild version is in <config dir>/vm (downloaded once, then
+ * image for this mirab version is in <config dir>/vm (downloaded once, then
  * used offline) and describe `vm` with it.
  */
 export async function prepareVm(
@@ -221,7 +221,7 @@ export const systemProbes = (): Probes => ({
 
 export interface Detected {
   levels: Level[]
-  /** One line per backend that is configured or detected, for `gild status`. */
+  /** One line per backend that is configured or detected, for `mirab status`. */
   notes: string[]
   colima?: ColimaState
   hostUser?: HostUserState
@@ -336,7 +336,7 @@ export const backendName = (level: Level, platform = process.platform) =>
       ? 'oci in Colima VM'
       : BACKEND[level]
 
-/** One line for `gild status` and job logs. */
+/** One line for `mirab status` and job logs. */
 export function describe(resolved: Resolved, backend?: string) {
   const line = `isolation: ${labelFor(resolved.level, backend ?? backendName(resolved.level))}, requested by ${resolved.source}`
   return resolved.fallback ? `${line} (${resolved.fallback})` : line
@@ -410,7 +410,7 @@ export function statusLines(
   return lines
 }
 
-/** `gild runner start` calls this once: a runner that cannot isolate does not start. */
+/** `mirab runner start` calls this once: a runner that cannot isolate does not start. */
 export function assertCanIsolate(
   host: HostConfig,
   flag?: Level,

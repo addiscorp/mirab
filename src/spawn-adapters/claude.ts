@@ -67,7 +67,7 @@ export const claudeAdapter: AgentAdapter = {
         await mkdir(join(directory, 'hooks'), { mode: 0o700 })
         await writeFile(
           join(directory, '.claude-plugin', 'plugin.json'),
-          JSON.stringify({ name: 'gild-session-observer', version: '1.0.0' }),
+          JSON.stringify({ name: 'mirab-session-observer', version: '1.0.0' }),
           { mode: 0o600 },
         )
         await writeFile(

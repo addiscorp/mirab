@@ -1,4 +1,4 @@
-//! gild guest agent: one exec contract for every isolation backend.
+//! mirab guest agent: one exec contract for every isolation backend.
 //!
 //! Wire format (both directions): `[u32 big-endian length][JSON]`.
 //!
@@ -314,7 +314,7 @@ fn handle(mut conn: Box<dyn Conn>) {
             let mut child = match cmd.spawn() {
                 Ok(c) => c,
                 Err(e) => {
-                    let _ = send(&w, &Reply::Err { d: &b64_encode(format!("gild-guest-agent: cannot start {prog}: {e}\n").as_bytes()) });
+                    let _ = send(&w, &Reply::Err { d: &b64_encode(format!("mirab-guest-agent: cannot start {prog}: {e}\n").as_bytes()) });
                     let _ = send(&w, &Reply::Exit { code: 127, timed_out: false });
                     return;
                 }
@@ -472,7 +472,7 @@ fn run_pty(
 #[cfg(not(target_os = "linux"))]
 fn hook(_args: &[String]) {}
 
-/// `gild-guest-agent hook --session ID [--agent A] [json]`: the hook command inside the guest.
+/// `mirab-guest-agent hook --session ID [--agent A] [json]`: the hook command inside the guest.
 /// Forwards the payload to the host over vsock (CID 2, port 9100); never fails the agent.
 #[cfg(target_os = "linux")]
 fn hook(args: &[String]) {
@@ -544,9 +544,9 @@ fn main() {
             let port: u32 = args.get(2).and_then(|p| p.parse().ok()).unwrap_or(9002);
             let fd = match vsock_listen(port) {
                 Ok(fd) => fd,
-                Err(e) => { eprintln!("gild-guest-agent: vsock listen {port}: {e}"); std::process::exit(1) }
+                Err(e) => { eprintln!("mirab-guest-agent: vsock listen {port}: {e}"); std::process::exit(1) }
             };
-            eprintln!("gild-guest-agent: listening on vsock {port}");
+            eprintln!("mirab-guest-agent: listening on vsock {port}");
             loop {
                 let c = unsafe { libc::accept(fd, std::ptr::null_mut(), std::ptr::null_mut()) };
                 if c < 0 { continue }
@@ -555,7 +555,7 @@ fn main() {
                 std::thread::spawn(move || handle(Box::new(VsockConn(file))));
             }
         }
-        _ => { eprintln!("usage: gild-guest-agent --vsock <port> | --stdio [--shared]"); std::process::exit(2) }
+        _ => { eprintln!("usage: mirab-guest-agent --vsock <port> | --stdio [--shared]"); std::process::exit(2) }
     }
 }
 
@@ -578,7 +578,7 @@ mod tests {
             let data: Vec<u8> = (0..len).map(|i| (i * 37 + 11) as u8).collect();
             assert_eq!(b64_decode(&b64_encode(&data)).unwrap(), data);
         }
-        assert_eq!(b64_encode(b"gild"), "Z2lsZA==");
+        assert_eq!(b64_encode(b"mirab"), "Z2lsZA==");
         assert!(b64_decode("a$b").is_err());
     }
 

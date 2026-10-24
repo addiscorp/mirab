@@ -123,7 +123,7 @@ const cases = [
   ],
   [
     'profile-repo-cwd',
-    'src/gild-main.ts',
+    'src/mirab-main.ts',
     "cwd,\n      encoding: 'utf8',",
     "encoding: 'utf8',",
     'profile PTY: profile$',
@@ -167,7 +167,7 @@ const cases = [
 cases.push(
   [
     'profile-local-launch',
-    'src/gild-main.ts',
+    'src/mirab-main.ts',
     'if (localProfile) return { agent: agent.name }',
     'if (false) return { agent: agent.name }',
     'profile PTY: profile-local',

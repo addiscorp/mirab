@@ -12,7 +12,7 @@ export function screenText(data: string) {
  * Readiness for a runtime that reports only the end of a turn (Codex):
  * - a fresh session is idle once its first screen has been quiet for
  *   `startupMs`;
- * - a busy state gild inferred itself (an Enter it typed or saw typed) falls
+ * - a busy state mirab inferred itself (an Enter it typed or saw typed) falls
  *   back to idle after `busyMs` of silence, because a working Codex redraws
  *   its timer every second, while an Enter that answered a dialog or a prompt
  *   the TUI dropped would otherwise hold every later message forever;
@@ -42,7 +42,7 @@ export class QuietIdle {
     this.text = ''
     this.arm()
   }
-  /** Re-evaluate after a state change (e.g. gild just typed a prompt). */
+  /** Re-evaluate after a state change (e.g. mirab just typed a prompt). */
   changed() {
     this.arm()
   }

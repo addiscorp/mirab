@@ -2,7 +2,7 @@
 """A PTY agent for detached sessions. As `claude` it runs the generated hook
 commands (SessionStart, then UserPromptSubmit/Stop around each line); under any
 other name it has no hooks. It reports its terminal size at start and on
-SIGWINCH. Argument `stubborn` makes it ignore the hangup `gild stop` sends."""
+SIGWINCH. Argument `stubborn` makes it ignore the hangup `mirab stop` sends."""
 import sys,os,json,tty,pathlib,subprocess,shlex,signal
 settings=None
 if '--settings' in sys.argv:

@@ -1,4 +1,4 @@
-// `gild spawn --vm`: the agent process runs on a pty inside a microVM
+// `mirab spawn --vm`: the agent process runs on a pty inside a microVM
 // (Firecracker on Linux, Virtualization.framework on macOS); the host keeps the terminal, session socket, hooks, injection queue
 // and everything else (spawn-worker.ts). This file only builds the guest
 // child and the hook relay.
@@ -22,7 +22,7 @@ import {
   type RecoveryLocation,
 } from './isolation/sync'
 
-export const GUEST_AGENT = '/usr/local/bin/gild-guest-agent'
+export const GUEST_AGENT = '/usr/local/bin/mirab-guest-agent'
 const GUEST_PATH =
   '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
 const MAX_UPLOAD = 1 << 20
@@ -60,7 +60,7 @@ export async function finishVmSync(
   sync: () => Promise<SyncResult>,
   isolation: Pick<Isolation, 'close'>,
   vmDir: string,
-  log: (line: string) => void = (line) => console.error(`gild: ${line}`),
+  log: (line: string) => void = (line) => console.error(`mirab: ${line}`),
 ) {
   let result: SyncResult | undefined, failure: unknown
   try {
@@ -172,7 +172,7 @@ export async function startVmChild(opts: {
   rows: number
   log?: (line: string) => void
 }): Promise<VmChild> {
-  // `gild spawn` fetched the published image already; this finds it installed.
+  // `mirab spawn` fetched the published image already; this finds it installed.
   const { host, vmUnavailable } = await prepareVm(opts.configDir, {
     want: true,
     log: opts.log,
@@ -181,8 +181,8 @@ export async function startVmChild(opts: {
   if (!host.vm || !vmAvailable(host.vm))
     throw new Error(
       vmBackend() === 'vz'
-        ? '--vm needs a working vz setup: the published guest image and gild-vz helper (fetched on first use), or `vm` (kernel, rootfs, vz helper) in <config dir>/isolation.json (docs/VM.md)'
-        : '--vm needs a working Firecracker setup: Firecracker (shipped next to gild in the npm package; else on PATH or `vm.firecracker` in <config dir>/isolation.json), mke2fs, and an accessible /dev/kvm (docs/VM.md)',
+        ? '--vm needs a working vz setup: the published guest image and mirab-vz helper (fetched on first use), or `vm` (kernel, rootfs, vz helper) in <config dir>/isolation.json (docs/VM.md)'
+        : '--vm needs a working Firecracker setup: Firecracker (shipped next to mirab in the npm package; else on PATH or `vm.firecracker` in <config dir>/isolation.json), mke2fs, and an accessible /dev/kvm (docs/VM.md)',
     )
   const kb = Number(
     execFileSync('du', ['-sk', opts.cwd], { encoding: 'utf8' }).split(/\s+/)[0],
@@ -234,7 +234,7 @@ export async function startVmChild(opts: {
       if (!isAbsolute(path)) return undefined
       const st = await stat(path).catch(() => null)
       if (!st?.isFile() || st.size > MAX_UPLOAD) return undefined
-      const target = `/tmp/gild/${n++}-${basename(path)}`
+      const target = `/tmp/mirab/${n++}-${basename(path)}`
       await iso.put(
         target,
         await readFile(path, 'utf8'),

@@ -2,7 +2,7 @@
 // vmType vz, virtiofs mounts, Docker runtime). The Mac is separated from jobs
 // by Colima's VM, and jobs from each other by the same hardened container
 // flags and egress policy as on Linux (that policy runs inside Colima's VM).
-// gild only detects Colima; installing or starting it is the owner's call.
+// mirab only detects Colima; installing or starting it is the owner's call.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -114,7 +114,7 @@ export function detectColima(p: ColimaProbe): ColimaState {
   if (s.runtime !== 'docker' || !socket.startsWith('unix://'))
     return {
       running: false,
-      reason: `Colima runs the ${String(s.runtime)} runtime; gild needs docker`,
+      reason: `Colima runs the ${String(s.runtime)} runtime; mirab needs docker`,
       fix: 'colima start --runtime docker (a new profile; the runtime of an existing VM cannot change)',
     }
   if (!p.exists(socket.slice('unix://'.length)))

@@ -28,8 +28,8 @@ for (const scenario of [
       {
         env: {
           ...process.env,
-          TEST_GILD_COMMAND:
-            process.env.TEST_GILD_COMMAND ??
+          TEST_MIRAB_COMMAND:
+            process.env.TEST_MIRAB_COMMAND ??
             JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')]),
           TEST_NODE: Bun.which('node')!,
           TEST_WORKER: worker,

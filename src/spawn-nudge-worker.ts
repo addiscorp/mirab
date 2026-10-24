@@ -9,7 +9,7 @@ function pair(repo: string) {
 
 /** The worker's watchdog: channel notes and reply checks use the session's
  * own agent identity. gild-site has no system-note route for clients yet, so a
- * note is an ordinary message from the agent, prefixed `[gild nudge]`. */
+ * note is an ordinary message from the agent, prefixed `[mirab nudge]`. */
 export function startWatchdog(o: {
   specs: string[]
   session: string
@@ -53,7 +53,7 @@ export function startWatchdog(o: {
               (m) =>
                 m.kind === 'message' &&
                 m.author.name.toLowerCase() === agent.toLowerCase() &&
-                !m.body.startsWith('[gild nudge]'),
+                !m.body.startsWith('[mirab nudge]'),
             )
           }
         : undefined,

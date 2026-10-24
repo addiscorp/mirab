@@ -113,8 +113,8 @@ if (['events', 'profiles'].includes(process.argv[2]))
     [
       'remove-depth',
       'src/spawn-binary.ts',
-      'env.GILD_SPAWN_CHAIN = JSON.stringify(chain)',
-      "env.GILD_SPAWN_CHAIN = JSON.stringify(chain); env.GILD_SPAWN_DEPTH = '2'",
+      'env.MIRAB_SPAWN_CHAIN = JSON.stringify(chain)',
+      "env.MIRAB_SPAWN_CHAIN = JSON.stringify(chain); env.MIRAB_SPAWN_DEPTH = '2'",
       'src/spawn-events.test.ts',
       'safe alias preserves',
     ],

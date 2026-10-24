@@ -1,5 +1,5 @@
 // macOS backend: one Virtualization.framework microVM per job or agent,
-// launched by the `gild-vz` helper (vz/gild-vz.swift, ad-hoc signed with the
+// launched by the `mirab-vz` helper (vz/mirab-vz.swift, ad-hoc signed with the
 // virtualization entitlement by scripts/build-vz-helper.sh).
 //
 // Same guest contract as Firecracker: the helper speaks Firecracker's vsock
@@ -32,7 +32,7 @@ import {
 } from './session'
 
 export interface VzConfig {
-  /** The signed gild-vz helper. */
+  /** The signed mirab-vz helper. */
   helper: string
   /** Uncompressed guest kernel (arm64 `Image`) with virtio-pci built in. */
   kernel: string
@@ -48,7 +48,7 @@ export interface VzConfig {
 /** Guest -> host vsock ports the helper relays (the spawn --vm hook relay). */
 export const GUEST_TO_HOST_PORTS = [9100]
 
-export const VZ_NETWORK_MARKER = '/etc/gild/vz-network.json'
+export const VZ_NETWORK_MARKER = '/etc/mirab/vz-network.json'
 export const VZ_SETUP_COMMAND = 'sudo scripts/vz-network-setup.sh'
 
 /** This Mac can run Virtualization.framework guests (hosted CI Macs cannot). */
@@ -122,7 +122,7 @@ export function planVzNetwork(
   if (state.filtered)
     return {
       net: 'nat',
-      note: 'vm network: VZ NAT, egress allowed, LAN/host/metadata denied by the gild-vz pf anchor',
+      note: 'vm network: VZ NAT, egress allowed, LAN/host/metadata denied by the mirab-vz pf anchor',
     }
   if (egress === 'allow')
     throw new Error(
@@ -147,9 +147,9 @@ export function vzNetworkStatusLine(
 
 export function kernelCommandLine(net: VzNetworkPlan['net'], now: Date) {
   return (
-    'console=hvc0 root=/dev/vda rw rootfstype=ext4 init=/init-gild.sh quiet loglevel=1' +
-    ` gild.time=${Math.floor(now.getTime() / 1000)}` +
-    (net === 'nat' ? ' gild.net=dhcp' : '')
+    'console=hvc0 root=/dev/vda rw rootfstype=ext4 init=/init-mirab.sh quiet loglevel=1' +
+    ` mirab.time=${Math.floor(now.getTime() / 1000)}` +
+    (net === 'nat' ? ' mirab.net=dhcp' : '')
   )
 }
 
@@ -241,7 +241,7 @@ export async function startVz(
             'utf8',
           ).catch(() => '')
           throw new Error(
-            `gild-vz exited: ${stderr.trim()} ${serial.slice(-400)}`.trim(),
+            `mirab-vz exited: ${stderr.trim()} ${serial.slice(-400)}`.trim(),
           )
         }
         if (Date.now() - t1 > 20_000)

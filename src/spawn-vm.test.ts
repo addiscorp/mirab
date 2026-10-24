@@ -48,11 +48,11 @@ for (const [mode, outcome] of [
     })
     expect(built.success, JSON.stringify(built.logs)).toBe(true)
     const command: string[] = JSON.parse(
-      process.env.TEST_GILD_COMMAND ??
+      process.env.TEST_MIRAB_COMMAND ??
         JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')]),
     )
     const id = 'final'
-    const path = socketPath(id, join(home, '.gild/sessions'))
+    const path = socketPath(id, join(home, '.mirab/sessions'))
     const recovery = {
       directory: join(home, 'retained'),
       note: join(home, 'retained/recovery.json'),
@@ -335,7 +335,7 @@ test('spawn --vm --detach starts the VM worker (no TTY needed) and reports why a
       }),
     )
     const command: string[] = JSON.parse(
-      process.env.TEST_GILD_COMMAND ??
+      process.env.TEST_MIRAB_COMMAND ??
         JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')]),
     )
     const proc = Bun.spawn(
@@ -369,7 +369,9 @@ test('spawn --vm --detach starts the VM worker (no TTY needed) and reports why a
     )
     expect({ code, out }).toEqual({ code: 1, out: '' })
     // Nothing ran on the host instead, and no session was left behind.
-    const sessions = await readdir(join(home, '.gild/sessions')).catch(() => [])
+    const sessions = await readdir(join(home, '.mirab/sessions')).catch(
+      () => [],
+    )
     expect(sessions.filter((f) => f.startsWith('vmdetach'))).toEqual([])
   } finally {
     await rm(home, { recursive: true, force: true })
@@ -382,7 +384,7 @@ async function harness(script: string) {
   const proc = Bun.spawn(['python3', resolve(script)], {
     env: {
       ...process.env,
-      TEST_GILD_COMMAND: JSON.stringify([
+      TEST_MIRAB_COMMAND: JSON.stringify([
         'bun',
         'run',
         resolve('src/mirab.ts'),
@@ -401,7 +403,7 @@ async function harness(script: string) {
 }
 
 test.skipIf(!config)(
-  'spawn --vm: guest changes reach the host on `gild sync` and at exit; a both-sides edit keeps the host copy',
+  'spawn --vm: guest changes reach the host on `mirab sync` and at exit; a both-sides edit keeps the host copy',
   () => harness('scripts/fixtures/vm-sync-harness.py'),
   120_000,
 )
@@ -414,7 +416,7 @@ test.skipIf(!config)(
       {
         env: {
           ...process.env,
-          TEST_GILD_COMMAND: JSON.stringify([
+          TEST_MIRAB_COMMAND: JSON.stringify([
             'bun',
             'run',
             resolve('src/mirab.ts'),
@@ -483,7 +485,7 @@ test.skipIf(!config || !oldRootfs)(
       ])
       expect(code).toBe(1)
       expect(err).toContain(`The guest image ${oldRootfs} is outdated`)
-      expect(err).toContain('speaks protocol 1, this gild needs 2')
+      expect(err).toContain('speaks protocol 1, this mirab needs 2')
       expect(err).toContain('bun run vm:image')
     } finally {
       // Should the session have started anyway (no handshake), stop its VM.

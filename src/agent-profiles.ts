@@ -56,7 +56,7 @@ export const profileSchema = z.strictObject({
   on: z.array(triggerSchema).optional(),
 })
 export type AgentProfile = z.infer<typeof profileSchema>
-export const profilesDirectory = () => join(homedir(), '.gild', 'agents')
+export const profilesDirectory = () => join(homedir(), '.mirab', 'agents')
 function profilePath(name: string) {
   if (!nameSchema.safeParse(name).success)
     throw Error(
@@ -65,7 +65,7 @@ function profilePath(name: string) {
   return join(profilesDirectory(), name + '.json')
 }
 async function privateDirectory() {
-  for (const path of [join(homedir(), '.gild'), profilesDirectory()]) {
+  for (const path of [join(homedir(), '.mirab'), profilesDirectory()]) {
     await mkdir(path, { mode: 0o700 }).catch((e: NodeJS.ErrnoException) => {
       if (e.code !== 'EEXIST') throw e
     })
@@ -103,7 +103,7 @@ export async function loadProfile(name: string): Promise<AgentProfile> {
     constants.O_RDONLY | constants.O_NOFOLLOW,
   ).catch((e: NodeJS.ErrnoException) => {
     if (e.code === 'ENOENT')
-      throw Error(`No local agent profile ${name}; use gild agent add ${name}`)
+      throw Error(`No local agent profile ${name}; use mirab agent add ${name}`)
     throw e
   })
   try {
@@ -141,7 +141,7 @@ export async function saveProfile(value: unknown, create = false) {
       (e: NodeJS.ErrnoException) => {
         if (e.code === 'EEXIST')
           throw Error(
-            `Agent profile ${profile.name} already exists; use gild agent edit`,
+            `Agent profile ${profile.name} already exists; use mirab agent edit`,
           )
         throw e
       },

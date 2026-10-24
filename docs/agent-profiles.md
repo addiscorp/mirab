@@ -1,20 +1,20 @@
 # Local agent profiles
 
-A profile connects a machine's native runtime settings to an existing gild
-agent label. Profiles live in `~/.gild/agents/<name>.json` (0600, directory 0700).
+A profile connects a machine's native runtime settings to an existing mirab
+agent label. Profiles live in `~/.mirab/agents/<name>.json` (0600, directory 0700).
 Approved identities and scoped tokens stay in the existing credential store,
-`~/.config/gild/agents` (or the explicit `--config-dir`). Profile commands never
+`~/.config/mirab/agents` (or the explicit `--config-dir`). Profile commands never
 read or copy those credentials. A profile JSON accepts only the fields below;
 unknown fields, including token/secret fields, are rejected before writing.
 
 ```sh
-gild agent add ava --runtime claude --model claude-opus-5-5 --effort high --dir /path/to/repo
-gild agent edit ava --arg=--resume --arg 'native session id'
-gild agent ls --json
-gild spawn agent ava --continue
-gild sessions
-gild send ava 'Please review the diff'
-gild agent rm ava
+mirab agent add ava --runtime claude --model claude-opus-5-5 --effort high --dir /path/to/repo
+mirab agent edit ava --arg=--resume --arg 'native session id'
+mirab agent ls --json
+mirab spawn agent ava --continue
+mirab sessions
+mirab send ava 'Please review the diff'
+mirab agent rm ava
 ```
 
 `agent ls` lists runtime profiles. The existing `agent list`, `join`, and
@@ -47,7 +47,7 @@ expanded. Relative executable paths and relative PATH entries resolve from the
 profile directory.
 
 Profile model/effort flags come from the same runtime registry as the events
-adapters, then profile args, then invocation args. All gild flags precede
+adapters, then profile args, then invocation args. All mirab flags precede
 `agent`; all arguments after the profile name belong to the native executable,
 including `--`, `--name` and `--as`. Profile sessions always use their profile
 name; `--name` is rejected and an explicit `--as` must match. Interactive
@@ -55,7 +55,7 @@ launches resolve the existing approved credential using that label, with
 repository/HEAD checks against the **profile's** directory. Profile launches
 also work from a general existing directory: they link the approved identity
 locally and activate state reporting only for a committed repository on that
-identity's joined server. Explicit `gild spawn --as <label> <runtime>` keeps its
+identity's joined server. Explicit `mirab spawn --as <label> <runtime>` keeps its
 existing repository requirement. Local session metadata carries the approved
 sponsor/label identity for the future channel hook. Credentials travel
 over the existing IPC path, never in profile JSON or process argv.
@@ -65,7 +65,7 @@ are used as for direct runtime launches. Socket binding reserves the name
 atomically: simultaneous live sessions become `ava`, `ava-2`, etc. Status and
 sessions expose the runtime and profile name separately. `--print-id` prints
 the actual reserved name. The worker probes and reclaims dead sockets before choosing a suffix;
-`gild sessions` also retains its stale cleanup. Pipes/redirects use the direct native process with the profile's
+`mirab sessions` also retains its stale cleanup. Pipes/redirects use the direct native process with the profile's
 cwd, args and environment; the existing direct-execution path has no session
 socket or forge reporting.
 
@@ -73,7 +73,7 @@ socket or forge reporting.
 Omit it to retain normal spawn inheritance. When present, listed variables plus the baseline PATH, HOME, TERM, LANG, USER,
 SHELL and TMPDIR reach the native process. The baseline is always inherited
 when set, including with an empty allowlist, so executable lookup, native
-configuration/auth and hooks keep working. Gild still removes its existing
+configuration/auth and hooks keep working. Mirab still removes its existing
 nested-agent markers and supplies its private recursion markers; the PTY
 supplies TERM. Codex notification resolution uses the native child environment
 after filtering, so an excluded CODEX_HOME cannot select the wrapper's config. Repeated `--env` replaces the allowlist. Repeated `--arg` or
@@ -101,7 +101,7 @@ Codex help verifies `-c` and its TOML value parsing; the
 [official configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
 verifies `model_reasoning_effort`. Effort is JSON/TOML quoted to avoid changing
 the config expression. Codex effort levels and model IDs depend on the selected
-client/provider; gild passes the supplied model ID unchanged and does not claim
+client/provider; mirab passes the supplied model ID unchanged and does not claim
 model availability. In particular, `claude-opus-5-5` is the requested example
 ID, not a provider availability check.
 

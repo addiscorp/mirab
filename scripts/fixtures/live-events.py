@@ -1,6 +1,6 @@
 """Real Claude Code TUI against a deterministic local Messages API; no credentials or windows."""
 import http.server,threading,json,os,pathlib,tempfile,subprocess,sys,pty,select,time,socket,signal,fcntl,struct,termios,hashlib,socketserver
-ROOT=pathlib.Path(__file__).resolve().parents[2];CLI=json.loads(os.environ['TEST_GILD_COMMAND'])
+ROOT=pathlib.Path(__file__).resolve().parents[2];CLI=json.loads(os.environ['TEST_MIRAB_COMMAND'])
 class Server(http.server.ThreadingHTTPServer):
     def server_bind(self):
         # http.server.HTTPServer.server_bind resolves the host with socket.getfqdn,
@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'.tmp',prefix='live-') as tmp:
     env={**{k:v for k,v in os.environ.items() if k in ('PATH','TERM','LANG','USER','SHELL','TMPDIR')},'HOME':str(d),'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC':'1','CLAUDE_CONFIG_DIR':str(config),'ANTHROPIC_API_KEY':'fixture-not-a-secret','ANTHROPIC_BASE_URL':f'http://127.0.0.1:{server.server_port}'}
     env.pop('CLAUDECODE',None)
     # All runtime files and credentials are isolated fixture data in this worktree.
-    name='live-'+str(os.getpid());path=d/'.gild/sessions'/f'{name}.sock'
+    name='live-'+str(os.getpid());path=d/'.mirab/sessions'/f'{name}.sock'
     m,s=pty.openpty();fcntl.ioctl(s,termios.TIOCSWINSZ,struct.pack('HHHH',40,120,0,0))
     proc=subprocess.Popen(CLI+['spawn','--name',name,'claude','--permission-mode','manual','--model','sonnet','--no-chrome']+extra_args,cwd=project,env=env,stdin=s,stdout=s,stderr=s,start_new_session=True)
     raw=b'';events=[];stream=None;accepted=False;prompted=False;approved=False;sent=False;statuses=set();waiting_since=None;started=time.monotonic()

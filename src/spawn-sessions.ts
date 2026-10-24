@@ -18,7 +18,7 @@ export type LocalSession = SessionState & {
   channels?: ChannelStatus[]
   held?: { queued: number; reason: string }
   nudges?: NudgeStatus[]
-  /** Detached sessions (`gild spawn --detach`) only. */
+  /** Detached sessions (`mirab spawn --detach`) only. */
   detached?: true
   viewers?: number
   interactive?: boolean
@@ -31,7 +31,7 @@ export type LocalSession = SessionState & {
   started: string
 }
 export const MAX_MESSAGE_BYTES = 64 * 1024
-export const sessionsDirectory = () => join(homedir(), '.gild', 'sessions')
+export const sessionsDirectory = () => join(homedir(), '.mirab', 'sessions')
 
 export function socketPath(id: string, directory = sessionsDirectory()) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/.test(id))
@@ -50,7 +50,7 @@ export function requireUnix() {
 export async function privateSessionsDirectory() {
   requireUnix()
   const directory = sessionsDirectory()
-  for (const path of [join(homedir(), '.gild'), directory]) {
+  for (const path of [join(homedir(), '.mirab'), directory]) {
     await mkdir(path, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error
     })

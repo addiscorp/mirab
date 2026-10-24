@@ -1,13 +1,13 @@
-"""gild spawn --vm with the fixture agent, driven through a real outer PTY.
+"""mirab spawn --vm with the fixture agent, driven through a real outer PTY.
 
 Needs a Firecracker host (isolation.json with `vm`) and a guest image with
 python3. Never starts a real claude or codex.
-  TEST_GILD_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-spawn-harness.py
+  TEST_MIRAB_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-spawn-harness.py
 """
 import os, sys, pty, subprocess, pathlib, tempfile, json, socket, select, time, signal, fcntl, struct, termios, shutil
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-CLI = json.loads(os.environ['TEST_GILD_COMMAND'])
+CLI = json.loads(os.environ['TEST_MIRAB_COMMAND'])
 CONFIG = os.environ['TEST_VM_CONFIG_DIR']
 
 
@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vm-') as d:
     t0 = time.monotonic()
     proc = subprocess.Popen(CLI + ['spawn', '--vm', '--config-dir', CONFIG, '--name', 'vmevents', '--idle-ms', '150', 'claude'],
                             stdin=s, stdout=s, stderr=s, env=env, cwd=project, start_new_session=True)
-    sock = home / '.gild/sessions/vmevents.sock'
+    sock = home / '.mirab/sessions/vmevents.sock'
     buf = b''
 
     def read(t=.1):
@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vm-') as d:
         info = status()
         assert info['childPid'] == -1, info
 
-        # gild send reaches the agent through the host queue and the pty bridge; the agent's own
+        # mirab send reaches the agent through the host queue and the pty bridge; the agent's own
         # hook command (inside the guest) comes back over vsock and moves the session state.
         stream = socket.socket(socket.AF_UNIX); stream.connect(str(sock)); stream.sendall(b'{"type":"subscribe"}\n')
         sent = subprocess.run(CLI + ['send', 'vmevents', 'hello from the host'], env=env, capture_output=True, timeout=10)
@@ -86,7 +86,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vm-') as d:
         wait(lambda: lines() == ['hello from the host'])
         wait(lambda: status()['state'] == 'busy')
 
-        # gild events <id> shows the hook-derived events.
+        # mirab events <id> shows the hook-derived events.
         ev = subprocess.Popen(CLI + ['events', 'vmevents'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         time.sleep(1.0)
         ev.terminate(); out, err = ev.communicate(timeout=5)
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / '.tmp', prefix='vm-') as d:
         stop = subprocess.run(CLI + ['hook', '--session', 'vmevents'], input=json.dumps({'hook_event_name': 'Stop'}).encode(), env=env, capture_output=True, timeout=5)
         assert stop.returncode == 0, stop.stderr
         wait(lambda: status()['state'] == 'idle')
-        # Clean shutdown: the agent quits, gild exits 0, the session socket is gone.
+        # Clean shutdown: the agent quits, mirab exits 0, the session socket is gone.
         subprocess.run(CLI + ['send', 'vmevents', 'quit'], env=env, capture_output=True, timeout=10)
         code, tail = drain_wait(proc, m, 20); buf += tail
         assert code == 0, buf

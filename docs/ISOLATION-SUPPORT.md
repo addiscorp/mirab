@@ -5,7 +5,7 @@ The review baseline and this remediation branch start at CLI 0.6.8,
 a verified real-agent session. Unit tests and fixture agents do not prove model
 tools, authentication, or internet access inside a real backend.
 
-| Mode | Workflow execution | Interactive `gild spawn` | Remaining evidence/setup |
+| Mode | Workflow execution | Interactive `mirab spawn` | Remaining evidence/setup |
 | --- | --- | --- | --- |
 | Current host account | Explicit `--isolation none` | Default PTY spawn | Unisolated; fixture PTY tests cover transport, not a paid model session |
 | Dedicated OS user | Implemented `host` backend | Not connected to interactive spawn | User, guest agent, sudo rule and network policy need owner provisioning; the backend's PTY method alone does not expose a spawn mode |
@@ -16,7 +16,7 @@ tools, authentication, or internet access inside a real backend.
 
 The published Linux recipe includes Node, Bun, Git and basic utilities. The
 arm64 guest recipe has a different package set. Neither recipe installs Claude,
-Codex or the Gild CLI. Uploading a small fixture script at startup does not
+Codex or the Mirab CLI. Uploading a small fixture script at startup does not
 install a model CLI or prove authentication. Host tool paths and host credential
 directories are not automatically copied into the guest.
 
@@ -30,7 +30,7 @@ Source changes can be reviewed and committed on the host. Guest-only commits
 remain in the retained guest workspace for a separate reviewed import.
 
 Incomplete final sync stops the VM while keeping its private session directory:
-`~/.gild/sessions/<session>.vm-<suffix>/`. The CLI prints that exact path and
+`~/.mirab/sessions/<session>.vm-<suffix>/`. The CLI prints that exact path and
 writes a private `recovery.json`. On macOS the directory contains `work/`; on
 Firecracker it contains `work.ext4`. A transport failure returns an error;
 unresolved conflicts and protected metadata also retain the workspace. Conflicts
@@ -44,7 +44,7 @@ change does not silently prune recoverable work or mount disk images.
 
 The worker finalizes sync/recovery before publishing `exited`. An incomplete
 final sync produces a nonzero session code and includes only the private
-`recovery.directory` and `recovery.note` paths in that local event. `gild stop`
+`recovery.directory` and `recovery.note` paths in that local event. `mirab stop`
 prints it for attached and detached sessions; event subscribers also receive it.
 Attached callers receive the exact location on stderr, and detached viewers
 receive a recovery notice before the output stream closes.
@@ -81,7 +81,7 @@ Missing, empty, boolean false and string `"false"` cache inputs remain allowed.
    either use ordinary host PTY spawn with its explicit lack of isolation, or
    separately approve an Intel guest-image release/provisioning lane. Do not
    substitute an arm64 image or claim a VM demo from a mock.
-3. Prepare a versioned image containing a pinned Gild CLI and explicitly chosen
+3. Prepare a versioned image containing a pinned Mirab CLI and explicitly chosen
    model tools. Normalize the Linux/arm64 image package recipes. This requires
    an image-build/release decision, not automatic installation by this patch.
 4. Have the owner approve backend provisioning, filtered network policy, and

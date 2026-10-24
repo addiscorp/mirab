@@ -1,6 +1,6 @@
 // Network for `vm` isolation. Set up once by the owner with
-// `sudo scripts/vm-network-setup.sh`: a bridge `gildbr0`, a pool of tap devices
-// `gildtap0..N` owned by the runner user, and nftables rules that allow the
+// `sudo scripts/vm-network-setup.sh`: a bridge `mirabbr0`, a pool of tap devices
+// `mirabtap0..N` owned by the runner user, and nftables rules that allow the
 // internet but deny the host, the LAN, 100.64/10 and the metadata address.
 // Without that setup a VM has no network device at all.
 import {
@@ -15,7 +15,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 
-export const BRIDGE = 'gildbr0'
+export const BRIDGE = 'mirabbr0'
 export const SETUP_COMMAND = 'sudo scripts/vm-network-setup.sh'
 const PREFIX = '172.31.255'
 
@@ -33,13 +33,13 @@ export function networkState(
   if (!existsSync(join(sys, BRIDGE)))
     return { ready: false, slots: [], reason: `no ${BRIDGE} bridge` }
   const slots = readdirSync(sys)
-    .map((n) => /^gildtap(\d+)$/.exec(n)?.[1])
+    .map((n) => /^mirabtap(\d+)$/.exec(n)?.[1])
     .filter((n): n is string => n !== undefined)
     .map(Number)
     .filter((n) => {
       try {
         return (
-          Number(readFileSync(join(sys, `gildtap${n}`, 'owner'), 'utf8')) ===
+          Number(readFileSync(join(sys, `mirabtap${n}`, 'owner'), 'utf8')) ===
           uid
         )
       } catch {
@@ -52,14 +52,14 @@ export function networkState(
     : {
         ready: false,
         slots: [],
-        reason: `no gildtap devices owned by uid ${uid}`,
+        reason: `no mirabtap devices owned by uid ${uid}`,
       }
 }
 
 export function guestNetwork(slot: number) {
   const hex = (n: number) => n.toString(16).padStart(2, '0')
   return {
-    tap: `gildtap${slot}`,
+    tap: `mirabtap${slot}`,
     mac: `06:00:ac:1f:ff:${hex(10 + slot)}`,
     ip: `${PREFIX}.${10 + slot}`,
     cidr: 24,
@@ -68,9 +68,9 @@ export function guestNetwork(slot: number) {
   }
 }
 
-/** Kernel args read by /init-gild.sh in the guest. */
+/** Kernel args read by /init-mirab.sh in the guest. */
 export function bootNetArgs(n: ReturnType<typeof guestNetwork>) {
-  return `gild.ip=${n.ip}/${n.cidr} gild.gw=${n.gateway} gild.dns=${n.dns}`
+  return `mirab.ip=${n.ip}/${n.cidr} mirab.gw=${n.gateway} mirab.dns=${n.dns}`
 }
 
 const alive = (pid: number) => {
@@ -89,7 +89,7 @@ export function claimTap(
 ): { slot: number; release: () => void } {
   mkdirSync(lockDir, { recursive: true, mode: 0o700 })
   for (const slot of slots) {
-    const file = join(lockDir, `gildtap${slot}.lock`)
+    const file = join(lockDir, `mirabtap${slot}.lock`)
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const fd = openSync(file, 'wx', 0o600)

@@ -30,7 +30,7 @@ import {
 } from './spawn-sessions'
 
 /** Linux caps one argv string at 128 KiB, so the bundled worker runs from a
- * content-addressed file in the private ~/.gild directory, not `node -e`. */
+ * content-addressed file in the private ~/.mirab directory, not `node -e`. */
 async function workerFile() {
   const source = await spawnWorkerSource()
   const directory = dirname(await privateSessionsDirectory())
@@ -88,12 +88,12 @@ export function spawnCommands(
     )
     .option(
       '--vm',
-      'run the agent inside a VM: Firecracker on Linux (shipped with gild), Multipass on macOS and Windows (made on first use; vz on macOS when isolation.json sets up vm)',
+      'run the agent inside a VM: Firecracker on Linux (shipped with mirab), Multipass on macOS and Windows (made on first use; vz on macOS when isolation.json sets up vm)',
     )
     .option(
       '--config-dir <path>',
-      'gild config directory (isolation.json)',
-      join(homedir(), '.config', 'gild'),
+      'mirab config directory (isolation.json)',
+      join(homedir(), '.config', 'mirab'),
     )
     .option('--name <id>', 'memorable local session name')
     .option(
@@ -104,7 +104,7 @@ export function spawnCommands(
     )
     .option(
       '--detach',
-      'run in the background with no terminal; prints the session id (see gild attach, gild stop)',
+      'run in the background with no terminal; prints the session id (see mirab attach, mirab stop)',
     )
     .option('--cols <n>', 'detached terminal width', dimension, DEFAULT_COLS)
     .option('--rows <n>', 'detached terminal height', dimension, DEFAULT_ROWS)
@@ -141,7 +141,7 @@ export function spawnCommands(
         if (opts.channel?.length) {
           if (profile)
             throw Error(
-              'A profile lists its own channels; use gild agent edit --channel',
+              'A profile lists its own channels; use mirab agent edit --channel',
             )
           if (!opts.as)
             throw Error(
@@ -178,7 +178,7 @@ export function spawnCommands(
         // terminal shows its progress; the worker then finds it installed.
         if (opts.vm && usesMultipass(opts.configDir)) {
           // macOS and Windows: Multipass. Making the VM the first time shows here.
-          await ensureVm((line) => console.error(`gild: ${line}`)).catch(
+          await ensureVm((line) => console.error(`mirab: ${line}`)).catch(
             (e) => {
               throw Error(
                 `--vm: ${(e as Error).message}. It never falls back to running on the host`,
@@ -188,7 +188,7 @@ export function spawnCommands(
         } else if (opts.vm) {
           const { vmUnavailable } = await prepareVm(opts.configDir, {
             want: true,
-            log: (line) => console.error(`gild: ${line}`),
+            log: (line) => console.error(`mirab: ${line}`),
           })
           if (vmUnavailable)
             throw Error(
@@ -217,7 +217,7 @@ export function spawnCommands(
         // ci and mention rules read the profile's events subscription.
         if (rules.some((r) => r.kind === 'ci') && !(profile && identity))
           throw Error(
-            'ci nudges need an agent profile with an approved identity (gild spawn agent <name>)',
+            'ci nudges need an agent profile with an approved identity (mirab spawn agent <name>)',
           )
         if (
           rules.some((r) => r.kind === 'mention-unanswered') &&
@@ -267,7 +267,7 @@ export function spawnCommands(
               vm: opts.vm ? { configDir: opts.configDir } : undefined,
               // Inside the guest the hook is the guest agent, which relays over vsock.
               hookCommand: opts.vm
-                ? ['/usr/local/bin/gild-guest-agent']
+                ? ['/usr/local/bin/mirab-guest-agent']
                 : import.meta.url.includes('$bunfs')
                   ? [process.execPath]
                   : [
@@ -360,7 +360,7 @@ export function spawnCommands(
       }
       await localRequest(socketPath(id, directory), { type: 'send', message })
       // The sender (often another agent) needs to know the session accepted
-      // it; delivery waits for the agent to be ready (see gild status).
+      // it; delivery waits for the agent to be ready (see mirab status).
       console.log(`queued for ${id}`)
     })
   program
@@ -393,8 +393,8 @@ export function spawnCommands(
     )
     .option(
       '--config-dir <path>',
-      'gild config directory',
-      join(homedir(), '.config', 'gild'),
+      'mirab config directory',
+      join(homedir(), '.config', 'mirab'),
     )
     .action(async (id: string | undefined, opts) => {
       if (!id) {

@@ -2,15 +2,15 @@ import { expect, test } from 'bun:test'
 import { resolve } from 'node:path'
 
 const command = () =>
-  process.env.TEST_GILD_COMMAND
-    ? (JSON.parse(process.env.TEST_GILD_COMMAND) as string[])
+  process.env.TEST_MIRAB_COMMAND
+    ? (JSON.parse(process.env.TEST_MIRAB_COMMAND) as string[])
     : [process.execPath, 'run', resolve('src/mirab.ts')]
 // Needs an agent identity for --as / --channel, which mirab gets from harar (addiscorp/mirab#2).
 test.skip('watchdog nudges through a PTY session: idle, draft, waiting, ci, mention-unanswered, status, events', async () => {
   const proc = Bun.spawn(
     ['python3', resolve('scripts/fixtures/nudge-harness.py')],
     {
-      env: { ...process.env, TEST_GILD_COMMAND: JSON.stringify(command()) },
+      env: { ...process.env, TEST_MIRAB_COMMAND: JSON.stringify(command()) },
       stdout: 'pipe',
       stderr: 'pipe',
     },

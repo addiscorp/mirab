@@ -13,8 +13,8 @@ import { profileArguments } from './spawn-adapters'
 import { fixture } from './test-cli'
 
 const command = () =>
-  process.env.TEST_GILD_COMMAND
-    ? (JSON.parse(process.env.TEST_GILD_COMMAND) as string[])
+  process.env.TEST_MIRAB_COMMAND
+    ? (JSON.parse(process.env.TEST_MIRAB_COMMAND) as string[])
     : [process.execPath, 'run', resolve('src/mirab.ts')]
 async function run(
   home: string,
@@ -73,7 +73,7 @@ test.skip('profile CRUD writes machine-local settings and keeps existing approve
       'owner/repo',
     ]
     expect(await run(h, add, f.root)).toEqual({ code: 0, out: '', err: '' })
-    const path = join(h, '.gild/agents/test.json')
+    const path = join(h, '.mirab/agents/test.json')
     const initial = JSON.parse(await readFile(path, 'utf8'))
     expect(initial).toEqual({
       name: 'test',
@@ -86,7 +86,7 @@ test.skip('profile CRUD writes machine-local settings and keeps existing approve
       channels: ['owner/repo'],
     })
     expect((await stat(path)).mode & 0o777).toBe(0o600)
-    expect((await stat(join(h, '.gild/agents'))).mode & 0o777).toBe(0o700)
+    expect((await stat(join(h, '.mirab/agents'))).mode & 0o777).toBe(0o700)
     expect((await run(h, add, f.root)).code).toBe(1)
     expect(
       await run(
@@ -166,18 +166,18 @@ test('profile files reject tokens and secret fields without writing or echoing c
     }
     await writeFile(file, JSON.stringify(valid))
     expect((await run(h, ['agent', 'add', 'ava', '--file', file])).code).toBe(0)
-    const before = await readFile(join(h, '.gild/agents/ava.json'), 'utf8')
+    const before = await readFile(join(h, '.mirab/agents/ava.json'), 'utf8')
     await writeFile(file, JSON.stringify({ ...valid, token: secret }))
     expect((await run(h, ['agent', 'edit', 'ava', '--file', file])).code).toBe(
       1,
     )
-    expect(await readFile(join(h, '.gild/agents/ava.json'), 'utf8')).toBe(
+    expect(await readFile(join(h, '.mirab/agents/ava.json'), 'utf8')).toBe(
       before,
     )
     expect(before).not.toContain(secret)
     const outside = join(h, 'outside.json')
     await writeFile(outside, JSON.stringify(valid))
-    await symlink(outside, join(h, '.gild/agents/link.json'))
+    await symlink(outside, join(h, '.mirab/agents/link.json'))
     expect((await run(h, ['spawn', 'agent', 'link'])).code).toBe(1)
     expect(
       (
@@ -224,7 +224,7 @@ test('profile triggers: --on is repeatable, grammar-validated, --clear-on clears
       f.root,
     )
     expect(add).toEqual({ code: 0, out: '', err: '' })
-    const path = join(h, '.gild/agents/test.json')
+    const path = join(h, '.mirab/agents/test.json')
     expect(JSON.parse(await readFile(path, 'utf8')).on).toEqual([
       'issues.labeled:triage',
       'issues.opened:triage',
@@ -369,7 +369,7 @@ for (const scenario of [
     const proc = Bun.spawn(
       ['python3', resolve('scripts/fixtures/' + script), '--' + scenario],
       {
-        env: { ...process.env, TEST_GILD_COMMAND: JSON.stringify(command()) },
+        env: { ...process.env, TEST_MIRAB_COMMAND: JSON.stringify(command()) },
         stdout: 'pipe',
         stderr: 'pipe',
       },
@@ -397,7 +397,7 @@ test.skip('profile PTY: blocked send fails at its own deadline with command diag
     {
       env: {
         ...process.env,
-        TEST_GILD_COMMAND: JSON.stringify([
+        TEST_MIRAB_COMMAND: JSON.stringify([
           'python3',
           resolve('scripts/fixtures/events-slow-cli.py'),
           JSON.stringify(command()),

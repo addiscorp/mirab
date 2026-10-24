@@ -1,27 +1,27 @@
 #!/bin/sh
-# One-time owner setup for gild's `host` isolation tier: a dedicated,
+# One-time owner setup for mirab's `host` isolation tier: a dedicated,
 # unprivileged OS user that runs workflow steps (or one agent), so a step
 # cannot read the owner's home, write outside its checkout, or reach the LAN.
 #
-#   sudo scripts/host-user-setup.sh <user> <owner> --agent <gild-guest-agent> [--dry-run] [--os linux|macos]
+#   sudo scripts/host-user-setup.sh <user> <owner> --agent <mirab-guest-agent> [--dry-run] [--os linux|macos]
 #
-#   <user>   the dedicated account to create, e.g. gild-runner or gild-agent-ava
-#   <owner>  the login that runs `gild runner` / `gild spawn` (it joins <user>'s group)
-#   --agent  a gild-guest-agent build for THIS OS (copied to a root-owned path)
+#   <user>   the dedicated account to create, e.g. mirab-runner or mirab-agent-ava
+#   <owner>  the login that runs `mirab runner` / `mirab spawn` (it joins <user>'s group)
+#   --agent  a mirab-guest-agent build for THIS OS (copied to a root-owned path)
 #   --dry-run  print every command instead of running it (no root needed)
 #
 # What it does (both OSes):
 #   1. creates group <user> and user <user> (no login shell, no password);
 #   2. adds <owner> to group <user> (log out and in afterwards);
 #   3. creates <base>/home (0700, the user's own) and <base>/work (2770,
-#      owner:<user>), where gild stages each job's checkout;
-#   4. installs the agent root-owned at /usr/local/libexec/gild/gild-guest-agent;
+#      owner:<user>), where mirab stages each job's checkout;
+#   4. installs the agent root-owned at /usr/local/libexec/mirab/mirab-guest-agent;
 #   5. lets <owner> run exactly that agent as <user> without a password
-#      (/etc/sudoers.d/gild-host-<user>, checked with visudo first);
+#      (/etc/sudoers.d/mirab-host-<user>, checked with visudo first);
 #   6. denies <user> the LAN, tailnet, link-local/metadata and loopback
 #      (nftables `meta skuid` on Linux, a pf anchor `user` rule on macOS),
 #      persisted by a systemd unit / LaunchDaemon;
-#   7. writes /etc/gild/host-users/<user>.json, which `gild status` reads to
+#   7. writes /etc/mirab/host-users/<user>.json, which `mirab status` reads to
 #      report the tier as configured.
 # Undo: see the matching `remove` lines printed at the end.
 set -eu
@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ -n "$agent" ] || usage
-case $user in gild-*) ;; *) echo "the user name must start with gild- (got $user)" >&2; exit 2 ;; esac
+case $user in mirab-*) ;; *) echo "the user name must start with mirab- (got $user)" >&2; exit 2 ;; esac
 echo "$user" | grep -Eq '^[a-z][a-z0-9-]{0,30}$' || { echo "invalid user name $user" >&2; exit 2; }
 [ "$os" = linux ] || [ "$os" = macos ] || usage
 if [ "$dry" = 0 ]; then
@@ -58,9 +58,9 @@ write() {
   umask 077; cat > "$1.new"; chmod "$2" "$1.new"; mv "$1.new" "$1"
 }
 
-libexec=/usr/local/libexec/gild
-installed=$libexec/gild-guest-agent
-if [ "$os" = linux ]; then base=/var/lib/gild-host/$user; else base=/Users/Shared/gild-host/$user; fi
+libexec=/usr/local/libexec/mirab
+installed=$libexec/mirab-guest-agent
+if [ "$os" = linux ]; then base=/var/lib/mirab-host/$user; else base=/Users/Shared/mirab-host/$user; fi
 denied4='127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16'
 denied6='::1, fc00::/7, fe80::/10'
 
@@ -75,7 +75,7 @@ else
   if ! dscl . -read "/Groups/$user" >/dev/null 2>&1; then
     run dscl . -create "/Groups/$user"
     run dscl . -create "/Groups/$user" PrimaryGroupID "$gid"
-    run dscl . -create "/Groups/$user" RealName "gild host tier ($user)"
+    run dscl . -create "/Groups/$user" RealName "mirab host tier ($user)"
   fi
   if ! dscl . -read "/Users/$user" >/dev/null 2>&1; then
     run dscl . -create "/Users/$user"
@@ -83,7 +83,7 @@ else
     run dscl . -create "/Users/$user" PrimaryGroupID "$gid"
     run dscl . -create "/Users/$user" UserShell /usr/bin/false
     run dscl . -create "/Users/$user" NFSHomeDirectory "$base/home"
-    run dscl . -create "/Users/$user" RealName "gild host tier ($user)"
+    run dscl . -create "/Users/$user" RealName "mirab host tier ($user)"
     run dscl . -create "/Users/$user" IsHidden 1
     run dscl . -create "/Users/$user" Password '*'
   fi
@@ -100,18 +100,18 @@ run install -o root -g 0 -m 0755 "$agent" "$installed"
 # sudo: exactly this agent, exactly these arguments, as exactly this user.
 rule="$owner ALL=($user) NOPASSWD: $installed --stdio --shared"
 if [ "$dry" = 1 ]; then
-  echo "echo '$rule' > /etc/sudoers.d/gild-host-$user  # mode 0440, after visudo -cf"
+  echo "echo '$rule' > /etc/sudoers.d/mirab-host-$user  # mode 0440, after visudo -cf"
 else
-  printf '%s\n' "$rule" > "/etc/sudoers.d/.gild-host-$user"
-  chmod 0440 "/etc/sudoers.d/.gild-host-$user"
-  visudo -cf "/etc/sudoers.d/.gild-host-$user"
-  mv "/etc/sudoers.d/.gild-host-$user" "/etc/sudoers.d/gild-host-$user"
+  printf '%s\n' "$rule" > "/etc/sudoers.d/.mirab-host-$user"
+  chmod 0440 "/etc/sudoers.d/.mirab-host-$user"
+  visudo -cf "/etc/sudoers.d/.mirab-host-$user"
+  mv "/etc/sudoers.d/.mirab-host-$user" "/etc/sudoers.d/mirab-host-$user"
 fi
 
-run install -d -o root -g 0 -m 0755 /etc/gild /etc/gild/host-users
+run install -d -o root -g 0 -m 0755 /etc/mirab /etc/mirab/host-users
 if [ "$os" = linux ]; then
-  write "/etc/gild/host-users/$user.nft" 0644 <<NFT
-table inet gild_host_$(echo "$user" | tr - _) {
+  write "/etc/mirab/host-users/$user.nft" 0644 <<NFT
+table inet mirab_host_$(echo "$user" | tr - _) {
   chain out {
     type filter hook output priority 0; policy accept;
     meta skuid "$user" ip daddr 127.0.0.53 meta l4proto { tcp, udp } th dport 53 accept
@@ -120,51 +120,51 @@ table inet gild_host_$(echo "$user" | tr - _) {
   }
 }
 NFT
-  write "/etc/systemd/system/gild-host-net-$user.service" 0644 <<UNIT
+  write "/etc/systemd/system/mirab-host-net-$user.service" 0644 <<UNIT
 [Unit]
-Description=gild host tier: deny $user the LAN, tailnet, metadata and loopback
+Description=mirab host tier: deny $user the LAN, tailnet, metadata and loopback
 After=network-pre.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStartPre=-/usr/sbin/nft delete table inet gild_host_$(echo "$user" | tr - _)
-ExecStart=/usr/sbin/nft -f /etc/gild/host-users/$user.nft
-ExecStop=/usr/sbin/nft delete table inet gild_host_$(echo "$user" | tr - _)
+ExecStartPre=-/usr/sbin/nft delete table inet mirab_host_$(echo "$user" | tr - _)
+ExecStart=/usr/sbin/nft -f /etc/mirab/host-users/$user.nft
+ExecStop=/usr/sbin/nft delete table inet mirab_host_$(echo "$user" | tr - _)
 [Install]
 WantedBy=multi-user.target
 UNIT
   run systemctl daemon-reload
-  run systemctl enable --now "gild-host-net-$user.service"
+  run systemctl enable --now "mirab-host-net-$user.service"
 else
-  write "/etc/pf.anchors/gild-host-$user" 0644 <<PF
+  write "/etc/pf.anchors/mirab-host-$user" 0644 <<PF
 block return out quick inet proto { tcp udp } from any to { $(echo "$denied4" | tr -d ,) } user $user
 block return out quick inet6 proto { tcp udp } from any to { $(echo "$denied6" | tr -d ,) } user $user
 PF
   # The stock pf.conf already evaluates anchor "com.apple/*", so no edit to pf.conf.
-  write "/Library/LaunchDaemons/gg.gild.host-net.$user.plist" 0644 <<PLIST
+  write "/Library/LaunchDaemons/gg.mirab.host-net.$user.plist" 0644 <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>gg.gild.host-net.$user</string>
+  <key>Label</key><string>gg.mirab.host-net.$user</string>
   <key>ProgramArguments</key><array>
     <string>/sbin/pfctl</string><string>-E</string>
-    <string>-a</string><string>com.apple/gild-host-$user</string>
-    <string>-f</string><string>/etc/pf.anchors/gild-host-$user</string>
+    <string>-a</string><string>com.apple/mirab-host-$user</string>
+    <string>-f</string><string>/etc/pf.anchors/mirab-host-$user</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
 PLIST
-  run launchctl bootstrap system "/Library/LaunchDaemons/gg.gild.host-net.$user.plist"
+  run launchctl bootstrap system "/Library/LaunchDaemons/gg.mirab.host-net.$user.plist"
 fi
 
 if [ "$dry" = 1 ]; then uidv='<uid>' gidv='<gid>'; else uidv=$(id -u "$user") gidv=$(id -g "$user"); fi
-write "/etc/gild/host-users/$user.json" 0644 <<JSON
+write "/etc/mirab/host-users/$user.json" 0644 <<JSON
 {"version":1,"user":"$user","uid":$uidv,"gid":$gidv,"owner":"$owner","agent":"$installed","workRoot":"$base/work","network":"lan-denied"}
 JSON
 
 cat <<DONE
-gild host tier configured for $user (owner $owner). $owner must log out and in once to join group $user.
-Check with: gild status
-To remove: delete /etc/sudoers.d/gild-host-$user, /etc/gild/host-users/$user.*, $base and the user/group,
-and $( [ "$os" = linux ] && echo "systemctl disable --now gild-host-net-$user" || echo "launchctl bootout system/gg.gild.host-net.$user; pfctl -a com.apple/gild-host-$user -F all" ).
+mirab host tier configured for $user (owner $owner). $owner must log out and in once to join group $user.
+Check with: mirab status
+To remove: delete /etc/sudoers.d/mirab-host-$user, /etc/mirab/host-users/$user.*, $base and the user/group,
+and $( [ "$os" = linux ] && echo "systemctl disable --now mirab-host-net-$user" || echo "launchctl bootout system/gg.mirab.host-net.$user; pfctl -a com.apple/mirab-host-$user -F all" ).
 DONE

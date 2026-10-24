@@ -1,7 +1,7 @@
 #!/bin/sh
 # Build the microVM guest without root on the host, entirely inside docker
 # (Colima on macOS), for the docker host's architecture:
-#   <out>/gild-guest-agent   static musl guest agent (guest-agent/)
+#   <out>/mirab-guest-agent   static musl guest agent (guest-agent/)
 #   <out>/rootfs.ext4        guest-agent/rootfs.Dockerfile as an ext4 image
 #   <out>/Image              arm64 only: the vz guest kernel (guest-agent/kernel-arm64-vz.config)
 # Each stage is skipped when its output exists; delete the file to rebuild it.
@@ -12,22 +12,22 @@ out=$(mkdir -p "$1" && cd "$1" && pwd)
 size=${2:-3G}
 kernel=${KERNEL_VERSION:-6.12.112}
 
-if [ ! -s "$out/gild-guest-agent" ]; then
+if [ ! -s "$out/mirab-guest-agent" ]; then
   # The whole checkout: the agent compiles in src/isolation/guest-protocol.json.
   docker run --rm -v "$here:/src:ro" -v "$out:/out" rust:1-alpine sh -euc '
     apk add -q musl-dev
     CARGO_TARGET_DIR=/build cargo build -q --release --locked --manifest-path /src/guest-agent/Cargo.toml
-    cp /build/release/gild-guest-agent /out/gild-guest-agent'
+    cp /build/release/mirab-guest-agent /out/mirab-guest-agent'
 fi
-file "$out/gild-guest-agent"
+file "$out/mirab-guest-agent"
 
 if [ ! -s "$out/rootfs.ext4" ]; then
   ctx="$out/rootfs-context"
   mkdir -p "$ctx"
   cp "$here/guest-agent/rootfs.Dockerfile" "$ctx/Dockerfile"
-  cp "$here/guest-agent/init-gild.sh" "$out/gild-guest-agent" "$ctx/"
-  docker build -q -t gild-vm-rootfs "$ctx"
-  cid=$(docker create gild-vm-rootfs)
+  cp "$here/guest-agent/init-mirab.sh" "$out/mirab-guest-agent" "$ctx/"
+  docker build -q -t mirab-vm-rootfs "$ctx"
+  cid=$(docker create mirab-vm-rootfs)
   docker export "$cid" | docker run --rm -i -v "$out:/out" alpine:3 sh -euc "
     apk add -q e2fsprogs
     mkdir /r && tar -x -C /r
@@ -35,7 +35,7 @@ if [ ! -s "$out/rootfs.ext4" ]; then
     printf 'nameserver 1.1.1.1\n' > /r/etc/resolv.conf
     truncate -s $size /out/rootfs.ext4.part
     # Fixed UUID, hash seed and filesystem timestamps (as guest-agent/image/Dockerfile).
-    E2FSPROGS_FAKE_TIME=0 mke2fs -q -t ext4 -L gild-root -U 6b1d0b9e-3f1a-4c5e-9a57-67696c64766d \\
+    E2FSPROGS_FAKE_TIME=0 mke2fs -q -t ext4 -L mirab-root -U 6b1d0b9e-3f1a-4c5e-9a57-67696c64766d \\
       -E hash_seed=6b1d0b9e-3f1a-4c5e-9a57-67696c64766d,root_owner=0:0 -d /r -F /out/rootfs.ext4.part
     mv /out/rootfs.ext4.part /out/rootfs.ext4"
   docker rm -f "$cid" >/dev/null
