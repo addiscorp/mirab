@@ -58,8 +58,8 @@ async function station(
     routes: {},
     auditLog: join(dir, 'egress.log'),
     dial: up.dial,
-    // A public address (TEST-NET-3 is reserved, so it is never really dialed here).
-    resolve: async () => ['203.0.113.7'],
+    // A public address; the fake dial never really reaches it.
+    resolve: async () => ['104.16.24.34'],
     ...extra,
   })
   return {
@@ -102,7 +102,7 @@ test('a whitelisted domain is tunnelled, TLS untouched, once its server name mat
     })
     client.on('error', () => {})
     await new Promise((r) => setTimeout(r, 300))
-    expect(s.up.dialed).toEqual(['203.0.113.7:443']) // the address the station checked
+    expect(s.up.dialed).toEqual(['104.16.24.34:443']) // the address the station checked
     const hello = s.up.bytes()
     expect(hello[0]).toBe(0x16) // a TLS handshake record, not something the station made up
     expect(hello.includes(Buffer.from('registry.example.test'))).toBe(true)
@@ -234,7 +234,7 @@ test('the model route swaps the placeholder for the real key, and the key is nev
 })
 
 test('public addresses only: never the host, the LAN, link-local, CGNAT or IPv6 equivalents', () => {
-  for (const ok of ['203.0.113.7', '104.16.24.34', '2606:4700::6810:1822'])
+  for (const ok of ['104.16.24.34', '8.8.8.8', '2606:4700::6810:1822'])
     expect(isPublic(ok), ok).toBe(true)
   for (const no of [
     '127.0.0.1',
@@ -244,10 +244,27 @@ test('public addresses only: never the host, the LAN, link-local, CGNAT or IPv6 
     '169.254.169.254',
     '100.101.102.103',
     '0.0.0.0',
+    '203.0.113.7',
+    '198.51.100.1',
+    '192.0.2.1',
+    '255.255.255.255',
     '::1',
+    '::',
+    '::127.0.0.1',
+    '::7f00:1',
     '::ffff:127.0.0.1',
+    '0:0:0:0:0:ffff:127.0.0.1',
+    '::FFFF:7F00:1',
+    '0064:ff9b::7f00:1',
+    '64:ff9b:1::1',
+    '2002:7f00:1::',
+    '2001::1',
+    '2001:db8::1',
+    '100::1',
     'fd00::1',
     'fe80::1',
+    'fec0::1',
+    'ff02::1',
     'not-an-ip',
   ])
     expect(isPublic(no), no).toBe(false)
@@ -408,11 +425,15 @@ test('the server name is read only from one plain, whole ClientHello', () => {
   expect(
     serverName(clientHello([sni('registry.example.test', 'evil.example')])),
   ).toBeUndefined()
+  // BoringSSL's GREASE encrypted_client_hello: allowed, the visible name decides.
   expect(
     serverName(
-      clientHello([sni('registry.example.test'), ext(0xfe0d, Buffer.alloc(8))]),
+      clientHello([
+        sni('registry.example.test'),
+        ext(0xfe0d, Buffer.alloc(250)),
+      ]),
     ),
-  ).toBeUndefined()
+  ).toBe('registry.example.test')
   expect(
     serverName(clientHello([sni('registry.example.test')], true)),
   ).toBeUndefined()
@@ -510,6 +531,162 @@ test("a route's own code failing ends that request only; the station keeps servi
     )
     expect(await firstReply(next)).toContain('not on the whitelist')
   } finally {
+    s.server.close()
+    s.up.server.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+const helloFor = (host: string) => clientHello([sni(host)])
+
+test('a VM that leaves while the station looks the name up leaves nothing behind', async () => {
+  const dir = scratch()
+  let lookups = 0
+  const s = await station(dir, {
+    resolve: async () => {
+      lookups++
+      await new Promise((r) => setTimeout(r, 300))
+      return ['104.16.24.34']
+    },
+  })
+  try {
+    const vm = await open(
+      s.socketPath,
+      'CONNECT registry.example.test:443 HTTP/1.1\r\n\r\n',
+    )
+    expect(await firstReply(vm)).toStartWith('HTTP/1.1 200')
+    vm.write(helloFor('registry.example.test'))
+    await new Promise((r) => setTimeout(r, 50))
+    vm.destroy()
+    await new Promise((r) => setTimeout(r, 500))
+    expect(lookups).toBe(1)
+    expect(s.up.dialed).toEqual([])
+    expect(s.audit()).toMatch(/closed by the VM|VM side error/)
+  } finally {
+    s.server.close()
+    s.up.server.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a refused connection frees its slot even if the VM keeps its side open', async () => {
+  const dir = scratch()
+  const s = await station(dir)
+  const connections = () =>
+    new Promise<number>((r) => s.server.getConnections((_, n) => r(n)))
+  try {
+    const vm = connect({ path: s.socketPath, allowHalfOpen: true })
+    await new Promise<void>((r) => vm.once('connect', () => r()))
+    vm.write('CONNECT other.example:443 HTTP/1.1\r\n\r\n')
+    vm.on('data', () => {})
+    await new Promise((r) => setTimeout(r, 200))
+    expect(await connections()).toBe(1)
+    // The VM never closes its side; the station cuts the connection anyway.
+    await new Promise((r) => setTimeout(r, 2600))
+    expect(await connections()).toBe(0)
+    vm.destroy()
+  } finally {
+    s.server.close()
+    s.up.server.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('each checked address is tried in turn until one answers', async () => {
+  const dir = scratch()
+  const s0 = upstream()
+  const dialed: string[] = []
+  const s = await station(dir, {
+    resolve: async () => ['104.16.24.34', '8.8.8.8'],
+    dial: (address, port) => {
+      dialed.push(address)
+      // The first address is dead: nothing listens on port 1.
+      return address === '104.16.24.34'
+        ? connect({ host: '127.0.0.1', port: 1 })
+        : connect({
+            host: '127.0.0.1',
+            port: (s0.server.address() as { port: number }).port,
+          })
+    },
+  })
+  try {
+    const vm = await open(
+      s.socketPath,
+      'CONNECT registry.example.test:443 HTTP/1.1\r\n\r\n',
+    )
+    expect(await firstReply(vm)).toStartWith('HTTP/1.1 200')
+    vm.write(helloFor('registry.example.test'))
+    await new Promise((r) => setTimeout(r, 500))
+    expect(dialed).toEqual(['104.16.24.34', '8.8.8.8'])
+    expect(s0.bytes()[0]).toBe(0x16)
+    vm.destroy()
+  } finally {
+    s.server.close()
+    s.up.server.close()
+    s0.server.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a route's key is used only on the paths it allows", async () => {
+  const dir = scratch()
+  const hits: string[] = []
+  const api = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: (r) => (hits.push(new URL(r.url).pathname), Response.json({})),
+  })
+  const s = await station(dir, {
+    routes: {
+      anthropic: {
+        upstream: api.url.origin,
+        header: 'x-api-key',
+        credential: async () => 'k',
+        paths: ['/v1/messages'],
+      },
+    },
+  })
+  try {
+    const files = await open(
+      s.socketPath,
+      'DELETE /anthropic/v1/files/f1 HTTP/1.1\r\n\r\n',
+    )
+    expect(await firstReply(files)).toContain('not a path this route allows')
+    const ok = await open(
+      s.socketPath,
+      'POST /anthropic/v1/messages HTTP/1.1\r\ncontent-length: 2\r\n\r\n{}',
+    )
+    expect(await firstReply(ok)).toStartWith('HTTP/1.1 200')
+    expect(hits).toEqual(['/v1/messages'])
+  } finally {
+    s.server.close()
+    s.up.server.close()
+    api.stop(true)
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('one VM holds at most 64 connections', async () => {
+  const dir = scratch()
+  const s = await station(dir)
+  const held: Socket[] = []
+  try {
+    // 64 connections waiting for their heads hold every slot.
+    for (let i = 0; i < 64; i++) {
+      const c = connect(s.socketPath)
+      c.on('error', () => {})
+      await new Promise<void>((r) => c.once('connect', () => r()))
+      held.push(c)
+    }
+    const extra = connect(s.socketPath)
+    extra.on('error', () => {})
+    const closed = await Promise.race([
+      new Promise((r) => extra.once('close', () => r(true))),
+      new Promise((r) => setTimeout(() => r(false), 1500)),
+    ])
+    expect(closed).toBe(true)
+  } finally {
+    for (const c of held) c.destroy()
     s.server.close()
     s.up.server.close()
     rmSync(dir, { recursive: true, force: true })

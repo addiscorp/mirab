@@ -70,6 +70,12 @@ describe.skipIf(!configDir)('the way out of a vz VM, live', () => {
         `curl -s -o /dev/null -w '%{http_code}' ${proxy} https://registry.npmjs.org/`,
       )
       expect(npm.out).toBe('200')
+      // Bun (BoringSSL, as agents' tools and bun install use) through the station too.
+      const bun = await run(
+        iso,
+        `HTTPS_PROXY=http://127.0.0.1:8790 bun -e "console.log((await fetch('https://registry.npmjs.org/')).status)"`,
+      )
+      expect(bun.out.trim()).toBe('200')
       // Not on the list: the station refuses the CONNECT.
       const other = await run(
         iso,
