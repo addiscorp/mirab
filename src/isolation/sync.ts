@@ -1,0 +1,296 @@
+// Working-directory sync for `mirab spawn --vm`. Stock Firecracker has no
+// virtio-fs, so the guest works on a copy of the directory (an ext4 drive) and
+// its changes come back to the host at exit and on demand (`mirab sync <id>`).
+//
+// The rule, per path, three-way against the baseline (the tree as it was copied
+// into the guest, or as of the last sync):
+// - the guest changed it and the host still matches the baseline: applied;
+// - the host changed it too: the host copy is kept and the guest's version is
+//   saved under `conflictDir`, never merged and never silently dropped;
+// - only the host changed it: untouched.
+// The guest is untrusted: its paths are validated, nothing is written through a
+// symlink or outside the root, and file bytes must match the hash it listed.
+import { createHash } from 'node:crypto'
+import { AnchoredDirectory } from './anchored-fs'
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { mkdirSync } from 'node:fs'
+import type { Entry, GuestFiles } from './session'
+
+export type Manifest = Map<string, Entry>
+export type RecoveryLocation = { directory: string; note: string }
+
+export interface SyncResult {
+  written: string[]
+  deleted: string[]
+  conflicts: { path: string; reason: string; saved?: string }[]
+  rejected: { path: string; reason: string }[]
+  /** Final VM sync only: private retained workspace and recovery note. */
+  recovery?: RecoveryLocation
+}
+
+/** The host side of the guest agent's `list` op: same walk, same fields. */
+export async function hostManifest(root: string): Promise<Manifest> {
+  const out: Manifest = new Map(),
+    anchored = AnchoredDirectory.open(root)
+  const walk = async (
+    directory: AnchoredDirectory,
+    path: string,
+    prefix: string,
+  ) => {
+    for (const name of (await readdir(path)).sort()) {
+      const rel = prefix ? `${prefix}/${name}` : name
+      const e = directory.entry(name, rel, true)
+      if (!e) continue
+      out.set(rel, e)
+      if (e.k === 'd') {
+        const child = directory.directory(name)
+        try {
+          await walk(child, join(path, name), rel)
+        } finally {
+          child.close()
+        }
+      }
+    }
+  }
+  try {
+    await walk(anchored, root, '')
+  } finally {
+    anchored.close()
+  }
+  return out
+}
+
+/** Equal for sync purposes: kind, content or link target, and permission bits. */
+export function sameEntry(a?: Entry, b?: Entry) {
+  if (!a || !b) return a === b
+  if (a.k !== b.k) return false
+  if (a.k === 'l') return a.t === b.t
+  if ((a.m & 0o777) !== (b.m & 0o777)) return false
+  return a.k === 'd' || a.h === b.h
+}
+
+export function validPath(p: unknown): p is string {
+  return (
+    typeof p === 'string' &&
+    p.length > 0 &&
+    p.length < 4096 &&
+    !p.startsWith('/') &&
+    !p.includes('\0') &&
+    p.split('/').every((c) => c !== '' && c !== '.' && c !== '..')
+  )
+}
+
+function validEntry(e: Entry) {
+  if (!validPath(e.p) || !Number.isInteger(e.m) || e.m < 0 || e.m > 0o7777)
+    return false
+  if (e.k === 'f')
+    return (
+      Number.isSafeInteger(e.s) &&
+      e.s! >= 0 &&
+      typeof e.h === 'string' &&
+      /^[0-9a-f]{64}$/.test(e.h)
+    )
+  if (e.k === 'l')
+    return typeof e.t === 'string' && e.t.length > 0 && !e.t.includes('\0')
+  return e.k === 'd'
+}
+
+/** Guest Git state is never adopted as trusted host repository metadata. */
+export function protectedMetadata(path: string) {
+  return path.split('/').some((part) => part.toLowerCase() === '.git')
+}
+
+export interface SyncOptions {
+  /** Host directory the guest's copy came from. */
+  root: string
+  /** Where the guest sees it. */
+  guestRoot: string
+  files: GuestFiles
+  /** Updated only for applied/resolved changes; conflicts stay pending. */
+  baseline: Manifest
+  /** Conflicting bytes and adjacent metadata are saved outside the root. */
+  conflictDir: string
+  /** Refuse a sync that would copy more than this many bytes. */
+  maxBytes?: number
+}
+
+export async function syncBack(o: SyncOptions): Promise<SyncResult> {
+  const result: SyncResult = {
+    written: [],
+    deleted: [],
+    conflicts: [],
+    rejected: [],
+  }
+  const guest: Manifest = new Map()
+  for (const e of await o.files.list(o.guestRoot)) {
+    // mke2fs puts lost+found at the root of the copy; it was never the user's.
+    if (
+      !o.baseline.has('lost+found') &&
+      (e.p === 'lost+found' || e.p?.startsWith?.('lost+found/'))
+    )
+      continue
+    if (!validEntry(e)) {
+      result.rejected.push({
+        path: String(e.p),
+        reason: 'invalid entry from the guest',
+      })
+      continue
+    }
+    guest.set(e.p, e)
+  }
+  const changed = [...new Set([...o.baseline.keys(), ...guest.keys()])].filter(
+    (p) => {
+      if (sameEntry(o.baseline.get(p), guest.get(p))) return false
+      if (!validPath(p) || protectedMetadata(p)) {
+        result.rejected.push({
+          path: p,
+          reason:
+            'host Git metadata is protected; retained in the guest workspace',
+        })
+        return false
+      }
+      return true
+    },
+  )
+  const bytes = changed.reduce((n, p) => {
+    const e = guest.get(p)
+    return n + (e?.k === 'f' ? (e.s ?? 0) : 0)
+  }, 0)
+  if (!Number.isSafeInteger(bytes) || bytes > (o.maxBytes ?? 2 * 1024 ** 3))
+    throw new Error(`sync would copy ${bytes} bytes; refusing`)
+  // Deletions deepest first, then creations and updates parents first.
+  const deletions = changed
+    .filter((p) => !guest.has(p))
+    .sort()
+    .reverse()
+  const updates = changed.filter((p) => guest.has(p)).sort()
+
+  const root = AnchoredDirectory.open(o.root)
+  const fetch = async (rel: string, after: Entry) => {
+    const data = await o.files.read(`${o.guestRoot}/${rel}`)
+    if (
+      data.length !== after.s ||
+      createHash('sha256').update(data).digest('hex') !== after.h
+    )
+      throw new Error('guest file changed while syncing')
+    return data
+  }
+  const conflict = (
+    rel: string,
+    reason: string,
+    after?: Entry,
+    data?: Buffer,
+  ) => {
+    let saved: string | undefined
+    if (after?.k === 'f' && data) {
+      // The private recovery root is host-owned. Child paths use the same
+      // anchored primitives as normal sync, never a guest-provided pathname.
+      mkdirSync(o.conflictDir, { recursive: true, mode: 0o700 })
+      const recovery = AnchoredDirectory.open(o.conflictDir)
+      let parent: AnchoredDirectory | undefined
+      try {
+        parent = recovery.parent(rel, true)
+        parent.put(rel.split('/').at(-1)!, { ...after, m: 0o600 }, data)
+        saved = join(o.conflictDir, rel)
+      } finally {
+        if (parent && parent !== recovery) parent.close()
+        recovery.close()
+      }
+    }
+    // Never materialize a conflicting link/directory/deletion in recovery.
+    // Store its exact entry as private JSON, with a host-chosen hashed name.
+    const metadataDir = o.conflictDir + '.metadata'
+    mkdirSync(metadataDir, { recursive: true, mode: 0o700 })
+    const metadata = AnchoredDirectory.open(metadataDir)
+    const name = createHash('sha256').update(rel).digest('hex') + '.json'
+    try {
+      metadata.put(
+        name,
+        { p: name, k: 'f', m: 0o600 },
+        Buffer.from(
+          JSON.stringify({ path: rel, reason, entry: after ?? null }) + '\n',
+        ),
+      )
+      saved ??= join(metadataDir, name)
+    } finally {
+      metadata.close()
+    }
+    result.conflicts.push({ path: rel, reason, ...(saved ? { saved } : {}) })
+  }
+  try {
+    for (const rel of [...deletions, ...updates]) {
+      const before = o.baseline.get(rel),
+        after = guest.get(rel)
+      let parent: AnchoredDirectory | undefined
+      try {
+        // Finish asynchronous guest retrieval before opening/checking the host
+        // destination. All host validation and mutation below are synchronous
+        // and relative to directory descriptors, including temp and rename.
+        const data = after?.k === 'f' ? await fetch(rel, after) : undefined
+        try {
+          parent = root.parent(rel)
+        } catch {
+          conflict(rel, 'a parent is not a directory on the host', after, data)
+          continue
+        }
+        const name = rel.split('/').at(-1)!
+        const current = parent.entry(name, rel)
+        if (sameEntry(current, after)) {
+          setBaseline(o.baseline, rel, after)
+          continue
+        }
+        if (!sameEntry(current, before)) {
+          conflict(rel, 'changed on the host and in the guest', after, data)
+          continue
+        }
+        if (!after) {
+          parent.remove(name, current!.k === 'd')
+          result.deleted.push(rel)
+        } else if (after.k === 'd') {
+          if (current && current.k !== 'd') parent.remove(name, false)
+          const directory = parent.directory(name, true)
+          directory.close()
+          parent.mode(name, after.m & 0o777, true)
+          result.written.push(rel)
+        } else if (
+          after.k === 'f' &&
+          current?.k === 'f' &&
+          current.h === after.h
+        ) {
+          parent.mode(name, after.m & 0o777, false)
+          result.written.push(rel)
+        } else {
+          parent.put(name, after, data, current?.k === 'd')
+          result.written.push(rel)
+        }
+        setBaseline(o.baseline, rel, after)
+      } catch (e) {
+        result.conflicts.push({
+          path: rel,
+          reason: `not applied: ${(e as Error).message}`,
+        })
+      } finally {
+        if (parent && parent !== root) parent.close()
+      }
+    }
+  } finally {
+    root.close()
+  }
+  return result
+}
+
+function setBaseline(m: Manifest, rel: string, e?: Entry) {
+  if (e) m.set(rel, e)
+  else m.delete(rel)
+}
+
+export function describeSync(r: SyncResult) {
+  const parts = [
+    `${r.written.length} written`,
+    `${r.deleted.length} deleted`,
+    `${r.conflicts.length} conflicts`,
+  ]
+  if (r.rejected.length) parts.push(`${r.rejected.length} rejected`)
+  return parts.join(', ')
+}

@@ -1,0 +1,38 @@
+{
+  "name": "mirab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "mirab": "src/mirab.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/mirab.ts",
+    "build": "bun build --compile --minify src/mirab.ts --outfile dist/mirab",
+    "test": "bun test",
+    "vm:image": "bun run scripts/build-vm-image.ts",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write src scripts",
+    "format:check": "prettier --check src scripts"
+  },
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "commander": "^14.0.1",
+    "inquirer": "^12.9.4",
+    "smol-toml": "^1.9.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "bun-types": "^1.3.1",
+    "prettier": "3.9.9",
+    "typescript": "^7.0.2",
+    "node-pty": "1.2.0-beta.15"
+  },
+  "description": "Agents in VMs on your own machine",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/addiscorp/mirab.git"
+  }
+}
