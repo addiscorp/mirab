@@ -570,8 +570,45 @@ test('a command tool gets only the keys its schema lists, though the model sends
       type: 'object',
       additionalProperties: true,
     })
+    // allOf branches (a zod intersection) and literal values are left open.
+    const both = {
+      type: 'object',
+      allOf: [
+        { type: 'object', properties: { a: { type: 'string' } } },
+        { type: 'object', properties: { b: { type: 'string' } } },
+      ],
+      default: { type: 'object' },
+    }
+    expect(closedSchema<object>(both)).toEqual({
+      ...both,
+      additionalProperties: false,
+    })
   } finally {
     model.server.stop(true)
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('a command tool that answered is not a timeout, though a straggler holds its pipes', async () => {
+  // The straggler leaves the group (setsid) before the tool answers, so only
+  // the 1 s pipe close ends the wait, after the 300 ms timeout.
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const dir = await mkdtemp(join(resolve('.tmp'), 'straggler-'))
+  const t0 = Date.now()
+  expect(
+    await runCommand(
+      tool(
+        'sh',
+        [
+          '-c',
+          `perl -e 'use POSIX; fork and exit; POSIX::setsid(); open F, ">left"; close F; sleep 3' & while [ ! -e left ]; do sleep 0.01; done; echo '{"ok":1}'`,
+        ],
+        300,
+      ),
+      dir,
+      {},
+    ),
+  ).toEqual({ ok: 1 })
+  expect(Date.now() - t0).toBeLessThan(2500)
+  await rm(dir, { recursive: true, force: true })
 })

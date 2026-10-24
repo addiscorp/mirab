@@ -65,13 +65,20 @@ function commandTool(tool: CommandTool, root: string) {
 
 /** A JSON Schema where every object that doesn't say otherwise takes only
  *  the properties it lists, as a TypeScript tool's z.object does. */
-export function closedSchema<T>(schema: T): T {
-  if (Array.isArray(schema)) return schema.map(closedSchema) as T
+export function closedSchema<T>(schema: T, open = false): T {
+  if (Array.isArray(schema))
+    return schema.map((s) => closedSchema(s, open)) as T
   if (!schema || typeof schema !== 'object') return schema
   const node: Record<string, unknown> = Object.fromEntries(
-    Object.entries(schema).map(([k, v]) => [k, closedSchema(v)]),
+    Object.entries(schema).map(([k, v]) => [
+      k,
+      // Values, not schemas, are left as written; each allOf branch is one
+      // part of an object whose keys the other branches list.
+      VALUE_KEYWORDS.has(k) ? v : closedSchema(v, k === 'allOf'),
+    ]),
   )
   if (
+    !open &&
     node.type === 'object' &&
     !('additionalProperties' in node) &&
     !('patternProperties' in node)
@@ -79,6 +86,7 @@ export function closedSchema<T>(schema: T): T {
     node.additionalProperties = false
   return node as T
 }
+const VALUE_KEYWORDS = new Set(['const', 'enum', 'default', 'examples'])
 
 /** Runs a command tool: input as JSON on stdin, its JSON answer from stdout.
  *  No shell, the project as its working directory, and only PATH and HOME
@@ -137,6 +145,8 @@ export function runCommand(
       fail(new Error(`${tool.command} didn't run: ${e.message}`))
     })
     child.on('exit', () => {
+      // It answered in time: from here only the 1 s below governs the wait.
+      finish()
       stopAll()
       // Something that left the group can still hold the pipes open; the
       // call ends anyway.
