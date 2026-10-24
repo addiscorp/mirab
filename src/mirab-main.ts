@@ -58,8 +58,11 @@ async function init(
   directory: string,
   opts: { name?: string; model?: string; git?: boolean },
 ) {
-  const name = await askName(opts.name)
-  const written = await initAgent({
+  // Refuse a busy folder before asking anything.
+  const taken = initProblem(directory)
+  if (taken) throw Error(taken)
+  const name = (await askName(opts.name)).trim()
+  const { written, notes } = await initAgent({
     directory,
     name,
     model: opts.model,
@@ -68,6 +71,7 @@ async function init(
   console.log(
     `Made ${name} in ${directory}: ${written.filter((f) => !f.endsWith('.gitkeep')).join(', ')}`,
   )
+  for (const note of notes) console.log(note)
   console.log('Model access comes from harar, never a .env.')
 }
 
@@ -88,10 +92,11 @@ program
     },
   )
 
-// With no command, an empty folder becomes an agent; otherwise, help.
+// A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
+// anything else here (an option, a mistyped command) never does.
 program.action(async () => {
-  // commander refuses any argument here, so a mistyped command makes nothing.
-  if (initProblem(process.cwd())) return program.help()
+  if (process.argv.length > 2 || initProblem(process.cwd()))
+    return program.help()
   await init('.', { model: DEFAULT_MODEL })
 })
 

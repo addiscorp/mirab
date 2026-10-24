@@ -6,7 +6,9 @@ import { z } from 'zod'
 /** One harar label: [a-z0-9-], 1–63 characters, not starting or ending with `-`. */
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 
-/** The kinds harar reserves; none of them is ever an org label. */
+/** The kinds harar reserves; none of them is ever an org label. These follow
+ *  harar's design (docs/architecture.md section 2, with app and channel from
+ *  section 3b), which harar's code (harar-client model.rs) is catching up to. */
 const KINDS = new Set([
   'human',
   'user',
@@ -43,12 +45,10 @@ const agentName = z.string().superRefine((name, ctx) => {
 })
 
 /** `provider/model`, e.g. `anthropic/claude-sonnet-5-5`. */
+export const MODEL = /^[a-z0-9-]+\/[A-Za-z0-9._-]+$/
 const model = z
   .string()
-  .regex(
-    /^[a-z0-9-]+\/[A-Za-z0-9._-]+$/,
-    'model is provider/model, like anthropic/claude-sonnet-5-5',
-  )
+  .regex(MODEL, 'model is provider/model, like anthropic/claude-sonnet-5-5')
 
 export const agentSchema = z.strictObject({
   /** The agent's harar name: its identity everywhere it goes. */
