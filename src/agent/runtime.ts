@@ -3,10 +3,8 @@
 // Where the model is and what key to send are given by whoever starts it (in
 // the VM: the station's loopback route and a placeholder); the runtime never
 // reads an environment variable or a .env for them.
-import { existsSync, readdirSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { spawn } from 'node:child_process'
+import { resolve } from 'node:path'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import {
   generateText,
@@ -16,76 +14,166 @@ import {
   type ModelMessage,
   type ToolSet,
 } from 'ai'
-import type { z } from 'zod'
-import { agentSchema, type Agent, type Tool } from './define'
-
-/** A tool's name is its file's name; the model sees exactly that. */
-const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/
+import { z } from 'zod'
+import type { CommandTool } from './define'
+import { loadManifest, type Manifest } from './manifest'
 
 /** Turns stop after this many model calls, so a tool loop can't run forever. */
 export const MAX_STEPS = 20
 /** How long one tool call, and one whole turn, may take. */
 export const TOOL_TIMEOUT_MS = 5 * 60_000
 export const TURN_TIMEOUT_MS = 30 * 60_000
+/** The most a command tool may print, on stdout or stderr. */
+export const COMMAND_OUTPUT_MAX = 1024 * 1024
 
 export interface LoadedAgent {
-  agent: Agent
-  instructions: string
+  agent: Manifest
   tools: ToolSet
 }
 
-/** Loads `<project>/agent`: agent.ts, instructions.md and tools/*.ts. */
+/** Loads `<project>/agent` and makes its manifest's tools callable. */
 export async function loadAgent(project: string): Promise<LoadedAgent> {
-  const dir = join(resolve(project), 'agent')
-  const definition = join(dir, 'agent.ts')
-  if (!existsSync(definition))
-    throw new Error(`${definition} is missing; mirab init makes one`)
-  const parsed = agentSchema.safeParse(
-    (await import(pathToFileURL(definition).href)).default,
-  )
-  if (!parsed.success)
-    throw new Error(
-      `${definition}: ${parsed.error.issues.map((i) => i.message).join('; ')}`,
-    )
-  const agent = parsed.data
-  const instructionsPath = join(dir, 'instructions.md')
-  const instructions = existsSync(instructionsPath)
-    ? await readFile(instructionsPath, 'utf8')
-    : ''
+  const root = resolve(project)
+  const { manifest, typescript } = await loadManifest(root)
   // No prototype, so a tool named __proto__ is a tool like any other.
   const tools: ToolSet = Object.create(null)
-  const toolsDir = join(dir, 'tools')
-  if (existsSync(toolsDir))
-    for (const file of readdirSync(toolsDir).sort()) {
-      if (
-        file.startsWith('.') ||
-        file.endsWith('.test.ts') ||
-        file.endsWith('.d.ts')
-      )
-        continue
-      if (!file.endsWith('.ts'))
-        throw new Error(
-          `tools/${file}: a tool is a TypeScript file (.ts); move anything else out of tools/`,
-        )
-      const name = basename(file, '.ts')
-      if (!TOOL_NAME.test(name))
-        throw new Error(
-          `tools/${file}: a tool's name is its file name, [a-zA-Z0-9_-] up to 64 characters`,
-        )
-      const defined = (await import(pathToFileURL(join(toolsDir, file)).href))
-        .default as Tool<z.ZodType> | undefined
-      if (!defined?.description || !defined.inputSchema || !defined.execute)
-        throw new Error(
-          `tools/${file} must export default defineTool({ description, inputSchema, execute })`,
-        )
-      // The model's input is checked against the tool's own schema first.
-      tools[name] = dynamicTool({
-        description: defined.description,
-        inputSchema: defined.inputSchema,
-        execute: async (input) => defined.execute(input),
-      })
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    // The model's input is checked against the tool's own schema first.
+    tools[name] =
+      'file' in tool
+        ? dynamicTool({
+            description: tool.description,
+            inputSchema: typescript[name].inputSchema,
+            execute: async (input) => typescript[name].execute(input),
+          })
+        : commandTool(tool, root)
+  }
+  return { agent: manifest, tools }
+}
+
+/** A command tool for the model. The command gets the checked input, not
+ *  what the model sent: keys its schema doesn't list never reach it. */
+function commandTool(tool: CommandTool, root: string) {
+  const schema = z.fromJSONSchema(closedSchema(tool.input))
+  return dynamicTool({
+    description: tool.description,
+    inputSchema: schema,
+    execute: (input, { abortSignal }) =>
+      runCommand(tool, root, schema.parse(input), abortSignal),
+  })
+}
+
+/** A JSON Schema where every object that doesn't say otherwise takes only
+ *  the properties it lists, as a TypeScript tool's z.object does. */
+export function closedSchema<T>(schema: T, open = false): T {
+  if (Array.isArray(schema))
+    return schema.map((s) => closedSchema(s, open)) as T
+  if (!schema || typeof schema !== 'object') return schema
+  const node: Record<string, unknown> = Object.fromEntries(
+    Object.entries(schema).map(([k, v]) => [
+      k,
+      // Values, not schemas, are left as written; each allOf branch is one
+      // part of an object whose keys the other branches list.
+      VALUE_KEYWORDS.has(k) ? v : closedSchema(v, k === 'allOf'),
+    ]),
+  )
+  if (
+    !open &&
+    node.type === 'object' &&
+    !('additionalProperties' in node) &&
+    !('patternProperties' in node)
+  )
+    node.additionalProperties = false
+  return node as T
+}
+const VALUE_KEYWORDS = new Set(['const', 'enum', 'default', 'examples'])
+
+/** Runs a command tool: input as JSON on stdin, its JSON answer from stdout.
+ *  No shell, the project as its working directory, and only PATH and HOME
+ *  from the loop's environment, so a tool never sees what the loop was given.
+ *  It runs in its own process group: a timeout, the turn ending or too much
+ *  output stops everything it started, and so does its own exit. */
+export function runCommand(
+  tool: CommandTool,
+  cwd: string,
+  input: unknown,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return new Promise((done, fail) => {
+    if (signal?.aborted)
+      return fail(new Error(`${tool.command} was stopped: the turn ended`))
+    const child = spawn(tool.command, tool.args ?? [], {
+      cwd,
+      env: {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        HOME: process.env.HOME ?? cwd,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
+    })
+    let stopped: string | undefined
+    const stopAll = (why?: string) => {
+      if (why && !stopped) stopped = why
+      try {
+        process.kill(-child.pid!, 'SIGKILL')
+      } catch {}
     }
-  return { agent, instructions, tools }
+    const ms = tool.timeoutMs ?? TOOL_TIMEOUT_MS
+    const timer = setTimeout(() => stopAll(`ran longer than ${ms} ms`), ms)
+    const onAbort = () => stopAll('the turn ended')
+    signal?.addEventListener('abort', onAbort, { once: true })
+    const finish = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const out: Buffer[] = []
+    const err: Buffer[] = []
+    let size = 0
+    const collect = (into: Buffer[]) => (chunk: Buffer) => {
+      size += chunk.length
+      if (size > COMMAND_OUTPUT_MAX)
+        stopAll(`printed more than ${COMMAND_OUTPUT_MAX} bytes`)
+      else into.push(chunk)
+    }
+    child.stdout!.on('data', collect(out))
+    child.stderr!.on('data', collect(err))
+    // A command that exits without reading its input is not an error here.
+    child.stdin!.on('error', () => {})
+    child.stdin!.end(JSON.stringify(input))
+    child.on('error', (e) => {
+      finish()
+      fail(new Error(`${tool.command} didn't run: ${e.message}`))
+    })
+    child.on('exit', () => {
+      // It answered in time: from here only the 1 s below governs the wait.
+      finish()
+      stopAll()
+      // Something that left the group can still hold the pipes open; the
+      // call ends anyway.
+      setTimeout(() => {
+        child.stdout!.destroy()
+        child.stderr!.destroy()
+      }, 1000).unref()
+    })
+    child.on('close', (code, killed) => {
+      finish()
+      const stderr = Buffer.concat(err).toString('utf8').trim().slice(-2000)
+      if (stopped)
+        return fail(new Error(`${tool.command} was stopped: ${stopped}`))
+      if (code !== 0)
+        return fail(
+          new Error(
+            `${tool.command} exited ${code ?? killed}${stderr ? `: ${stderr}` : ''}`,
+          ),
+        )
+      const stdout = Buffer.concat(out).toString('utf8')
+      try {
+        done(JSON.parse(stdout))
+      } catch {
+        fail(new Error(`${tool.command} didn't answer with JSON on stdout`))
+      }
+    })
+  })
 }
 
 export interface ModelEndpoint {
@@ -96,7 +184,10 @@ export interface ModelEndpoint {
 }
 
 /** The model an agent names (`provider/model`), at the given endpoint. */
-export function modelFor(agent: Agent, endpoint: ModelEndpoint): LanguageModel {
+export function modelFor(
+  agent: Pick<Manifest, 'model'>,
+  endpoint: ModelEndpoint,
+): LanguageModel {
   // Always strings: the provider would fall back to ANTHROPIC_* variables otherwise.
   if (!endpoint.key || !endpoint.baseURL)
     throw new Error('the model endpoint needs a base URL and a key')
@@ -132,7 +223,7 @@ export async function runTurn(options: {
   ]
   const result = await generateText({
     model: options.model,
-    instructions: options.loaded.instructions,
+    instructions: options.loaded.agent.instructions,
     messages,
     tools: options.loaded.tools,
     stopWhen: stepCountIs(MAX_STEPS),

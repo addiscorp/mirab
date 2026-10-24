@@ -22,7 +22,7 @@
     "commander": "^14.0.1",
     "inquirer": "^12.9.4",
     "smol-toml": "^1.9.0",
-    "zod": "^4.1.12"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

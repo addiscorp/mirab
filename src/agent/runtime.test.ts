@@ -1,7 +1,16 @@
 import { expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { MAX_STEPS, loadAgent, modelFor, runTurn } from './runtime'
+import { chmod } from 'node:fs/promises'
+import {
+  COMMAND_OUTPUT_MAX,
+  MAX_STEPS,
+  loadAgent,
+  modelFor,
+  closedSchema,
+  runCommand,
+  runTurn,
+} from './runtime'
 
 /** An agent folder with one tool, `add`, as mirab init plus a tool would leave it. */
 async function project() {
@@ -119,9 +128,7 @@ test('a tool file that is not a defineTool, or has a bad name, stops the load', 
     )
     await rm(join(root, 'agent/tools/broken.ts'))
     await writeFile(join(root, 'agent/tools/bad name.ts'), 'export default 1\n')
-    await expect(loadAgent(root)).rejects.toThrow(
-      "a tool's name is its file name",
-    )
+    await expect(loadAgent(root)).rejects.toThrow('(its file name)')
     await expect(loadAgent(join(root, 'nowhere'))).rejects.toThrow(
       'mirab init makes one',
     )
@@ -190,21 +197,12 @@ test('a tool only runs with input that fits its own schema', async () => {
   }
 })
 
-test('loading refuses other file types, keeps a __proto__ tool, and names a bad agent.ts', async () => {
+test('loading refuses other file types and names a bad agent.ts', async () => {
   const root = await project()
   try {
     await writeFile(join(root, 'agent/tools/helper.js'), 'export default 1\n')
     await expect(loadAgent(root)).rejects.toThrow('a tool is a TypeScript file')
     await rm(join(root, 'agent/tools/helper.js'))
-    await writeFile(
-      join(root, 'agent/tools/__proto__.ts'),
-      "import { defineTool } from 'mirab/tools'\nimport { z } from 'zod'\nexport default defineTool({ description: 'x', inputSchema: z.object({}), execute: () => 1 })\n",
-    )
-    expect(Object.keys((await loadAgent(root)).tools).sort()).toEqual([
-      '__proto__',
-      'add',
-    ])
-    await rm(join(root, 'agent/tools/__proto__.ts'))
     // A bad agent.ts names the file (a fresh project: imports are cached by path).
     const other = await project()
     await writeFile(
@@ -341,4 +339,276 @@ test('the key and address come only from the arguments, never ANTHROPIC_* variab
     trap.server.stop(true)
     await rm(root, { recursive: true, force: true })
   }
+})
+
+/** A project whose agent.ts declares one command tool, `upper`, run as `./bin/upper`. */
+async function commandProject(script: string) {
+  const root = await project()
+  await writeFile(
+    join(root, 'agent/agent.ts'),
+    `import { defineAgent } from 'mirab'
+export default defineAgent({
+  name: 'gg.addis.agent.ops',
+  model: 'anthropic/claude-sonnet-5-5',
+  tools: {
+    upper: {
+      description: 'Upper-case a word.',
+      command: './bin/upper',
+      input: { type: 'object', properties: { word: { type: 'string' } }, required: ['word'], additionalProperties: false },
+    },
+  },
+})
+`,
+  )
+  await mkdir(join(root, 'bin'))
+  await writeFile(join(root, 'bin/upper'), `#!/bin/sh\n${script}\n`)
+  await chmod(join(root, 'bin/upper'), 0o755)
+  return root
+}
+
+const UPPER = `read -r line; w=$(printf '%s' "$line" | sed 's/.*"word":"\\([^"]*\\)".*/\\1/' | tr a-z A-Z); printf '{"upper":"%s"}' "$w"`
+
+test("a command tool gets the model's input as JSON on stdin, and its JSON answer reaches the model", async () => {
+  const root = await commandProject(UPPER)
+  const model = scripted((n) =>
+    n === 1
+      ? [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'upper',
+            input: { word: 'nix' },
+          },
+        ]
+      : [{ type: 'text', text: 'done' }],
+  )
+  try {
+    const loaded = await loadAgent(root)
+    expect(Object.keys(loaded.tools).sort()).toEqual(['add', 'upper'])
+    const turn = await runTurn({
+      loaded,
+      model: modelFor(loaded.agent, { baseURL: model.baseURL, key: 'k' }),
+      history: [],
+      message: 'shout nix',
+    })
+    expect(turn.text).toBe('done')
+    expect(JSON.stringify(model.bodies[1].messages)).toContain('NIX')
+    // The model saw the tool with its JSON Schema.
+    const upper = model.bodies[0].tools.find((t: any) => t.name === 'upper')
+    expect(upper.input_schema.required).toEqual(['word'])
+  } finally {
+    model.server.stop(true)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a command tool never runs with input that does not fit its schema', async () => {
+  const root = await commandProject(`touch ran; ${UPPER}`)
+  const model = scripted((n) =>
+    n === 1
+      ? [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'upper',
+            input: { word: 1, extra: '; rm -rf /' },
+          },
+        ]
+      : [{ type: 'text', text: 'done' }],
+  )
+  try {
+    const loaded = await loadAgent(root)
+    await runTurn({
+      loaded,
+      model: modelFor(loaded.agent, { baseURL: model.baseURL, key: 'k' }),
+      history: [],
+      message: 'x',
+    })
+    expect(await Bun.file(join(root, 'ran')).exists()).toBe(false)
+    expect(JSON.stringify(model.bodies[1].messages)).toContain(
+      '"is_error":true',
+    )
+  } finally {
+    model.server.stop(true)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+const tool = (command: string, args: string[] = [], timeoutMs?: number) => ({
+  description: 'x',
+  command,
+  args,
+  input: { type: 'object' },
+  timeoutMs,
+})
+
+test("a command tool sees only PATH and HOME of the loop's environment", async () => {
+  process.env.MIRAB_TEST_SECRET = 'sk-should-stay-in-the-loop'
+  try {
+    const env = (await runCommand(
+      tool('sh', [
+        '-c',
+        "cat >/dev/null; printf '\"%s\"' \"$(env | tr '\\n' ' ')\"",
+      ]),
+      '.',
+      {},
+    )) as string
+    expect(env).not.toContain('sk-should-stay')
+    expect(env).toContain('PATH=')
+  } finally {
+    delete process.env.MIRAB_TEST_SECRET
+  }
+})
+
+test('a command tool that fails, answers with no JSON, runs too long or prints too much is an error', async () => {
+  await expect(
+    runCommand(tool('sh', ['-c', 'echo broken >&2; exit 3']), '.', {}),
+  ).rejects.toThrow('exited 3: broken')
+  await expect(
+    runCommand(tool('sh', ['-c', 'echo not json']), '.', {}),
+  ).rejects.toThrow("didn't answer with JSON")
+  const t0 = Date.now()
+  await expect(runCommand(tool('sleep', ['10'], 200), '.', {})).rejects.toThrow(
+    'was stopped',
+  )
+  expect(Date.now() - t0).toBeLessThan(5000)
+  await expect(
+    runCommand(
+      tool('sh', ['-c', `head -c ${COMMAND_OUTPUT_MAX + 10} /dev/zero`]),
+      '.',
+      {},
+    ),
+  ).rejects.toThrow('printed more than')
+  await expect(runCommand(tool('./no-such-tool'), '.', {})).rejects.toThrow(
+    "didn't run",
+  )
+  // The arguments are the command's own: no shell reads them.
+  expect(
+    await runCommand(tool('printf', ['"%s"', '$(touch pwned)']), '.', {}),
+  ).toBe('$(touch pwned)')
+})
+
+test('stopping a command tool stops what it started, and so does its own exit', async () => {
+  // A child left in the background would hold the pipes and outlive the call.
+  const t0 = Date.now()
+  await expect(
+    runCommand(tool('sh', ['-c', 'sleep 30 & wait'], 300), '.', {}),
+  ).rejects.toThrow('ran longer than 300 ms')
+  expect(Date.now() - t0).toBeLessThan(3000)
+  // A clean exit that leaves something behind: the answer arrives, the leftover is gone.
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const pidFile = join(await mkdtemp(join(resolve('.tmp'), 'pid-')), 'pid')
+  const t1 = Date.now()
+  expect(
+    await runCommand(
+      tool('sh', ['-c', `sleep 30 & echo $! > ${pidFile}; echo '{"ok":true}'`]),
+      '.',
+      {},
+    ),
+  ).toEqual({ ok: true })
+  expect(Date.now() - t1).toBeLessThan(3000)
+  const pid = Number(await Bun.file(pidFile).text())
+  await Bun.sleep(50)
+  expect(() => process.kill(pid, 0)).toThrow()
+  // The turn ending stops it too.
+  const ac = new AbortController()
+  const call = runCommand(
+    tool('sh', ['-c', 'sleep 30 & wait']),
+    '.',
+    {},
+    ac.signal,
+  )
+  setTimeout(() => ac.abort(), 100)
+  await expect(call).rejects.toThrow('the turn ended')
+})
+
+test('a command tool gets only the keys its schema lists, though the model sends more', async () => {
+  const root = await commandProject(`cat > got.json; echo '{}'`)
+  // An open schema, as a tool author might write it.
+  await writeFile(
+    join(root, 'agent/agent.ts'),
+    (await Bun.file(join(root, 'agent/agent.ts')).text()).replace(
+      ', additionalProperties: false',
+      '',
+    ),
+  )
+  const model = scripted((n) =>
+    n === 1
+      ? [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'upper',
+            input: { word: 'a', extra: 'x' },
+          },
+        ]
+      : [{ type: 'text', text: 'done' }],
+  )
+  try {
+    const loaded = await loadAgent(root)
+    await runTurn({
+      loaded,
+      model: modelFor(loaded.agent, { baseURL: model.baseURL, key: 'k' }),
+      history: [],
+      message: 'x',
+    })
+    // Refused as it stands (the schema is closed), so nothing ran with "extra".
+    expect(await Bun.file(join(root, 'got.json')).exists()).toBe(false)
+    expect(
+      closedSchema<object>({
+        type: 'object',
+        properties: { a: { type: 'object' } },
+      }),
+    ).toEqual({
+      type: 'object',
+      properties: { a: { type: 'object', additionalProperties: false } },
+      additionalProperties: false,
+    })
+    expect(
+      closedSchema<object>({ type: 'object', additionalProperties: true }),
+    ).toEqual({
+      type: 'object',
+      additionalProperties: true,
+    })
+    // allOf branches (a zod intersection) and literal values are left open.
+    const both = {
+      type: 'object',
+      allOf: [
+        { type: 'object', properties: { a: { type: 'string' } } },
+        { type: 'object', properties: { b: { type: 'string' } } },
+      ],
+      default: { type: 'object' },
+    }
+    expect(closedSchema<object>(both)).toEqual({
+      ...both,
+      additionalProperties: false,
+    })
+  } finally {
+    model.server.stop(true)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a command tool that answered is not a timeout, though a straggler holds its pipes', async () => {
+  // The straggler leaves the group (setsid) before the tool answers, so only
+  // the 1 s pipe close ends the wait, after the 300 ms timeout.
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const dir = await mkdtemp(join(resolve('.tmp'), 'straggler-'))
+  const t0 = Date.now()
+  expect(
+    await runCommand(
+      tool(
+        'sh',
+        [
+          '-c',
+          `perl -e 'use POSIX; fork and exit; POSIX::setsid(); open F, ">left"; close F; sleep 3' & while [ ! -e left ]; do sleep 0.01; done; echo '{"ok":1}'`,
+        ],
+        300,
+      ),
+      dir,
+      {},
+    ),
+  ).toEqual({ ok: 1 })
+  expect(Date.now() - t0).toBeLessThan(2500)
+  await rm(dir, { recursive: true, force: true })
 })

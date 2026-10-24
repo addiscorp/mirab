@@ -5,6 +5,7 @@ import pkg from '../package.json'
 import { profileCommands } from './agent-profiles'
 import { DEFAULT_MODEL, initAgent, initProblem } from './agent/init'
 import { agentNameProblem } from './agent/define'
+import { loadManifest } from './agent/manifest'
 import { MULTIPASS_UNAVAILABLE, usesMultipass } from './isolation/multipass'
 import { localEvents, spawnCommands } from './spawn'
 
@@ -91,6 +92,14 @@ program
       await init(directory ?? '.', opts)
     },
   )
+
+program
+  .command('manifest [project]')
+  .description("the agent's manifest, as JSON: what mirab dev and up read")
+  .action(async (project: string | undefined) => {
+    const { manifest } = await loadManifest(project ?? '.')
+    console.log(JSON.stringify(manifest, null, 2))
+  })
 
 // A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
 // anything else here (an option, a mistyped command) never does.
