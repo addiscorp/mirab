@@ -254,7 +254,7 @@ export function spawnCommands(
                 ? ['__vm-worker']
                 : [
                     'run',
-                    new URL('./gild.ts', import.meta.url).pathname,
+                    new URL('./mirab.ts', import.meta.url).pathname,
                     '__vm-worker',
                   ]
               : [await workerFile()]),
@@ -273,7 +273,7 @@ export function spawnCommands(
                   : [
                       process.execPath,
                       'run',
-                      new URL('./gild.ts', import.meta.url).pathname,
+                      new URL('./mirab.ts', import.meta.url).pathname,
                     ],
               reporting: !!report,
               bridging: !!bridge,

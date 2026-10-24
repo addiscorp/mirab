@@ -2,7 +2,7 @@
 
 Needs a Firecracker host (isolation.json with `vm`) and a guest image with
 python3. Never starts a real claude or codex.
-  TEST_GILD_COMMAND='["bun","run","src/gild.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-spawn-harness.py
+  TEST_GILD_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-spawn-harness.py
 """
 import os, sys, pty, subprocess, pathlib, tempfile, json, socket, select, time, signal, fcntl, struct, termios, shutil
 

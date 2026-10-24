@@ -6,7 +6,7 @@ import { shellQuote } from './spawn-adapters/types'
 export function gildInvocation(): string[] {
   return import.meta.url.includes('$bunfs')
     ? [process.execPath]
-    : [process.execPath, 'run', new URL('./gild.ts', import.meta.url).pathname]
+    : [process.execPath, 'run', new URL('./mirab.ts', import.meta.url).pathname]
 }
 
 /** Prefer plain gild only when PATH selects this exact gild. */

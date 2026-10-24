@@ -49,7 +49,7 @@ for (const [mode, outcome] of [
     expect(built.success, JSON.stringify(built.logs)).toBe(true)
     const command: string[] = JSON.parse(
       process.env.TEST_GILD_COMMAND ??
-        JSON.stringify([process.execPath, 'run', resolve('src/gild.ts')]),
+        JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')]),
     )
     const id = 'final'
     const path = socketPath(id, join(home, '.gild/sessions'))
@@ -336,7 +336,7 @@ test('spawn --vm --detach starts the VM worker (no TTY needed) and reports why a
     )
     const command: string[] = JSON.parse(
       process.env.TEST_GILD_COMMAND ??
-        JSON.stringify([process.execPath, 'run', resolve('src/gild.ts')]),
+        JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')]),
     )
     const proc = Bun.spawn(
       [
@@ -382,7 +382,11 @@ async function harness(script: string) {
   const proc = Bun.spawn(['python3', resolve(script)], {
     env: {
       ...process.env,
-      TEST_GILD_COMMAND: JSON.stringify(['bun', 'run', resolve('src/gild.ts')]),
+      TEST_GILD_COMMAND: JSON.stringify([
+        'bun',
+        'run',
+        resolve('src/mirab.ts'),
+      ]),
     },
     stdout: 'pipe',
     stderr: 'pipe',
@@ -413,7 +417,7 @@ test.skipIf(!config)(
           TEST_GILD_COMMAND: JSON.stringify([
             'bun',
             'run',
-            resolve('src/gild.ts'),
+            resolve('src/mirab.ts'),
           ]),
         },
         stdout: 'pipe',
@@ -455,7 +459,7 @@ test.skipIf(!config || !oldRootfs)(
         [
           'bun',
           'run',
-          resolve('src/gild.ts'),
+          resolve('src/mirab.ts'),
           'spawn',
           '--vm',
           '--detach',
@@ -483,11 +487,14 @@ test.skipIf(!config || !oldRootfs)(
       expect(err).toContain('bun run vm:image')
     } finally {
       // Should the session have started anyway (no handshake), stop its VM.
-      await Bun.spawn(['bun', 'run', resolve('src/gild.ts'), 'stop', 'vmold'], {
-        env: { ...process.env, HOME: home },
-        stdout: 'ignore',
-        stderr: 'ignore',
-      }).exited
+      await Bun.spawn(
+        ['bun', 'run', resolve('src/mirab.ts'), 'stop', 'vmold'],
+        {
+          env: { ...process.env, HOME: home },
+          stdout: 'ignore',
+          stderr: 'ignore',
+        },
+      ).exited
       await rm(home, { recursive: true, force: true })
     }
   },

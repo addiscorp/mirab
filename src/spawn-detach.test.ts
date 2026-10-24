@@ -57,7 +57,7 @@ for (const scenario of ['no-tty', 'send', 'attach', 'stop']) {
     await mkdir(resolve('.tmp'), { recursive: true })
     const command =
       process.env.TEST_GILD_COMMAND ??
-      JSON.stringify([process.execPath, 'run', resolve('src/gild.ts')])
+      JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')])
     const proc = Bun.spawn(
       ['python3', resolve('scripts/fixtures/detach-harness.py'), scenario],
       {

@@ -3,7 +3,7 @@
 spawn returns the id; send, sync, attach --watch and stop work on it; the
 guest's last changes reach the host when it is stopped. Needs a Firecracker
 host (isolation.json with `vm`) and a guest image with python3.
-  TEST_GILD_COMMAND='["bun","run","src/gild.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-detach-harness.py
+  TEST_GILD_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-detach-harness.py
 """
 import os, subprocess, pathlib, tempfile, json, time, socket
 

@@ -62,7 +62,7 @@ export function startCLI(root: string, args: string[], stdin?: string) {
     [
       process.execPath,
       'run',
-      resolve('src/gild.ts'),
+      resolve('src/mirab.ts'),
       '--config-dir',
       root,
       ...args,

@@ -2,7 +2,7 @@
 
 Needs a Firecracker host (isolation.json with `vm`) and a guest image with
 python3. Fixture agent only.
-  TEST_GILD_COMMAND='["bun","run","src/gild.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-sync-harness.py
+  TEST_GILD_COMMAND='["bun","run","src/mirab.ts"]' TEST_VM_CONFIG_DIR=<dir> python3 vm-sync-harness.py
 """
 import os, pty, subprocess, pathlib, tempfile, json, select, time, fcntl, struct, termios
 

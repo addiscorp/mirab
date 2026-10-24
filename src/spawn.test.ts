@@ -27,7 +27,7 @@ for (const scenario of cases) {
     await mkdir(resolve('.tmp'), { recursive: true })
     const command =
       process.env.TEST_GILD_COMMAND ??
-      JSON.stringify([process.execPath, 'run', resolve('src/gild.ts')])
+      JSON.stringify([process.execPath, 'run', resolve('src/mirab.ts')])
     const proc = Bun.spawn(
       ['python3', resolve('scripts/fixtures/spawn-harness.py'), scenario],
       {

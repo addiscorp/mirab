@@ -7,7 +7,7 @@ test('prompts use plain gild for this source or binary, preserving an explicit c
   await mkdir(resolve('.tmp'), { recursive: true })
   const root = await mkdtemp(resolve('.tmp/invocation-'))
   try {
-    const source = join(root, 'gild.ts'),
+    const source = join(root, 'mirab.ts'),
       dir = join(root, 'bin')
     await writeFile(source, '#!/usr/bin/env bun\n')
     await chmod(source, 0o755)

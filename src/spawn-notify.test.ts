@@ -22,7 +22,7 @@ async function fixture(run: (root: string) => Promise<void>) {
 const cli = () =>
   process.env.TEST_GILD_HOOK_COMMAND
     ? (JSON.parse(process.env.TEST_GILD_HOOK_COMMAND) as string[])
-    : [process.execPath, 'run', resolve('src/gild.ts')]
+    : [process.execPath, 'run', resolve('src/mirab.ts')]
 
 test('Codex user notify runs after forwarding with its fixed args and identical notification argument, including absent sockets', async () => {
   await fixture(async (root) => {
