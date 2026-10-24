@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { Command } from 'commander'
 import pkg from '../package.json'
 import { profileCommands } from './agent-profiles'
+import { DEFAULT_MODEL, initAgent, initProblem } from './agent/init'
+import { agentNameProblem } from './agent/define'
 import { MULTIPASS_UNAVAILABLE, usesMultipass } from './isolation/multipass'
 import { localEvents, spawnCommands } from './spawn'
 
@@ -26,6 +28,77 @@ export const program = new Command()
   .name('mirab')
   .description('mirab: agents in VMs on your own machine')
   .version(pkg.version)
+
+// ---------- init: a new agent ----------
+
+/** The agent's harar name: --name, else asked for when there is a terminal. */
+async function askName(name?: string): Promise<string> {
+  if (name) return name
+  if (!process.stdin.isTTY)
+    throw Error(
+      'Give the agent its harar name: mirab init --name <org>.agent.<name>',
+    )
+  const { default: inquirer } = await import('inquirer')
+  const answer = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'name',
+      message:
+        "The agent's harar name (<org>.agent.<name>, like gg.addis.agent.ops):",
+      validate: (value: string) => {
+        const problem = agentNameProblem(value.trim())
+        return problem ? `That name ${problem}` : true
+      },
+    },
+  ])
+  return String(answer.name).trim()
+}
+
+async function init(
+  directory: string,
+  opts: { name?: string; model?: string; git?: boolean },
+) {
+  // Refuse a busy folder before asking anything.
+  const taken = initProblem(directory)
+  if (taken) throw Error(taken)
+  const name = (await askName(opts.name)).trim()
+  const { written, notes } = await initAgent({
+    directory,
+    name,
+    model: opts.model,
+    git: opts.git,
+  })
+  console.log(
+    `Made ${name} in ${directory}: ${written.filter((f) => !f.endsWith('.gitkeep')).join(', ')}`,
+  )
+  for (const note of notes) console.log(note)
+  console.log('Model access comes from harar, never a .env.')
+}
+
+program
+  .command('init [directory]')
+  .description(
+    'make an agent: agent/agent.ts, instructions, tools, skills, channels',
+  )
+  .option('--name <name>', "the agent's harar name, <org>.agent.<name>")
+  .option('--model <model>', 'provider/model', DEFAULT_MODEL)
+  .option('--no-git', "don't run git init")
+  .action(
+    async (
+      directory: string | undefined,
+      opts: { name?: string; model?: string; git?: boolean },
+    ) => {
+      await init(directory ?? '.', opts)
+    },
+  )
+
+// A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
+// anything else here (an option, a mistyped command) never does.
+program.action(async () => {
+  if (process.argv.length > 2 || initProblem(process.cwd()))
+    return program.help()
+  await init('.', { model: DEFAULT_MODEL })
+})
 
 // ---------- agent: profiles ----------
 

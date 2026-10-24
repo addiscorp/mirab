@@ -34,5 +34,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/addiscorp/mirab.git"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./tools": "./src/tools.ts"
   }
 }
