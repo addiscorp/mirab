@@ -266,6 +266,9 @@ test('public addresses only: never the host, the LAN, link-local, CGNAT or IPv6 
     'fec0::1',
     'ff02::1',
     'not-an-ip',
+    'fe80::1%en0',
+    '::ffff:0:10.0.0.1',
+    '3fff::1',
   ])
     expect(isPublic(no), no).toBe(false)
 })
@@ -425,7 +428,7 @@ test('the server name is read only from one plain, whole ClientHello', () => {
   expect(
     serverName(clientHello([sni('registry.example.test', 'evil.example')])),
   ).toBeUndefined()
-  // BoringSSL's GREASE encrypted_client_hello: allowed, the visible name decides.
+  // Any encrypted_client_hello is refused: the VM could hide another site's name inside.
   expect(
     serverName(
       clientHello([
@@ -433,7 +436,12 @@ test('the server name is read only from one plain, whole ClientHello', () => {
         ext(0xfe0d, Buffer.alloc(250)),
       ]),
     ),
-  ).toBe('registry.example.test')
+  ).toBeUndefined()
+  expect(
+    serverName(
+      clientHello([sni('registry.example.test'), ext(0xffce, Buffer.alloc(8))]),
+    ),
+  ).toBeUndefined()
   expect(
     serverName(clientHello([sni('registry.example.test')], true)),
   ).toBeUndefined()
@@ -647,6 +655,21 @@ test("a route's key is used only on the paths it allows", async () => {
     },
   })
   try {
+    for (const path of [
+      '/v1/messages/../files',
+      '/v1/messages/%2e%2e/files',
+      '/v1/messages%2f..%2ffiles',
+      '/v1/messages/..%2ffiles',
+      '/v1/messagesX',
+    ]) {
+      const c = await open(
+        s.socketPath,
+        `POST /anthropic${path} HTTP/1.1\r\ncontent-length: 2\r\n\r\n{}`,
+      )
+      expect(await firstReply(c), path).toContain(
+        'not a path this route allows',
+      )
+    }
     const files = await open(
       s.socketPath,
       'DELETE /anthropic/v1/files/f1 HTTP/1.1\r\n\r\n',

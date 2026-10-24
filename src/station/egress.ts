@@ -131,6 +131,11 @@ for (const [net, bits] of [
   ['2001::', 32], // Teredo
   ['2001:db8::', 32], // documentation
   ['2002::', 16], // 6to4
+  ['::ffff:0:0:0', 96], // SIIT: IPv4 translated
+  ['2001:2::', 48], // benchmarking
+  ['2001:10::', 28], // ORCHID
+  ['3fff::', 20], // documentation
+  ['5f00::', 16], // segment routing
   ['fc00::', 7], // unique local
   ['fe80::', 10], // link-local
   ['fec0::', 10], // site-local
@@ -143,8 +148,14 @@ for (const [net, bits] of [
 export function isPublic(address: string): boolean {
   const family = isIP(address)
   if (family === 4) return !NOT_PUBLIC_V4.check(address, 'ipv4')
-  if (family !== 6) return false
-  const canonical = new URL(`http://[${address}]`).hostname.slice(1, -1)
+  // A zone id (fe80::1%en0) is never a public address.
+  if (family !== 6 || address.includes('%')) return false
+  let canonical: string
+  try {
+    canonical = new URL(`http://[${address}]`).hostname.slice(1, -1)
+  } catch {
+    return false
+  }
   // An IPv4 address written as IPv6 (::ffff:a.b.c.d) is judged as IPv4.
   const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(canonical)
   if (mapped) {
@@ -162,14 +173,16 @@ async function lookupAll(host: string): Promise<string[]> {
 }
 
 /** The server name in a TLS ClientHello, or undefined when there isn't exactly
- *  one. Strict on purpose: the hello must be one whole record, read only
- *  within its own lengths; two server_name extensions or more than one name
- *  count as none, so the connection is refused.
+ *  one plain one. Strict on purpose: the hello must be one whole record, read
+ *  only within its own lengths; two server_name extensions, more than one
+ *  name, or an encrypted ClientHello all count as none, so the connection is
+ *  refused.
  *
- *  An encrypted_client_hello extension is allowed: BoringSSL (Bun) sends one
- *  as GREASE in every hello. A real one carries the provider's public name
- *  (cloudflare-ech.com) outside, which won't match a whitelisted host, so it
- *  is refused anyway; never whitelist such a public name (section 5). */
+ *  An encrypted ClientHello is refused even when the visible name is allowed:
+ *  the VM writes its own hello, so it could put a whitelisted name outside
+ *  and any site on the same CDN inside, and a CDN that supports it routes on
+ *  the inside. Real ones and GREASE can't be told apart, so neither is let
+ *  through; the guest's Bun (1.4) sends neither. */
 export function serverName(hello: Buffer): string | undefined {
   if (hello.length < 9 || hello[0] !== 0x16) return
   const recordEnd = 5 + hello.readUInt16BE(3)
@@ -206,6 +219,8 @@ export function serverName(hello: Buffer): string | undefined {
     if (type === undefined || length === undefined) return
     const ext = take(length)
     if (!ext) return
+    // encrypted_client_hello, and its draft codepoint
+    if (type === 0xfe0d || type === 0xffce) return
     if (type !== 0) continue
     if (++names > 1) return
     // server_name: list length (2), then exactly one host_name entry.
@@ -507,7 +522,15 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
     if (!url || path.startsWith('//') || url.origin !== base.origin)
       return refuse(socket, 400, 'a path on the route itself only', entry)
     const target = url
-    if (r.paths && !r.paths.some((p) => target.pathname.startsWith(p)))
+    // The allowed paths, on a path boundary, and never with an encoded
+    // separator that the upstream might decode into another path.
+    if (
+      r.paths &&
+      (/%(2f|5c|2e)/i.test(target.pathname) ||
+        !r.paths.some(
+          (p) => target.pathname === p || target.pathname.startsWith(p + '/'),
+        ))
+    )
       return refuse(socket, 403, 'not a path this route allows', entry)
     // The body, as long as content-length says (routes take no chunked uploads).
     const lengthHeader = head.headers.get('content-length') ?? '0'
@@ -547,6 +570,8 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
         if (!DROPPED_REQUEST_HEADERS.has(k)) headers.set(k, v)
       headers.set(r.header, r.format ? r.format(credential) : credential)
       // The VM's socket closing, or the whole call running too long, stops it.
+      // A VM that only half-closes is not taken as leaving: the guest's
+      // forwarder half-closes after every request; ROUTE_TIMEOUT_MS bounds it.
       const abort = new AbortController()
       socket.once('close', () => abort.abort())
       let response: Response

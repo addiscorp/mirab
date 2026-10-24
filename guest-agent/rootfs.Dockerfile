@@ -5,7 +5,7 @@
 # busybox (udhcpc for NAT networking). Not here: rustup and deka (add per image).
 # scripts/build-vm-guest.sh turns it into an ext4 image without root on the host.
 FROM ubuntu:24.04
-ARG BUN_VERSION=1.3.13
+ARG BUN_VERSION=1.4.3
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates git iproute2 unzip curl python3 busybox-static \

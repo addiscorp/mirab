@@ -17,7 +17,7 @@ RUN cd guest-agent && cargo build --release --locked
 FROM ubuntu:24.04 AS rootfs
 ARG NODE_VERSION=24.21.0
 ARG NODE_SHA256=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
-ARG BUN_VERSION=1.3.14
+ARG BUN_VERSION=1.4.3
 ARG BUN_SHA256=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
