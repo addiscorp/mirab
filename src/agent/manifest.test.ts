@@ -132,6 +132,8 @@ test('the whitelist takes names the station can match, never an address or a bar
     'API.github.com',
     'github.com.',
     '1.2.3.4',
+    '127.0.0x1',
+    '1.0x7f',
     '[::1]',
     'api.github.com:443',
     'https://api.github.com',
@@ -201,4 +203,19 @@ test('a manifest with a field mirab has no rule for is refused', () => {
   ).toThrow('flake.nix')
   const { channels: _, ...missing } = expected
   expect(() => parseManifest(missing, 'flake.nix')).toThrow('channels')
+})
+
+test('a TypeScript tool whose input is not a z.object says so', async () => {
+  const root = await project()
+  try {
+    await writeFile(
+      join(root, 'agent/tools/add.ts'),
+      "import { defineTool } from 'mirab/tools'\nimport { z } from 'zod'\nexport default defineTool({ description: 'x', inputSchema: z.object({ a: z.string() }).transform((v) => v.a), execute: () => 1 })\n",
+    )
+    await expect(loadManifest(root)).rejects.toThrow(
+      'inputSchema is a z.object',
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

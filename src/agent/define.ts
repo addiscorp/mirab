@@ -133,7 +133,8 @@ export function domainProblem(domain: string): string | null {
   if (labels.length < 2) return 'needs two or more labels, like api.github.com'
   if (labels.some((label) => !LABEL.test(label)))
     return 'is lowercase labels of [a-z0-9-], with only a leading *. as a wildcard'
-  if (/^[0-9]+$/.test(labels.at(-1)!)) return 'is a name, not an address'
+  // A name's last label starts with a letter; 127.0.0x1 and 1.0x7f are addresses.
+  if (!/^[a-z]/.test(labels.at(-1)!)) return 'is a name, not an address'
   return null
 }
 const domain = z.string().superRefine((d, ctx) => {

@@ -46,19 +46,45 @@ export async function loadAgent(project: string): Promise<LoadedAgent> {
             inputSchema: typescript[name].inputSchema,
             execute: async (input) => typescript[name].execute(input),
           })
-        : dynamicTool({
-            description: tool.description,
-            inputSchema: z.fromJSONSchema(tool.input),
-            execute: (input, { abortSignal }) =>
-              runCommand(tool, root, input, abortSignal),
-          })
+        : commandTool(tool, root)
   }
   return { agent: manifest, tools }
 }
 
+/** A command tool for the model. The command gets the checked input, not
+ *  what the model sent: keys its schema doesn't list never reach it. */
+function commandTool(tool: CommandTool, root: string) {
+  const schema = z.fromJSONSchema(closedSchema(tool.input))
+  return dynamicTool({
+    description: tool.description,
+    inputSchema: schema,
+    execute: (input, { abortSignal }) =>
+      runCommand(tool, root, schema.parse(input), abortSignal),
+  })
+}
+
+/** A JSON Schema where every object that doesn't say otherwise takes only
+ *  the properties it lists, as a TypeScript tool's z.object does. */
+export function closedSchema<T>(schema: T): T {
+  if (Array.isArray(schema)) return schema.map(closedSchema) as T
+  if (!schema || typeof schema !== 'object') return schema
+  const node: Record<string, unknown> = Object.fromEntries(
+    Object.entries(schema).map(([k, v]) => [k, closedSchema(v)]),
+  )
+  if (
+    node.type === 'object' &&
+    !('additionalProperties' in node) &&
+    !('patternProperties' in node)
+  )
+    node.additionalProperties = false
+  return node as T
+}
+
 /** Runs a command tool: input as JSON on stdin, its JSON answer from stdout.
  *  No shell, the project as its working directory, and only PATH and HOME
- *  from the loop's environment, so a tool never sees what the loop was given. */
+ *  from the loop's environment, so a tool never sees what the loop was given.
+ *  It runs in its own process group: a timeout, the turn ending or too much
+ *  output stops everything it started, and so does its own exit. */
 export function runCommand(
   tool: CommandTool,
   cwd: string,
@@ -66,6 +92,8 @@ export function runCommand(
   signal?: AbortSignal,
 ): Promise<unknown> {
   return new Promise((done, fail) => {
+    if (signal?.aborted)
+      return fail(new Error(`${tool.command} was stopped: the turn ended`))
     const child = spawn(tool.command, tool.args ?? [], {
       cwd,
       env: {
@@ -73,43 +101,59 @@ export function runCommand(
         HOME: process.env.HOME ?? cwd,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
-      signal,
-      timeout: tool.timeoutMs ?? TOOL_TIMEOUT_MS,
-      killSignal: 'SIGKILL',
+      detached: true,
     })
+    let stopped: string | undefined
+    const stopAll = (why?: string) => {
+      if (why && !stopped) stopped = why
+      try {
+        process.kill(-child.pid!, 'SIGKILL')
+      } catch {}
+    }
+    const ms = tool.timeoutMs ?? TOOL_TIMEOUT_MS
+    const timer = setTimeout(() => stopAll(`ran longer than ${ms} ms`), ms)
+    const onAbort = () => stopAll('the turn ended')
+    signal?.addEventListener('abort', onAbort, { once: true })
+    const finish = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
     const out: Buffer[] = []
     const err: Buffer[] = []
     let size = 0
-    let tooMuch = false
     const collect = (into: Buffer[]) => (chunk: Buffer) => {
       size += chunk.length
-      if (size > COMMAND_OUTPUT_MAX) {
-        tooMuch = true
-        child.kill('SIGKILL')
-      } else into.push(chunk)
+      if (size > COMMAND_OUTPUT_MAX)
+        stopAll(`printed more than ${COMMAND_OUTPUT_MAX} bytes`)
+      else into.push(chunk)
     }
     child.stdout!.on('data', collect(out))
     child.stderr!.on('data', collect(err))
     // A command that exits without reading its input is not an error here.
     child.stdin!.on('error', () => {})
     child.stdin!.end(JSON.stringify(input))
-    child.on('error', (e) =>
-      fail(new Error(`${tool.command} didn't run: ${e.message}`)),
-    )
+    child.on('error', (e) => {
+      finish()
+      fail(new Error(`${tool.command} didn't run: ${e.message}`))
+    })
+    child.on('exit', () => {
+      stopAll()
+      // Something that left the group can still hold the pipes open; the
+      // call ends anyway.
+      setTimeout(() => {
+        child.stdout!.destroy()
+        child.stderr!.destroy()
+      }, 1000).unref()
+    })
     child.on('close', (code, killed) => {
+      finish()
       const stderr = Buffer.concat(err).toString('utf8').trim().slice(-2000)
-      if (tooMuch)
-        return fail(
-          new Error(
-            `${tool.command} printed more than ${COMMAND_OUTPUT_MAX} bytes`,
-          ),
-        )
-      if (killed)
-        return fail(new Error(`${tool.command} was stopped (${killed})`))
+      if (stopped)
+        return fail(new Error(`${tool.command} was stopped: ${stopped}`))
       if (code !== 0)
         return fail(
           new Error(
-            `${tool.command} exited ${code}${stderr ? `: ${stderr}` : ''}`,
+            `${tool.command} exited ${code ?? killed}${stderr ? `: ${stderr}` : ''}`,
           ),
         )
       const stdout = Buffer.concat(out).toString('utf8')

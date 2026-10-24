@@ -101,11 +101,18 @@ export async function loadManifest(project: string): Promise<LoadedManifest> {
         throw new Error(
           `tools/${file} must export default defineTool({ description, inputSchema, execute })`,
         )
+      const input = z.toJSONSchema(defined.inputSchema, {
+        unrepresentable: 'any',
+      })
+      if (input.type !== 'object')
+        throw new Error(
+          `tools/${file}: inputSchema is a z.object({...}), so the model can call it (no transform or union at the top)`,
+        )
       typescript[name] = defined
       tools[name] = {
         description: defined.description,
         file: `tools/${file}`,
-        input: z.toJSONSchema(defined.inputSchema, { unrepresentable: 'any' }),
+        input,
       }
     }
   const manifest = parseManifest(

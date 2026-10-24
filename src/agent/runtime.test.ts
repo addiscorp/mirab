@@ -7,6 +7,7 @@ import {
   MAX_STEPS,
   loadAgent,
   modelFor,
+  closedSchema,
   runCommand,
   runTurn,
 } from './runtime'
@@ -485,4 +486,92 @@ test('a command tool that fails, answers with no JSON, runs too long or prints t
   expect(
     await runCommand(tool('printf', ['"%s"', '$(touch pwned)']), '.', {}),
   ).toBe('$(touch pwned)')
+})
+
+test('stopping a command tool stops what it started, and so does its own exit', async () => {
+  // A child left in the background would hold the pipes and outlive the call.
+  const t0 = Date.now()
+  await expect(
+    runCommand(tool('sh', ['-c', 'sleep 30 & wait'], 300), '.', {}),
+  ).rejects.toThrow('ran longer than 300 ms')
+  expect(Date.now() - t0).toBeLessThan(3000)
+  // A clean exit that leaves something behind: the answer arrives, the leftover is gone.
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const pidFile = join(await mkdtemp(join(resolve('.tmp'), 'pid-')), 'pid')
+  const t1 = Date.now()
+  expect(
+    await runCommand(
+      tool('sh', ['-c', `sleep 30 & echo $! > ${pidFile}; echo '{"ok":true}'`]),
+      '.',
+      {},
+    ),
+  ).toEqual({ ok: true })
+  expect(Date.now() - t1).toBeLessThan(3000)
+  const pid = Number(await Bun.file(pidFile).text())
+  await Bun.sleep(50)
+  expect(() => process.kill(pid, 0)).toThrow()
+  // The turn ending stops it too.
+  const ac = new AbortController()
+  const call = runCommand(
+    tool('sh', ['-c', 'sleep 30 & wait']),
+    '.',
+    {},
+    ac.signal,
+  )
+  setTimeout(() => ac.abort(), 100)
+  await expect(call).rejects.toThrow('the turn ended')
+})
+
+test('a command tool gets only the keys its schema lists, though the model sends more', async () => {
+  const root = await commandProject(`cat > got.json; echo '{}'`)
+  // An open schema, as a tool author might write it.
+  await writeFile(
+    join(root, 'agent/agent.ts'),
+    (await Bun.file(join(root, 'agent/agent.ts')).text()).replace(
+      ', additionalProperties: false',
+      '',
+    ),
+  )
+  const model = scripted((n) =>
+    n === 1
+      ? [
+          {
+            type: 'tool_use',
+            id: 'toolu_1',
+            name: 'upper',
+            input: { word: 'a', extra: 'x' },
+          },
+        ]
+      : [{ type: 'text', text: 'done' }],
+  )
+  try {
+    const loaded = await loadAgent(root)
+    await runTurn({
+      loaded,
+      model: modelFor(loaded.agent, { baseURL: model.baseURL, key: 'k' }),
+      history: [],
+      message: 'x',
+    })
+    // Refused as it stands (the schema is closed), so nothing ran with "extra".
+    expect(await Bun.file(join(root, 'got.json')).exists()).toBe(false)
+    expect(
+      closedSchema<object>({
+        type: 'object',
+        properties: { a: { type: 'object' } },
+      }),
+    ).toEqual({
+      type: 'object',
+      properties: { a: { type: 'object', additionalProperties: false } },
+      additionalProperties: false,
+    })
+    expect(
+      closedSchema<object>({ type: 'object', additionalProperties: true }),
+    ).toEqual({
+      type: 'object',
+      additionalProperties: true,
+    })
+  } finally {
+    model.server.stop(true)
+    await rm(root, { recursive: true, force: true })
+  }
 })
