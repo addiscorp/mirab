@@ -125,9 +125,28 @@ packs to the same bytes; apt packages still follow the Ubuntu mirror.
 ## macOS (`vz`)
 
 Used when `<config dir>/isolation.json` has a `vm` block; without one, `--vm`
-on macOS refuses (Multipass is not available in mirab yet). The Virtualization.framework backend boots an arm64 guest built by
-`scripts/build-vm-guest.sh <dir>` (docker or Colima); it compiles the same
-guest agent from this checkout, so the handshake below applies to both.
+on macOS refuses (Multipass is not available in mirab yet). The
+Virtualization.framework backend boots a guest built for the Mac's own
+architecture by `scripts/build-vm-guest.sh <dir>` (docker or Colima): an arm64
+`Image` on Apple silicon, an x86_64 `bzImage` on Intel Macs. It compiles the
+same guest agent from this checkout, so the handshake below applies to both.
+
+On an Intel Mac (proven on a 2020 iMac, i9, macOS 26):
+
+```sh
+scripts/build-vz-helper.sh ~/.local/bin/mirab-vz     # x86_64, ad hoc signed; prints ok
+scripts/build-vm-guest.sh <dir>                       # mirab-guest-agent, rootfs.ext4, bzImage
+```
+
+```json
+{ "vm": { "vz": "~/.local/bin/mirab-vz", "kernel": "<dir>/bzImage", "rootfs": "<dir>/rootfs.ext4" } }
+```
+
+The x86_64 kernel must be relocatable (`CONFIG_RELOCATABLE`, in
+`guest-agent/kernel-x86_64-vz.config`): the framework places the kernel itself,
+and one built for a fixed address fails with "Internal Virtualization error"
+before it runs. The build script copies files in and out of docker instead of
+mounting them, because Colima only shares `$HOME` with its VM.
 
 ## Version handshake
 
