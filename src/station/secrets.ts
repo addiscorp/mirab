@@ -111,6 +111,7 @@ export async function swapHeaders(
       if (!rule || !allowed(host, rule.hosts))
         return { reason: `${secret} doesn't go to ${host}` }
       const real = await value(secret)
+      if (!real) return { reason: `${secret} is empty in harar` }
       if (/[\r\n\0]/.test(real)) return { reason: `${secret} isn't one line` }
       out = out.split(token).join(real)
       used.add(secret)

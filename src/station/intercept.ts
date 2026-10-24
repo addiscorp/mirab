@@ -36,8 +36,9 @@ function withoutHop(raw: string[]): string[] {
   return out
 }
 
-/** An opened connection with no bytes either way for this long is closed. */
-const IDLE_MS = 5 * 60_000
+/** An opened connection with no bytes either way for this long is closed:
+ *  as long as one request may take, so a quiet long request survives. */
+const IDLE_MS = 30 * 60_000
 /** Time to reach one of a host's addresses. */
 const DIAL_MS = 5_000
 
@@ -51,10 +52,16 @@ function reachable(address: string, port: number): Promise<boolean> {
   })
 }
 
+/** Longest real value first, so one that holds another is taken out whole;
+ *  never an empty one. */
+function longestFirst(revealed: [string, string][]) {
+  return revealed.filter(([r]) => r).sort(([a], [b]) => b.length - a.length)
+}
+
 /** `text` with every real value put back to its placeholder. */
 export function redactText(text: string, revealed: [string, string][]): string {
   let out = text
-  for (const [real, placeholder] of revealed)
+  for (const [real, placeholder] of longestFirst(revealed))
     out = out.split(real).join(placeholder)
   return out
 }
@@ -68,7 +75,10 @@ export class Redact extends Transform {
 
   constructor(revealed: [string, string][]) {
     super()
-    this.pairs = revealed.map(([r, p]) => [Buffer.from(r), Buffer.from(p)])
+    this.pairs = longestFirst(revealed).map(([r, p]) => [
+      Buffer.from(r),
+      Buffer.from(p),
+    ])
     this.keep = Math.max(0, ...this.pairs.map(([r]) => r.length - 1))
   }
 
@@ -186,10 +196,7 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
     if (hostHeaders.length !== 1 || named !== host)
       return refuse(421, `Host isn't ${host}`)
     const raw = withoutHop(req.rawHeaders).filter(
-      (_, i, all) =>
-        !['host', 'accept-encoding'].includes(
-          (i % 2 ? all[i - 1] : all[i]).toLowerCase(),
-        ),
+      (_, i, all) => (i % 2 ? all[i - 1] : all[i]).toLowerCase() !== 'host',
     )
     let swapped
     try {
@@ -208,7 +215,6 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
     // Exactly one Host, the name the VM's TLS asked for; and, where a key went
     // in, an answer the station can read, so it can take the key back out.
     const headers: Record<string, string | string[]> = { host }
-    if (revealed.length) headers['accept-encoding'] = 'identity'
     for (let i = 0; i < swapped.headers.length; i += 2) {
       const name = swapped.headers[i].toLowerCase()
       const prev = headers[name]
@@ -217,6 +223,7 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
           ? swapped.headers[i + 1]
           : ([] as string[]).concat(prev, swapped.headers[i + 1])
     }
+    if (revealed.length) headers['accept-encoding'] = 'identity'
     let up: ClientRequest
     try {
       up = httpsRequest({
@@ -243,7 +250,11 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
     }
     up.on('response', (answer) => {
       const encoding = String(answer.headers['content-encoding'] ?? 'identity')
-      if (revealed.length && encoding !== 'identity') {
+      const transfer = String(answer.headers['transfer-encoding'] ?? '')
+      if (
+        revealed.length &&
+        (encoding !== 'identity' || /gzip|deflate|compress|br/i.test(transfer))
+      ) {
         answer.destroy()
         return refuse(502, `a ${encoding} answer can't be checked for the key`)
       }
@@ -260,7 +271,13 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
       const body = revealed.length ? answer.pipe(new Redact(revealed)) : answer
       body.pipe(res)
       answer.on('end', () => done(answer.statusCode))
-      answer.on('error', () => done('upstream broke off'))
+      // A broken answer is cut off, never ended as if it were whole.
+      const broke = () => {
+        done('upstream broke off')
+        res.destroy()
+      }
+      answer.on('error', broke)
+      answer.on('aborted', broke)
     })
     up.on('timeout', () => up.destroy(new Error('timed out')))
     up.on('error', (e) => {
@@ -275,6 +292,8 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
     })
     req.pipe(up)
     req.on('error', () => up.destroy())
+    // The VM gone: so is its request upstream.
+    res.on('close', () => up.destroy())
   }
 
   // Bun serves the default certificate whatever the SNI, so one leaf names every host.
@@ -282,7 +301,8 @@ export async function startIntercept(o: InterceptOptions): Promise<Intercept> {
     { key: leaf.key, cert: leaf.cert, ALPNProtocols: ['http/1.1'] },
     (req, res) =>
       void handle(req, res).catch(() => {
-        if (!res.headersSent) res.writeHead(502, { connection: 'close' })
+        if (res.headersSent) return void res.destroy()
+        res.writeHead(502, { connection: 'close' })
         res.end()
       }),
   )

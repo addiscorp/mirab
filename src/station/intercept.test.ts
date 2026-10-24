@@ -437,3 +437,34 @@ test('a key split across body chunks is still taken back out', async () => {
     '{"a":"mirab-ph-x","b":"mirab-ph-x"}',
   )
 })
+
+test('a key that holds another is taken out whole, longest first', async () => {
+  const { Redact, redactText } = await import('./intercept')
+  const pairs: [string, string][] = [
+    ['tok', 'P1'],
+    ['tok-secret-long', 'P2'],
+  ]
+  expect(redactText('a tok-secret-long b tok', pairs)).toBe('a P2 b P1')
+  const out: Buffer[] = []
+  const t = new Redact(pairs)
+  t.on('data', (c: Buffer) => out.push(c))
+  const ended = new Promise((r) => t.on('end', r))
+  t.end(Buffer.from('tok-secret-long'))
+  await ended
+  expect(Buffer.concat(out).toString()).toBe('P2')
+})
+
+test('an empty value from harar is refused, never swapped in', async () => {
+  const p = new Placeholders()
+  const r = await swapHeaders(
+    'api.stripe.test',
+    ['authorization', `Bearer ${p.for('prod/shop/STRIPE_KEY')}`],
+    p,
+    SECRETS,
+    async () => '',
+  )
+  expect(r.ok).toBe(false)
+  // And an empty value never reaches the scrubber, which would loop on it.
+  const { redactText } = await import('./intercept')
+  expect(redactText('abc', [['', 'P']])).toBe('abc')
+})
