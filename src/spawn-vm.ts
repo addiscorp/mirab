@@ -12,6 +12,7 @@ import {
   vmAvailable,
   vmBackend,
   type Isolation,
+  type VmConfig,
 } from './isolation'
 import { privateSessionsDirectory, socketPath } from './spawn-sessions'
 import {
@@ -161,6 +162,26 @@ export function guestEnvironment(
   return out
 }
 
+/** The VM this machine runs (the published image, fetched on first use), or why not. */
+export async function requireVm(
+  configDir: string,
+  log?: (line: string) => void,
+): Promise<VmConfig> {
+  // Fetched on first use; later runs find it installed.
+  const { host, vmUnavailable } = await prepareVm(configDir, {
+    want: true,
+    log,
+  })
+  if (vmUnavailable) throw new Error(vmUnavailable)
+  if (!host.vm || !vmAvailable(host.vm))
+    throw new Error(
+      vmBackend() === 'vz'
+        ? 'A VM needs a working vz setup: the published guest image and mirab-vz helper (fetched on first use), or `vm` (kernel, rootfs, vz helper) in <config dir>/isolation.json (docs/VM.md)'
+        : 'A VM needs a working Firecracker setup: Firecracker (shipped next to mirab in the npm package; else on PATH or `vm.firecracker` in <config dir>/isolation.json), mke2fs, and an accessible /dev/kvm (docs/VM.md)',
+    )
+  return host.vm
+}
+
 export async function startVmChild(opts: {
   configDir: string
   sessionId: string
@@ -172,18 +193,7 @@ export async function startVmChild(opts: {
   rows: number
   log?: (line: string) => void
 }): Promise<VmChild> {
-  // `mirab spawn` fetched the published image already; this finds it installed.
-  const { host, vmUnavailable } = await prepareVm(opts.configDir, {
-    want: true,
-    log: opts.log,
-  })
-  if (vmUnavailable) throw new Error(vmUnavailable)
-  if (!host.vm || !vmAvailable(host.vm))
-    throw new Error(
-      vmBackend() === 'vz'
-        ? '--vm needs a working vz setup: the published guest image and mirab-vz helper (fetched on first use), or `vm` (kernel, rootfs, vz helper) in <config dir>/isolation.json (docs/VM.md)'
-        : '--vm needs a working Firecracker setup: Firecracker (shipped next to mirab in the npm package; else on PATH or `vm.firecracker` in <config dir>/isolation.json), mke2fs, and an accessible /dev/kvm (docs/VM.md)',
-    )
+  const vm = await requireVm(opts.configDir, opts.log)
   const kb = Number(
     execFileSync('du', ['-sk', opts.cwd], { encoding: 'utf8' }).split(/\s+/)[0],
   )
@@ -196,7 +206,7 @@ export async function startVmChild(opts: {
   const vmDir = await mkdtemp(
     join(await privateSessionsDirectory(), `${opts.sessionId}.vm-`),
   )
-  const iso: Isolation = await startVm(host.vm, opts.cwd, vmDir, opts.log)
+  const iso: Isolation = await startVm(vm, opts.cwd, vmDir, opts.log)
   const fail = async (e: unknown) => {
     await iso.close()
     throw e
