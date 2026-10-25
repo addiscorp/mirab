@@ -13,7 +13,10 @@ set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 out=$(mkdir -p "$1" && cd "$1" && pwd)
 size=${2:-3G}
-kernel=${KERNEL_VERSION:-6.12.112}
+# The guest kernel is part of each mirab release: one version, pinned by the
+# SHA-256 kernel.org publishes (sha256sums.asc), changed only with mirab.
+kernel=6.12.112
+kernel_sha256=164dc9d1f6c93c61a15e1f071c48379b467f2b17c469cce7223471968208ed03
 tag="mirab-guest-$$"
 src=''
 cleanup() {
@@ -84,7 +87,9 @@ if [ -n "$arch" ] && [ ! -s "$out/$file" ]; then
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       build-essential flex bison bc curl xz-utils ca-certificates libelf-dev >/dev/null
-    cd /root && curl -fsSL https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$kernel.tar.xz | tar -xJ
+    cd /root && curl -fsSL -o linux.tar.xz https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$kernel.tar.xz
+    echo '$kernel_sha256  linux.tar.xz' | sha256sum -c - >/dev/null
+    tar -xJf linux.tar.xz
     cd linux-$kernel
     KCONFIG_ALLCONFIG=/kernel.config make -s ARCH=$arch allnoconfig
     missing=''
