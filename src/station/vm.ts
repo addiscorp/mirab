@@ -10,7 +10,7 @@ import { EGRESS_GUEST_PORT, EGRESS_HOST_PORT } from '../isolation/vz'
 import { stationAuthority } from './ca'
 import type { StationConfig } from './config'
 import { auditor, lookupAll, startEgress, type Route } from './egress'
-import { asker, grants } from './escalations'
+import { asker, grants, secretGrants } from './escalations'
 import { hararHosts, hararSend } from './harar'
 import { startIntercept, type Intercept, type Upstream } from './intercept'
 import { domainProblem } from '../agent/define'
@@ -18,8 +18,9 @@ import { Placeholders, referencesIn, type Secrets } from './secrets'
 
 /** Where the station's authority lands in the guest. */
 export const GUEST_CA = '/usr/local/share/ca-certificates/mirab-station.crt'
-/** How long a secret's value is kept before harar is asked again. */
-const VALUE_TTL_MS = 5 * 60_000
+/** How long a secret's value for a host is kept before harar is asked again. */
+const VALUE_TTL_MS = 60_000
+const MAX_VALUES = 64
 /** The bundle curl, git, Go and OpenSSL programs read. */
 const GUEST_BUNDLE = '/etc/ssl/certs/ca-certificates.crt'
 
@@ -52,32 +53,62 @@ export async function vmStation(o: {
   const secrets: Secrets = Object.create(null)
   const env: Record<string, string> = {}
   const notes: string[] = []
-  for (const [name, secret] of references) {
-    let hosts: string[]
-    try {
-      hosts = await hararHosts(o.station.harar.socket, secret)
-    } catch (e) {
-      notes.push(`${name}: ${(e as Error).message}; the VM doesn't get it`)
-      continue
+  if (o.station.secrets !== undefined)
+    notes.push(
+      "station.json's secrets are ignored now: harar says where each secret may go (harar hosts allow <secret> <host>, or a role's send at a primary)",
+    )
+  // Only the secrets the person let this agent use; then, all at once, where
+  // harar lets each go.
+  const allowedSecrets = new Set(secretGrants(o.configDir, o.agent))
+  const wanted = [...references].filter(([name, secret]) => {
+    if (allowedSecrets.has(secret)) return true
+    notes.push(
+      `${name} names harar://${secret}, which ${o.agent} hasn't been allowed: mirab secrets allow ${secret} --agent ${o.agent} (here, never in the VM); the VM doesn't get it`,
+    )
+    return false
+  })
+  const answers = await Promise.all(
+    wanted.map(([, secret]) =>
+      hararHosts(o.station.harar.socket, secret).then(
+        (hosts) => ({ hosts }),
+        (e: Error) => ({ error: e.message }),
+      ),
+    ),
+  )
+  wanted.forEach(([name, secret], i) => {
+    const answer = answers[i]
+    if ('error' in answer) {
+      notes.push(`${name}: ${answer.error}; the VM doesn't get it`)
+      return
     }
-    // Only names the station can open: harar holds to the same rule.
-    hosts = hosts.filter((h) => !domainProblem(h.replace(/^\*\./, '')))
+    // Only names the station can open; harar holds to the same rule.
+    const hosts = answer.hosts.filter(
+      (h) => !domainProblem(h.replace(/^\*\./, '')),
+    )
+    if (hosts.length < answer.hosts.length)
+      notes.push(
+        `${name}: harar named hosts the station can't open, left out: ${answer.hosts.filter((h) => !hosts.includes(h)).join(', ')}`,
+      )
     if (!hosts.length) {
       notes.push(
-        `${name} names harar://${secret}, which harar lets go nowhere yet (harar hosts allow ${secret} <host>, or a role's send at a primary); the VM doesn't get it`,
+        `${name} names harar://${secret}, which harar lets go nowhere the station can open (harar hosts allow ${secret} <host>, or a role's send at a primary); the VM doesn't get it`,
       )
-      continue
+      return
     }
     secrets[secret] = { hosts }
     env[name] = placeholders.for(secret)
-  }
-  // Each secret is asked for, for one host, at most every VALUE_TTL_MS, so a
-  // rotated key or a revoked host is picked up; a failure is not kept.
+  })
+  // Each secret is asked for, for one host, at most every VALUE_TTL_MS: a
+  // rotated key or a revoked host is picked up within that, and harar
+  // records each send it answers. A failure is not kept, and the cache never
+  // holds more than MAX_VALUES, so names under a `*.` can't grow it.
   const values = new Map<string, { value: Promise<string>; until: number }>()
   const value = (secret: string, host: string) => {
     const key = `${secret}\n${host}`
     const held = values.get(key)
     if (held && held.until > Date.now()) return held.value
+    values.delete(key)
+    while (values.size >= MAX_VALUES) values.delete(values.keys().next().value!)
     const v = hararSend(o.station.harar.socket, secret, host)
     v.catch(() => values.delete(key))
     values.set(key, { value: v, until: Date.now() + VALUE_TTL_MS })

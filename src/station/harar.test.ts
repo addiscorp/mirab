@@ -100,7 +100,7 @@ test('station.json is explicit: missing, or with a field mirab has no rule for, 
   }
 })
 
-test('harar says where a secret may go and sends it for one host; a station.json still listing hosts is told they moved', async () => {
+test('harar says where a secret may go and sends it for one host; an old station.json listing hosts still loads', async () => {
   const harar = await fakeHarar((r) =>
     r.op === 'hosts'
       ? JSON.stringify({ ok: true, hosts: ['api.stripe.com'] })
@@ -132,9 +132,9 @@ test('harar says where a secret may go and sends it for one host; a station.json
         secrets: { 'prod/shop/KEY': { hosts: ['api.stripe.com'] } },
       }),
     )
-    await expect(loadStationConfig(dir)).rejects.toThrow(
-      'secrets moved to harar',
-    )
+    // An old station.json still loads: its secrets are ignored (the station
+    // says so, src/station/vm.test.ts), so model keys keep working.
+    expect((await loadStationConfig(dir)).harar.socket).toBe('/x.sock')
   } finally {
     await harar.stop()
     await rm(dir, { recursive: true, force: true })

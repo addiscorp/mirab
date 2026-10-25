@@ -143,6 +143,16 @@ At a primary, that's a role's `send` permission
 (`harar policy role set <role> --send "prod/shop/STRIPE_KEY api.stripe.com"`),
 approved like any widening. A secret harar lets go nowhere isn't given to the VM.
 
+A `.env` comes with whatever repo you cloned, so a reference alone gives an
+agent nothing: you let each agent use each secret once, here, never in its VM.
+`mirab dev` and `mirab spawn --vm` print the exact line when one is missing:
+
+```sh
+mirab secrets allow prod/shop/STRIPE_KEY --agent gg.addis.agent.ops
+mirab secrets list --agent gg.addis.agent.ops
+mirab secrets revoke prod/shop/STRIPE_KEY --agent gg.addis.agent.ops
+```
+
 In the VM, `STRIPE_KEY` is a placeholder, new every session. Programs run
 unchanged (`curl`, `git`, `gh`, SDKs), with the station as their proxy. The
 VM trusts the station's own certificate authority (its key stays in

@@ -321,6 +321,63 @@ program
     console.log(`${opts.agent} may no longer reach ${hostArg(host)}`)
   })
 
+const secretsCmd = program
+  .command('secrets')
+  .description(
+    "which of your harar secrets an agent may use (a project's .env only names them); harar says where each may go",
+  )
+
+secretsCmd
+  .command('allow <secret>')
+  .description(
+    "let an agent use a harar secret (run it here, never in the agent's VM)",
+  )
+  .requiredOption('--agent <name>', 'an agent name, or project:<path>')
+  .action(async (secret: string, opts: { agent: string }) => {
+    const { allowSecret, secretsPath } = await import('./station/escalations')
+    try {
+      allowSecret(configDirOf(), opts.agent, secret)
+    } catch (e) {
+      console.error(`mirab secrets allow: ${(e as Error).message}`)
+      process.exitCode = 2
+      return
+    }
+    console.log(
+      `${opts.agent} may now use harar://${secret} (${secretsPath(configDirOf(), opts.agent)}), on the hosts harar allows it: harar hosts list ${secret}`,
+    )
+  })
+
+secretsCmd
+  .command('revoke <secret>')
+  .description('take back a secret from an agent, from its next session')
+  .requiredOption('--agent <name>', 'an agent name, or project:<path>')
+  .action(async (secret: string, opts: { agent: string }) => {
+    const { revokeSecret } = await import('./station/escalations')
+    try {
+      revokeSecret(configDirOf(), opts.agent, secret)
+    } catch (e) {
+      console.error(`mirab secrets revoke: ${(e as Error).message}`)
+      process.exitCode = 1
+      return
+    }
+    console.log(`${opts.agent} may no longer use harar://${secret}`)
+  })
+
+secretsCmd
+  .command('list')
+  .description('the secrets an agent may use')
+  .requiredOption('--agent <name>', 'an agent name, or project:<path>')
+  .action(async (opts: { agent: string }) => {
+    const { secretGrants } = await import('./station/escalations')
+    console.log(
+      JSON.stringify(
+        { agent: opts.agent, secrets: secretGrants(configDirOf(), opts.agent) },
+        null,
+        2,
+      ),
+    )
+  })
+
 // A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
 // anything else here (an option, a mistyped command) never does.
 program.action(async () => {

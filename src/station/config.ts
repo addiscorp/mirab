@@ -28,15 +28,10 @@ export const stationConfigSchema = z.strictObject({
   }),
   /** Keys for any service: each harar secret a project's .env may name, and
    *  the hosts it may go to. The VM gets placeholders; the station swaps them. */
-  /** Where a secret may go is harar's to say now; a station.json that still
-   *  lists hosts is told where they went. */
-  secrets: z
-    .unknown()
-    .optional()
-    .refine((v) => v === undefined, {
-      message:
-        "secrets moved to harar: `harar hosts allow <secret> <host>` for each (or a role's send at a primary), then remove secrets from station.json",
-    }),
+  /** Where a secret may go is harar's to say now: a station.json that still
+   *  lists secrets loads, the list is ignored, and the station says where
+   *  hosts went. */
+  secrets: z.unknown().optional(),
   /** The person at this station, by harar name (`gg.addis.human.sami`): who
    *  they are in the channels it hosts. */
   human: z

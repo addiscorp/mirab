@@ -40,6 +40,14 @@ function ask(
       } catch {
         return fail(new Error(`harar at ${socket} did not answer with JSON`))
       }
+      if (
+        typeof answer !== 'object' ||
+        answer === null ||
+        Array.isArray(answer)
+      )
+        return fail(
+          new Error(`harar at ${socket} did not answer with an object`),
+        )
       if (answer.ok === true) return done(answer)
       fail(
         new Error(
