@@ -11,6 +11,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { MANIFEST_LINE } from './agent/guest'
 import { bridgeAgent } from './channel/bridge'
+import { projectAgent } from './station/escalations'
 import { printable } from './channel/wire'
 import {
   openChannel,
@@ -228,7 +229,11 @@ export async function startDev(o: {
       auditLog: o.auditLog,
       routes: { anthropic },
       allow: manifest.domains,
-      agent: manifest.name,
+      // Whose grants (secrets, hosts asked for): the project folder on this
+      // machine, as spawn --vm has it. Never the manifest's name, which the
+      // agent's own code says in the VM: a cloned repo could claim a name the
+      // person trusted.
+      agent: projectAgent(project),
       upstream: o.opened,
     })
     for (const note of station.notes) o.log?.(note)

@@ -103,7 +103,7 @@ the agent's VM:
 mirab escalations              # what agents asked for
 mirab allow api.stripe.com     # yes: the running station lets it through at once
 mirab dismiss api.stripe.com   # no
-mirab revoke api.stripe.com --agent gg.addis.agent.ops   # take a yes back
+mirab revoke api.stripe.com --agent project:$PWD   # take a yes back (a project is its folder)
 ```
 
 Quote wildcards so the shell leaves them alone: `mirab allow '*.example.com'`.
@@ -130,14 +130,29 @@ before it, for rollback. The same on macOS and Linux.
 ## Keys for any service
 
 Your project's `.env` holds only references (`harar import .env` writes
-them): `STRIPE_KEY=harar://prod/shop/STRIPE_KEY`. In `station.json`, give
-each secret the hosts it may go to:
+them): `STRIPE_KEY=harar://prod/shop/STRIPE_KEY`. harar says where each secret may
+go, and records each time it does:
 
-```json
-"secrets": {
-  "prod/shop/STRIPE_KEY": { "hosts": ["api.stripe.com"] },
-  "personal/github/TOKEN": { "hosts": ["github.com", "api.github.com"] }
-}
+```sh
+harar hosts allow prod/shop/STRIPE_KEY api.stripe.com
+harar hosts allow personal/github/TOKEN github.com
+harar hosts allow personal/github/TOKEN api.github.com
+```
+
+At a primary, that's a role's `send` permission
+(`harar policy role set <role> --send "prod/shop/STRIPE_KEY api.stripe.com"`),
+approved like any widening. A secret harar lets go nowhere isn't given to the VM.
+
+A `.env` comes with whatever repo you cloned, so a reference alone gives an
+agent nothing: you let each project use each secret once, here, never in its
+VM. A project is its folder on this machine, never the name its agent gives.
+`mirab dev` and `mirab spawn --vm` print the exact line when one is missing;
+in the project's folder it's just:
+
+```sh
+mirab secrets allow prod/shop/STRIPE_KEY
+mirab secrets list
+mirab secrets revoke prod/shop/STRIPE_KEY
 ```
 
 In the VM, `STRIPE_KEY` is a placeholder, new every session. Programs run

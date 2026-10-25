@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { loadStationConfig } from './config'
-import { hararGet } from './harar'
+import { hararGet, hararHosts, hararSend } from './harar'
 
 /** A stand-in harar primary: records each request, answers with `reply`. */
 async function fakeHarar(reply: (request: any) => string) {
@@ -96,6 +96,47 @@ test('station.json is explicit: missing, or with a field mirab has no rule for, 
       'personal/anthropic/API_KEY',
     )
   } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('harar says where a secret may go and sends it for one host; an old station.json listing hosts still loads', async () => {
+  const harar = await fakeHarar((r) =>
+    r.op === 'hosts'
+      ? JSON.stringify({ ok: true, hosts: ['api.stripe.com'] })
+      : r.op === 'send' && r.host === 'api.stripe.com'
+        ? JSON.stringify({ ok: true, value: 'sk-real' })
+        : JSON.stringify({ ok: false, error: 'no_binding' }),
+  )
+  const dir = await mkdtemp(join(resolve('.tmp'), 'cfg-'))
+  try {
+    expect(await hararHosts(harar.socket, 'prod/shop/KEY')).toEqual([
+      'api.stripe.com',
+    ])
+    expect(
+      await hararSend(harar.socket, 'prod/shop/KEY', 'api.stripe.com'),
+    ).toBe('sk-real')
+    await expect(
+      hararSend(harar.socket, 'prod/shop/KEY', 'evil.example.com'),
+    ).rejects.toThrow('no_binding')
+    expect(harar.requests).toEqual([
+      { op: 'hosts', key: 'prod/shop/KEY' },
+      { op: 'send', key: 'prod/shop/KEY', host: 'api.stripe.com' },
+      { op: 'send', key: 'prod/shop/KEY', host: 'evil.example.com' },
+    ])
+    await writeFile(
+      join(dir, 'station.json'),
+      JSON.stringify({
+        harar: { socket: '/x.sock' },
+        models: {},
+        secrets: { 'prod/shop/KEY': { hosts: ['api.stripe.com'] } },
+      }),
+    )
+    // An old station.json still loads: its secrets are ignored (the station
+    // says so, src/station/vm.test.ts), so model keys keep working.
+    expect((await loadStationConfig(dir)).harar.socket).toBe('/x.sock')
+  } finally {
+    await harar.stop()
     await rm(dir, { recursive: true, force: true })
   }
 })

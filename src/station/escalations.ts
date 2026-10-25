@@ -14,7 +14,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { domainProblem } from '../agent/define'
 
 /** New hosts one agent may ask for per minute; the rest are refused without a record. */
@@ -224,5 +224,57 @@ export function revoke(configDir: string, agent: string, host: string) {
   if (!hosts.includes(name)) throw new Error(`${agent} wasn't allowed ${name}`)
   writeJson(allowPath(configDir, agent), {
     hosts: hosts.filter((h) => h !== name),
+  })
+}
+
+// Which of the person's secrets an agent may use. A project's .env names
+// harar:// references, and it comes with whatever repo was cloned, so a
+// reference alone gives an agent nothing: the person grants each secret to
+// each agent once, here, outside the VM (`mirab secrets allow`), and harar
+// still decides where it may go.
+
+/** Whose grants a session in `project` uses: the folder on this machine,
+ *  never a name the agent's own code gives. One function for mirab dev,
+ *  spawn --vm and the commands that grant. */
+export const projectAgent = (project: string) => `project:${resolve(project)}`
+
+const SECRET_PATH = /^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$/
+
+/** One file per agent: the harar secrets a person let it use. */
+export const secretsPath = (configDir: string, agent: string) =>
+  join(configDir, 'secrets', `${fileName(agent)}.json`)
+
+/** The secrets `agent` may use. */
+export function secretGrants(configDir: string, agent: string): string[] {
+  const file = readJson<{ secrets?: unknown }>(
+    secretsPath(configDir, agent),
+    {},
+  )
+  return Array.isArray(file.secrets)
+    ? file.secrets.filter(
+        (s): s is string => typeof s === 'string' && SECRET_PATH.test(s),
+      )
+    : []
+}
+
+export function allowSecret(configDir: string, agent: string, secret: string) {
+  if (
+    !SECRET_PATH.test(secret) ||
+    secret.split('/').some((p) => p === '..' || p === '.')
+  )
+    throw new Error(`${secret} isn't a harar secret path`)
+  const secrets = secretGrants(configDir, agent)
+  if (!secrets.includes(secret))
+    writeJson(secretsPath(configDir, agent), {
+      secrets: [...secrets, secret].sort(),
+    })
+}
+
+export function revokeSecret(configDir: string, agent: string, secret: string) {
+  const secrets = secretGrants(configDir, agent)
+  if (!secrets.includes(secret))
+    throw new Error(`${agent} wasn't allowed ${secret}`)
+  writeJson(secretsPath(configDir, agent), {
+    secrets: secrets.filter((s) => s !== secret),
   })
 }

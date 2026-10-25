@@ -321,6 +321,67 @@ program
     console.log(`${opts.agent} may no longer reach ${hostArg(host)}`)
   })
 
+const secretsCmd = program
+  .command('secrets')
+  .description(
+    "which of your harar secrets an agent may use (a project's .env only names them); harar says where each may go",
+  )
+
+secretsCmd
+  .command('allow <secret>')
+  .description(
+    "let an agent use a harar secret (run it here, never in the agent's VM)",
+  )
+  .option('--agent <name>', 'whose: project:<path> (default: the project here)')
+  .action(async (secret: string, opts: { agent?: string }) => {
+    const { allowSecret, projectAgent, secretsPath } =
+      await import('./station/escalations')
+    const agent = opts.agent ?? projectAgent('.')
+    try {
+      allowSecret(configDirOf(), agent, secret)
+    } catch (e) {
+      console.error(`mirab secrets allow: ${(e as Error).message}`)
+      process.exitCode = 2
+      return
+    }
+    console.log(
+      `${agent} may now use harar://${secret} (${secretsPath(configDirOf(), agent)}), on the hosts harar allows it: harar hosts list ${secret}`,
+    )
+  })
+
+secretsCmd
+  .command('revoke <secret>')
+  .description('take back a secret from an agent, from its next session')
+  .option('--agent <name>', 'whose: project:<path> (default: the project here)')
+  .action(async (secret: string, opts: { agent?: string }) => {
+    const { projectAgent, revokeSecret } = await import('./station/escalations')
+    const agent = opts.agent ?? projectAgent('.')
+    try {
+      revokeSecret(configDirOf(), agent, secret)
+    } catch (e) {
+      console.error(`mirab secrets revoke: ${(e as Error).message}`)
+      process.exitCode = 1
+      return
+    }
+    console.log(`${agent} may no longer use harar://${secret}`)
+  })
+
+secretsCmd
+  .command('list')
+  .description('the secrets an agent may use')
+  .option('--agent <name>', 'whose: project:<path> (default: the project here)')
+  .action(async (opts: { agent?: string }) => {
+    const { projectAgent, secretGrants } = await import('./station/escalations')
+    const agent = opts.agent ?? projectAgent('.')
+    console.log(
+      JSON.stringify(
+        { agent, secrets: secretGrants(configDirOf(), agent) },
+        null,
+        2,
+      ),
+    )
+  })
+
 // A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
 // anything else here (an option, a mistyped command) never does.
 program.action(async () => {

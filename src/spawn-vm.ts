@@ -2,6 +2,7 @@
 // (Firecracker on Linux, Virtualization.framework on macOS); the host keeps the terminal, session socket, hooks, injection queue
 // and everything else (spawn-worker.ts). This file only builds the guest
 // child and the hook relay.
+import { projectAgent } from './station/escalations'
 import { createConnection } from 'node:net'
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
@@ -299,7 +300,7 @@ export async function startVmChild(opts: {
         auditLog: opts.station.auditLog,
         routes: claude ? { claude } : {},
         allow: [],
-        agent: `project:${opts.cwd}`,
+        agent: projectAgent(opts.cwd),
         upstream: opts.station.opened,
       })
       for (const note of station.notes) opts.log?.(note)

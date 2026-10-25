@@ -125,8 +125,8 @@ export interface Upstream {
 export interface InterceptOptions {
   secrets: Secrets
   placeholders: Placeholders
-  /** A secret's real value (harar, through the station's cache). */
-  value(secret: string): Promise<string>
+  /** A secret's real value for one host (harar's send, through the station's cache). */
+  value(secret: string, host: string): Promise<string>
   authority: StationAuthority
   audit(entry: Record<string, unknown>): void
   /** Where a host is: resolved here and checked public. */

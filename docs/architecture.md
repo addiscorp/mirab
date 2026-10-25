@@ -155,6 +155,12 @@ VM ──HTTPS_PROXY──▶ 127.0.0.1:8790 ──vsock──▶ station ──
   meant for Claude Code itself.
 - Audit: one line per call or connection (zone, route or host, status, bytes),
   never a credential.
+- Keys for any service (a project's `.env` names `harar://` references): harar
+  says where each may go (`hosts`, from a `send` permission or a per-user
+  vault's `harar hosts allow`), the station opens only those hosts, and for
+  each request asks harar to `send` the key for that one host, which harar
+  decides again and records with the host. The VM only ever holds a
+  placeholder.
 
 ## 5a. The agent manifest
 
