@@ -427,7 +427,8 @@ export async function pruneImages(o: {
   try {
     names = await readdir(imagesDir(o.configDir))
   } catch {}
-  for (const name of names) {
+  // Sorted, so what it says is the same on every filesystem.
+  for (const name of names.sort()) {
     const leftover =
       name.startsWith('.vm-') ||
       (/^[0-9a-f]{32}$/.test(name) &&

@@ -204,8 +204,8 @@ test('prune removes images on an older base, unused ones and stale scratch, and 
     expect(dry.removed.map((r) => [r.key[0], r.why])).toEqual([
       ['c', 'built on an older base'],
       ['b', 'unused for 40 days'],
-      ['d', 'left by a build that stopped'],
       ['.', 'left by a build that stopped'],
+      ['d', 'left by a build that stopped'],
     ])
     expect(dry.failed).toEqual([])
     expect(existsSync(old) && existsSync(idle) && existsSync(stale)).toBe(true)
