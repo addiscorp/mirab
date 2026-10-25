@@ -178,6 +178,58 @@ imageCmd
     )
   })
 
+// ---------- escalations: what agents asked for, and a person's answer ----------
+
+const configDirOf = () =>
+  program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+
+/** The agent whose ask `host` is: the one given, or the only one that asked. */
+async function askFor(host: string, agent?: string) {
+  const { asks } = await import('./station/escalations')
+  if (agent) return agent
+  const askers = asks(configDirOf()).filter((ask) => ask.host === host)
+  if (askers.length === 1) return askers[0].agent
+  throw Error(
+    askers.length
+      ? `${host} was asked for by ${askers.map((a) => a.agent).join(', ')}: say which with --agent`
+      : `nothing asked for ${host}; give --agent to allow it anyway`,
+  )
+}
+
+program
+  .command('escalations')
+  .description('hosts agents asked for that their whitelist refused')
+  .action(async () => {
+    const { asks } = await import('./station/escalations')
+    console.log(JSON.stringify(asks(configDirOf()), null, 2))
+  })
+
+program
+  .command('allow <host>')
+  .description(
+    "let an agent reach a host it asked for (run it here, never in the agent's VM)",
+  )
+  .option('--agent <name>', 'whose ask: an agent name, or project:<path>')
+  .action(async (host: string, opts: { agent?: string }) => {
+    const { allow, allowPath } = await import('./station/escalations')
+    const agent = await askFor(host.toLowerCase(), opts.agent)
+    allow(configDirOf(), agent, host.toLowerCase())
+    console.log(
+      `${agent} may now reach ${host} (${allowPath(configDirOf(), agent)}); to keep it in git, add '${host}' to domains in agent/agent.ts`,
+    )
+  })
+
+program
+  .command('dismiss <host>')
+  .description('say no to an ask: it is dropped, and the host stays refused')
+  .option('--agent <name>', 'whose ask: an agent name, or project:<path>')
+  .action(async (host: string, opts: { agent?: string }) => {
+    const { dismiss } = await import('./station/escalations')
+    const agent = await askFor(host.toLowerCase(), opts.agent)
+    dismiss(configDirOf(), agent, host.toLowerCase())
+    console.log(`dismissed ${agent}'s ask for ${host}`)
+  })
+
 // A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
 // anything else here (an option, a mistyped command) never does.
 program.action(async () => {

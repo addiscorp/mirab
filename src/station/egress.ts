@@ -82,6 +82,11 @@ export interface EgressOptions {
   dial?: (address: string, port: number) => Socket
   /** How a whitelisted name is resolved; tests give fixed addresses. */
   resolve?: (host: string) => Promise<string[]>
+  /** Hosts a person allowed beyond `allow` (escalations.ts), read on every
+   *  connection so a yes takes effect at once. */
+  granted?: () => string[]
+  /** Told of every host refused for not being on the whitelist: the ask. */
+  asked?: (host: string) => void
   /** Hosts the station opens to swap placeholders for keys (intercept.ts);
    *  every other host stays a sealed tunnel. */
   intercept?: Intercept
@@ -383,8 +388,23 @@ export async function startEgress(options: EgressOptions): Promise<Server> {
     if (port !== TLS_PORT) return refuse(socket, 403, 'only port 443', entry)
     // A host the station holds keys for is reachable as if whitelisted.
     const opened = options.intercept?.handles(host) ?? false
-    if (!opened && !allowed(host, options.allow))
-      return refuse(socket, 403, 'not on the whitelist; ask for it', entry)
+    if (
+      !opened &&
+      !allowed(host, options.allow) &&
+      !allowed(host, options.granted?.() ?? [])
+    ) {
+      try {
+        options.asked?.(host)
+      } catch {
+        /* An ask that can't be written is still a refusal. */
+      }
+      return refuse(
+        socket,
+        403,
+        'not on the whitelist; asked for it, a person decides (mirab escalations)',
+        entry,
+      )
+    }
     // From here the tunnel owns the socket: whatever happens, done() runs once.
     let upstream: Socket | undefined
     let up = 0

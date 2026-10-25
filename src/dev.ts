@@ -179,6 +179,7 @@ export async function startDev(o: {
       auditLog: o.auditLog,
       routes: { anthropic },
       allow: manifest.domains,
+      agent: manifest.name,
       upstream: o.opened,
     })
     for (const note of station.notes) o.log?.(note)

@@ -9,6 +9,7 @@ import { EGRESS_GUEST_PORT, EGRESS_HOST_PORT } from '../isolation/vz'
 import { stationAuthority } from './ca'
 import type { StationConfig } from './config'
 import { auditor, lookupAll, startEgress, type Route } from './egress'
+import { allowedFor, recordAsk } from './escalations'
 import { hararGet } from './harar'
 import { startIntercept, type Intercept, type Upstream } from './intercept'
 import { Placeholders, referencesIn, type Secrets } from './secrets'
@@ -38,6 +39,8 @@ export async function vmStation(o: {
   auditLog: string
   routes: Record<string, Route>
   allow: string[]
+  /** Whose escalations these are: the agent's harar name, or `project:<path>`. */
+  agent: string
   /** Tests point the hosts the station opens at a local stand-in. */
   upstream?: (host: string) => Promise<Upstream>
 }): Promise<VmStation> {
@@ -106,6 +109,8 @@ export async function vmStation(o: {
           routes: o.routes,
           auditLog: o.auditLog,
           intercept,
+          granted: () => allowedFor(o.configDir, o.agent),
+          asked: (host) => recordAsk(o.configDir, o.agent, host),
         }),
       )
       if (!authority) return
