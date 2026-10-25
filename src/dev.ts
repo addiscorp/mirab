@@ -387,8 +387,8 @@ export async function devInTerminal(
     const first = await Promise.race([starting, stopping])
     if (typeof first === 'number') {
       // Stopped while it boots: the VM is closed once it is up. Asked again,
-      // mirab leaves without waiting, and the VM stops with it (vz's helper
-      // when its input closes, Firecracker when mirab exits).
+      // mirab leaves without waiting, and the VM stops as mirab exits (vz's
+      // helper when its input closes, Firecracker on process exit).
       options.log?.(
         'stopping the VM once it is up; Ctrl-C again leaves without waiting',
       )

@@ -62,7 +62,7 @@ binaries, built by `.github/workflows/release.yml` on GitHub's hosted runners:
 
 | platform | files | built on |
 |---|---|---|
-| `linux-x64` (Firecracker) | `vmlinux`, `rootfs.ext4` | `ubuntu-latest`: `bun scripts/vm-release.ts build linux-x64` (the recipe below) |
+| `linux-x64` (Firecracker) | `vmlinux`, `rootfs.ext4` | `ubuntu-24.04`: `bun scripts/vm-release.ts build x64` (one kernel compile gives this `vmlinux` and darwin-x64's `bzImage`) |
 | `darwin-arm64` (vz) | `Image`, `rootfs.ext4`, `mirab-vz` | `ubuntu-24.04-arm`: `scripts/build-vm-guest.sh`; `macos-15`: `scripts/build-vz-helper.sh` (ad hoc signed) |
 
 ```

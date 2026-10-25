@@ -69,14 +69,15 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: The guest, from this checkout
         run: bun run vm:image --config-dir "$RUNNER_TEMP/mirab"
-      - name: Every live VM test, under Firecracker
+      # The filtered-network test needs the tap setup (sudo) and skips here.
+      - name: The live VM tests, under Firecracker
         env:
           TEST_VM_CONFIG_DIR: ${{ runner.temp }}/mirab
         run: |
           set -euo pipefail
           mkdir -p .tmp
           export TMPDIR="$PWD/.tmp"
-          bun test $(git ls-files 'src/*.e2e.test.ts' 'src/**/*.e2e.test.ts') --timeout 300000
+          bun test $(git ls-files 'src/*.e2e.test.ts') --timeout 300000
 
   vz-helper:
     # The macOS `vm` backend's launcher must compile and carry its entitlement.
