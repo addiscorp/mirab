@@ -3,6 +3,7 @@
 // member. Out: what the agent says, prefixed so nothing else the guest prints
 // can pass for it. The host checks every line it reads; the guest is
 // untrusted, and so is every message.
+import { StringDecoder } from 'node:string_decoder'
 import { z } from 'zod'
 import { MAX_MESSAGE } from './local'
 
@@ -15,6 +16,17 @@ export const toAgent = z.strictObject({
   text: z.string(),
 })
 export type ToAgent = z.infer<typeof toAgent>
+
+/** What the guest says, cut to fit a message (with a marker), never dropped. */
+export function fitted(text: string): string {
+  if (Buffer.byteLength(text) <= MAX_MESSAGE) return text
+  const marker = ' [cut: too long for one message]'
+  let cut = Buffer.from(text)
+    .subarray(0, MAX_MESSAGE - marker.length - 4)
+    .toString()
+  cut = cut.replace(/\uFFFD$/, '')
+  return cut + marker
+}
 
 export const fromAgent = z.strictObject({
   text: z.string().refine((t) => Buffer.byteLength(t) <= MAX_MESSAGE, {
@@ -52,14 +64,25 @@ export function decodeToAgent(line: string): ToAgent | undefined {
   }
 }
 
-/** Splits a byte stream into lines (`\r\n` or `\n`), holding the tail. */
+/** A message's text as a terminal may show it: no escape sequences, no
+ *  carriage returns, no control characters but newline and tab, so what
+ *  someone else wrote can't move the cursor, set the title or the clipboard,
+ *  or pass for a line the person typed. */
+export function printable(text: string): string {
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '�')
+}
+
+/** Splits a byte stream into lines (`\r\n` or `\n`), holding the tail. A
+ *  character split across chunks stays whole. The limit allows for JSON's
+ *  escapes (up to 6 characters for one) in a message at its largest. */
 export function lineSplitter(
   onLine: (line: string) => void,
-  max = 2 * MAX_MESSAGE,
+  max = 7 * MAX_MESSAGE,
 ) {
   let pending = ''
+  const decoder = new StringDecoder('utf8')
   return (chunk: Buffer | string) => {
-    pending += chunk.toString()
+    pending += typeof chunk === 'string' ? chunk : decoder.write(chunk)
     let at: number
     while ((at = pending.indexOf('\n')) >= 0) {
       onLine(pending.slice(0, at).replace(/\r$/, ''))

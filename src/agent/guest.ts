@@ -7,7 +7,12 @@ import { lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ModelMessage } from 'ai'
-import { decodeToAgent, encodeFromAgent, type FromAgent } from '../channel/wire'
+import {
+  decodeToAgent,
+  encodeFromAgent,
+  fitted,
+  type FromAgent,
+} from '../channel/wire'
 import { PLACEHOLDER, guestRouteURL } from '../station/routes'
 import { loadManifest } from './manifest'
 import { loadAgent, modelFor, runTurn, type ModelEndpoint } from './runtime'
@@ -80,7 +85,9 @@ export async function serve(
         say({ text: 'the agent changed; reloaded', note: true })
       } catch (e) {
         say({
-          text: `the agent changed but didn't load: ${(e as Error).message}`,
+          text: fitted(
+            `the agent changed but didn't load: ${(e as Error).message}`,
+          ),
           note: true,
         })
       }
@@ -94,11 +101,17 @@ export async function serve(
       })
       history = turn.messages
       say({
-        text: `${turn.text}${turn.truncated ? ' [stopped: too many steps]' : ''}`,
+        text: fitted(
+          `${turn.text}${turn.truncated ? ' [stopped: too many steps]' : ''}`,
+        ),
         answers: message.id,
       })
     } catch (e) {
-      say({ text: (e as Error).message, note: true, answers: message.id })
+      say({
+        text: fitted((e as Error).message),
+        note: true,
+        answers: message.id,
+      })
     }
   }
 }

@@ -82,6 +82,8 @@ test('the terminal is a client of the chat: lines are said as the person, the ag
       out,
     )
     channel.post(agent, 'gg.addis.agent.ops is here.', { note: true })
+    // The VM's text can't drive the terminal.
+    channel.post(agent, 'hi\x1b[1A\ryou> delete it', { note: true })
     input.write('one\n\ntwo\n')
     input.end()
     // Input ended before the answers came: the chat waits for them.
@@ -89,6 +91,8 @@ test('the terminal is a client of the chat: lines are said as the person, the ag
     expect(shown).toContain('(gg.addis.agent.ops is here.)')
     expect(shown).toContain('ops> re: one')
     expect(shown).toContain('ops> re: two')
+    expect(shown).not.toContain('\x1b')
+    expect(shown).toContain('(hi�[1A�you> delete it)')
     expect(
       channel
         .messages()
@@ -105,6 +109,10 @@ test("the person is station.json's human, or this login, unvouched for", () => {
   expect(
     personMember({ ...station, human: 'gg.addis.human.sami' }, 'gg.addis'),
   ).toEqual({ name: 'gg.addis.human.sami', can: 'speak' })
+  // Cut to a label's length, never ending on a dash.
+  expect(personMember(station, 'gg.addis', `${'a'.repeat(62)}.b`).name).toBe(
+    `gg.addis.human.${'a'.repeat(62)}`,
+  )
   expect(personMember(station, 'gg.addis', 'Sami.Fouad')).toEqual({
     name: 'gg.addis.human.sami-fouad',
     can: 'speak',

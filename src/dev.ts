@@ -11,6 +11,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { MANIFEST_LINE } from './agent/guest'
 import { bridgeAgent } from './channel/bridge'
+import { printable } from './channel/wire'
 import {
   openChannel,
   type LocalChannel,
@@ -79,8 +80,8 @@ export function personMember(
     login
       .toLowerCase()
       .replace(/[^a-z0-9-]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 63) || 'person'
+      .slice(0, 63)
+      .replace(/^-+|-+$/g, '') || 'person'
   return { name: `${org}.human.${local}`, can: 'speak', unverified: true }
 }
 
@@ -340,7 +341,9 @@ export function terminalChat(
       clearLine(out, 0)
       cursorTo(out, 0)
     }
-    out.write(m.note ? `(${m.text})\n` : `${local}> ${m.text}\n`)
+    // The agent's text is the VM's: shown, never obeyed by the terminal.
+    const text = printable(m.text)
+    out.write(m.note ? `(${text})\n` : `${local}> ${text}\n`)
     if (!ending && tty) chat.prompt(true)
     settle()
   })
@@ -372,11 +375,21 @@ export async function devInTerminal(
   options: Omit<Parameters<typeof startDev>[0], 'cols' | 'rows'>,
 ): Promise<number> {
   let dev: Dev | undefined
-  let leave: (code: number) => void = () => {}
+  // Being told to stop works while the VM boots too: the boot finishes and
+  // the VM is closed, but the chat never opens.
+  let stopped: (code: number) => void = () => {}
+  const stopping = new Promise<number>((r) => (stopped = r))
+  let leave = stopped
   const onSignal = () => leave(143)
   for (const signal of SIGNALS) process.on(signal, onSignal)
+  const starting = startDev({ ...options, cols: 80, rows: 24 })
   try {
-    dev = await startDev({ ...options, cols: 80, rows: 24 })
+    const first = await Promise.race([starting, stopping])
+    if (typeof first === 'number') {
+      await starting.then((d) => d.close()).catch(() => {})
+      return first
+    }
+    dev = first
     options.log?.(
       `This chat is ${dev.channel.id}, kept at ${dev.channel.path}. Ctrl-D ends it; Ctrl-C leaves at once.`,
     )

@@ -10,6 +10,7 @@ import {
   decodeToAgent,
   encodeToAgent,
   lineSplitter,
+  printable,
 } from './wire'
 
 export function bridgeAgent(o: {
@@ -21,27 +22,65 @@ export function bridgeAgent(o: {
   log?: (line: string) => void
 }): () => void {
   const given = new Set<string>()
+  let off = false
+  // Nothing goes in until the guest says it is here: by then its pty is raw,
+  // so a message is neither echoed nor cut at the line-editing limit.
+  let ready = false
+  const queued: string[] = []
+  let refused = 0
+  const post = (
+    text: string,
+    options: { note?: boolean; answers?: string },
+  ) => {
+    try {
+      o.channel.post(o.agent, text, options)
+      if (options.answers) given.delete(options.answers)
+      return true
+    } catch (e) {
+      // Said once, not once per message a flooding VM sends.
+      if (refused++ === 0)
+        o.log?.(`the agent's messages aren't taken: ${(e as Error).message}`)
+      return false
+    }
+  }
   o.pty.onData(
     lineSplitter((line) => {
+      if (off) return
       const said = decodeFromAgent(line)
       if (!said) {
-        // The pty echoing a message before the guest turned echo off is
-        // neither the agent speaking nor worth showing.
-        if (line.trim() && !decodeToAgent(line)) o.log?.(`(vm) ${line}`)
+        // The pty echoing a message is neither the agent speaking nor worth
+        // showing; anything else is, made safe for a terminal.
+        if (line.trim() && !decodeToAgent(line))
+          o.log?.(`(vm) ${printable(line)}`)
         return
       }
       const answers =
-        said.answers && given.delete(said.answers) ? said.answers : undefined
-      try {
-        o.channel.post(o.agent, said.text, { note: said.note, answers })
-      } catch (e) {
-        o.log?.(`the agent's message wasn't taken: ${(e as Error).message}`)
+        said.answers && given.has(said.answers) ? said.answers : undefined
+      if (!post(said.text, { note: said.note, answers }) && answers)
+        // An answer that couldn't be kept still finishes its message, so the
+        // chat can end; the station says why, not the VM.
+        try {
+          o.channel.post(o.agent, "the agent's answer couldn't be kept", {
+            note: true,
+            answers,
+          })
+          given.delete(answers)
+        } catch {}
+      if (!ready && said.note) {
+        ready = true
+        for (const line of queued.splice(0)) o.pty.write(line)
       }
     }),
   )
-  return o.channel.onMessage((m) => {
+  const stop = o.channel.onMessage((m) => {
     if (m.from === o.agent || m.note) return
     given.add(m.id)
-    o.pty.write(encodeToAgent({ id: m.id, from: m.from, text: m.text }))
+    const line = encodeToAgent({ id: m.id, from: m.from, text: m.text })
+    if (ready) o.pty.write(line)
+    else queued.push(line)
   })
+  return () => {
+    off = true
+    stop()
+  }
 }

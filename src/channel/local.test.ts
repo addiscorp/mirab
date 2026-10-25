@@ -2,7 +2,13 @@ import { expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { MAX_MESSAGE, openChannel, ulid } from './local'
-import { decodeFromAgent, encodeFromAgent, lineSplitter } from './wire'
+import {
+  decodeFromAgent,
+  encodeFromAgent,
+  fitted,
+  lineSplitter,
+  printable,
+} from './wire'
 
 function scratch() {
   mkdirSync(resolve('.tmp'), { recursive: true })
@@ -87,7 +93,25 @@ test('only a whole, well-formed say line from the guest is the agent speaking', 
     undefined,
   ])
   // A line longer than any message never grows the buffer for good.
-  split('x'.repeat(3 * MAX_MESSAGE))
+  split('x'.repeat(8 * MAX_MESSAGE))
   split('\n')
   expect(lines.at(-1)).toBe('')
+})
+
+test('text from another member is made safe to show, and a long reply is cut to fit, never dropped', () => {
+  expect(printable('ok\n\tfine\x1b[1Ayou> yes\r\x9b2J')).toBe(
+    'ok\n\tfine�[1Ayou> yes��2J',
+  )
+  const long = 'é'.repeat(MAX_MESSAGE)
+  const cut = fitted(long)
+  expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(MAX_MESSAGE)
+  expect(cut).toEndWith('[cut: too long for one message]')
+  expect(cut).not.toContain('\uFFFD')
+  expect(fitted('short')).toBe('short')
+  // A largest message, every character escaped, is still one line.
+  const lines: string[] = []
+  lineSplitter((l) => lines.push(l))(
+    encodeFromAgent({ text: '\u0001'.repeat(MAX_MESSAGE / 2) }),
+  )
+  expect(decodeFromAgent(lines[0])?.text.length).toBe(MAX_MESSAGE / 2)
 })

@@ -25,7 +25,7 @@ export interface Member {
 }
 
 export interface Message {
-  /** Sortable and never reused: a ULID. */
+  /** Never reused, and ordered by the millisecond: a ULID. */
   id: string
   from: string
   at: string
