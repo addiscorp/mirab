@@ -180,20 +180,21 @@ flake.nix       ─┘
   agents.ops = {
     name = "gg.addis.agent.ops";
     model = "anthropic/claude-sonnet-5-5";
-    instructions = ./instructions.md;
-    packages = [ pkgs.ripgrep pkgs.git ];
+    instructions = builtins.readFile ./instructions.md;
+    packages = [ "ripgrep" "git" ];
     domains = [ "api.github.com" ];
     tools.search = {
       description = "Search the workspace";
-      command = "${pkgs.ripgrep}/bin/rg";
+      command = "rg";
       input = { type = "object"; properties.pattern.type = "string"; };
     };
   };
   ```
 
-  One `flake.lock` pins the agent and its VM image together, committed in git.
-  For people without Nix installed, mirab can evaluate the flake inside its
-  build VM.
+  The flake is only a way to write the manifest (no Node needed); the
+  `packages` are the same apt names as in TypeScript, installed into the
+  agent's image (section 5b). For people without Nix installed, mirab can
+  evaluate the flake inside its build VM.
 
 **Command tools** make an agent possible without any JavaScript: a tool is an
 executable in the VM (Python, a shell script, a Go binary) with a JSON Schema
@@ -209,19 +210,36 @@ in a manifest they are lines in git: an escalation is a diff a person approves
 
 ## 5b. Guest images
 
-| VM | Image | Why |
-|---|---|---|
-| Agent VMs (short-lived, many) | Built with Nix from a pinned closure, with mirab's own minimal init (boot ~130 ms on the iMac) | Identical, reproducible images; one shared read-only store for every VM |
-| The coordinator (long-running, one per station) | Full NixOS | systemd services, rollbacks, its whole system config in git |
+**The kernel is mirab's own.** Upstream Linux, unpatched, built from mirab's
+minimal config (virtio, vsock, ext4, virtio-fs; no modules), its source pinned
+by the SHA-256 kernel.org publishes. It is part of each mirab release, the
+same for every VM, and changes only when mirab does; an agent never chooses
+kernel features.
 
-- Every package is pinned by hash in `flake.lock`; the guest's Bun, which the
-  station's TLS checks rely on (section 5), is one of them.
-- Software that expects a usual Linux layout (`/usr/lib`, prebuilt npm
-  binaries) runs through `nix-ld`.
-- Nix doesn't build Linux images natively on macOS: images are built in the
-  build VM (Colima today) or in CI.
-- The Ubuntu image stays the default until the Nix image passes the same live
-  tests: boot, the station's whitelist, Bun through the station.
+**The userspace is declarative Ubuntu.** Ubuntu 24.04, from
+`guest-agent/rootfs.Dockerfile`, with mirab's init as process 1 (no systemd)
+and Bun and Claude Code pinned by SHA-256.
+
+- **Built once per agent, then cached.** The manifest's `packages` are an apt
+  list installed on the release's base image, at their latest versions; the
+  image is cached under the hash of the base and the list. Every session boots
+  an APFS clone of it, so nothing is rebuilt to start an agent.
+- **Updated by booting it.** An update check boots the cached image, runs
+  `apt-get update` and a dry-run upgrade, and when something would change,
+  upgrades in that VM and keeps its disk as the agent's new image (the old one
+  stays, for rollback). Its only way out is the station, with the Ubuntu
+  mirrors on the whitelist (HTTPS), and apt checks every package's signature.
+- **Config from the manifest** (environment, files, the station's
+  certificate) is applied by mirab's init at boot.
+- **While a VM runs**, apt can install more through the station; a package
+  outside the manifest is an escalation.
+- **The coordinator** runs the same Ubuntu with systemd; the mirab release that
+  brings it adds the kernel options systemd needs (cgroups) to the one kernel.
+- Images are built in the build VM (Colima today) or in CI: macOS can't build
+  Linux images itself.
+
+**Later, mirab v2:** a NixOS-based guest ("mirab os"), for a fully pinned,
+composable userspace with live `switch` and rollback.
 
 ## 6. Security, in one place
 
@@ -247,9 +265,11 @@ in a manifest they are lines in git: an escalation is a diff a person approves
 | `mirab spawn` with the Claude and Codex adapters | Built (from gild); `--as`/`--channel` wait for #2 |
 | `mirab init` | Built (#9) |
 | The agent runtime (load a folder, run turns with tools) | Built (#11); started inside the VM with `mirab dev` |
-| The agent manifest (TypeScript first), command tools, the Nix front end and Nix-built guests (sections 5a, 5b) | Next, in that order |
-| `mirab dev` | Next, built on the manifest |
-| The way out of a VM: whitelist, routes (section 5) | Next |
+| The agent manifest, command tools (section 5a) | Built (#19) |
+| `mirab dev` | Built (#21) |
+| The way out of a VM: whitelist, routes, keys for any service (section 5) | Built (#13, #15, #23, #25) |
+| Per-agent images from `packages`, cached, updated by booting (section 5b) | Next |
+| The Nix front end for the manifest (section 5a) | After that |
 | Escalation as harar approvals | After harar#45 |
 | Station as a harar broker, `station install`, `up` | Phase 2 (needs harar's approvals and broker protocol) |
 | Channels to apps | Phase 3 (needs harar's apps and channels) |
@@ -257,7 +277,11 @@ in a manifest they are lines in git: an escalation is a diff a person approves
 ## 8. Decided, and open
 
 - Decided (Sami, 24 Oct): one agent manifest, written in TypeScript or Nix;
-  command tools; Nix-built guest images (sections 5a, 5b).
+  command tools (section 5a).
+- Decided (Sami, 24 Oct): the kernel is mirab's own, one per release; the
+  userspace is declarative Ubuntu, each agent's image built once from its
+  `packages` (latest versions), cached, and updated by booting it and running
+  apt (section 5b). A NixOS guest ("mirab os") is for mirab v2.
 - Decided (Sami, 24 Oct): a whitelist of domains per zone, with escalation;
   the station adds only long-lived keys that have no narrow form.
 - v1: the Anthropic route and the whitelist; GitHub through short-lived GitHub
