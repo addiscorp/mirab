@@ -8,7 +8,8 @@ import { mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { MANIFEST_LINE } from './agent/guest'
 import { parseManifest, type Manifest } from './agent/manifest'
-import { startVm, type Isolation } from './isolation'
+import { startVm, type Isolation, type VmConfig } from './isolation'
+import { agentImage } from './images'
 import type { PtyHandle } from './isolation/session'
 import { guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
@@ -61,6 +62,47 @@ export function manifestFromGuest(lines: string[]): Manifest {
   return parseManifest(data, 'the agent in its VM')
 }
 
+/** The agent's manifest, read in the VM by the bundled loop: the agent's own
+ *  files run there, never on the host, which only checks the JSON. */
+export async function readManifestIn(iso: Isolation): Promise<Manifest> {
+  const lines: string[] = []
+  await iso.exec(
+    ['bun', '--no-install', GUEST_LOOP, '--manifest', '/workspace'],
+    {
+      cwd: '/workspace',
+      env: guestEnvironment({}, {}),
+      timeoutMs: 60_000,
+      signal: new AbortController().signal,
+      onLine: async (line) => void lines.push(line),
+    },
+  )
+  return manifestFromGuest(lines)
+}
+
+/** The manifest of the agent in `project`, read in a VM that boots only for it. */
+export async function agentManifest(o: {
+  project: string
+  configDir: string
+  log?: (line: string) => void
+}): Promise<{ manifest: Manifest; vm: VmConfig }> {
+  const vm = await requireVm(o.configDir, o.log)
+  const vmDir = await mkdtemp(
+    join(await privateSessionsDirectory(), 'manifest-'),
+  )
+  const iso = await startVm(
+    { ...vm, egress: 'block' },
+    resolve(o.project),
+    vmDir,
+    o.log,
+  )
+  try {
+    await iso.put(GUEST_LOOP, await guestLoop(), 0o600)
+    return { manifest: await readManifestIn(iso), vm }
+  } finally {
+    await iso.close()
+  }
+}
+
 /** `<org>.zone.dev-<random>`, in the agent's org. */
 export function devZone(agentName: string): string {
   const org = /^(.+)\.agent\.[^.]+$/.exec(agentName)?.[1]
@@ -90,30 +132,44 @@ export async function startDev(o: {
     )
   const vm = await requireVm(o.configDir, o.log)
   const loop = await guestLoop()
-  const vmDir = await mkdtemp(join(await privateSessionsDirectory(), 'dev-'))
-  // No network of its own: the station is the only way out. The VM works on
-  // a clone of the project; nothing it writes comes back.
-  const iso = await startVm({ ...vm, egress: 'block' }, project, vmDir, o.log)
+  const boot = async (rootfs: string) => {
+    const vmDir = await mkdtemp(join(await privateSessionsDirectory(), 'dev-'))
+    // No network of its own: the station is the only way out. The VM works on
+    // a clone of the project; nothing it writes comes back.
+    const vmIso = await startVm(
+      { ...vm, rootfs, egress: 'block' },
+      project,
+      vmDir,
+      o.log,
+    )
+    try {
+      await vmIso.put(GUEST_LOOP, loop, 0o600)
+    } catch (e) {
+      await vmIso.close()
+      throw e
+    }
+    return vmIso
+  }
+  let iso = await boot(vm.rootfs)
   let closeStation = async () => {}
   try {
-    await iso.put(GUEST_LOOP, loop, 0o600)
     // The agent's own files run in the VM, never here.
-    const lines: string[] = []
-    await iso.exec(
-      ['bun', '--no-install', GUEST_LOOP, '--manifest', '/workspace'],
-      {
-        cwd: '/workspace',
-        env: guestEnvironment({}, {}),
-        timeoutMs: 60_000,
-        signal: new AbortController().signal,
-        onLine: async (line) => void lines.push(line),
-      },
-    )
-    const manifest = manifestFromGuest(lines)
+    const manifest = await readManifestIn(iso)
     if (!manifest.model.startsWith('anthropic/'))
       throw new Error(
         `mirab dev talks to anthropic models for now; ${manifest.model} isn't one`,
       )
+    // An agent with packages runs on its own image: cached, or built now.
+    if (manifest.packages.length) {
+      await iso.close()
+      const rootfs = await agentImage({
+        configDir: o.configDir,
+        vm,
+        packages: manifest.packages,
+        log: o.log,
+      })
+      iso = await boot(rootfs)
+    }
     const zone = devZone(manifest.name)
     const station = await vmStation({
       project,
@@ -143,7 +199,7 @@ export async function startDev(o: {
     return { pty, iso, zone, close }
   } catch (e) {
     await closeStation()
-    await iso.close()
+    await iso.close().catch(() => {})
     throw e
   }
 }

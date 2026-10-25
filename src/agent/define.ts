@@ -118,12 +118,11 @@ export function toolRecord<T extends z.ZodType>(tool: T) {
 }
 
 /** A package in the agent's VM image, by name (a nixpkgs attribute, later). */
-const packageName = z
-  .string()
-  .regex(
-    /^[a-zA-Z0-9][a-zA-Z0-9._+-]{0,127}$/,
-    'a package is a name, like ripgrep',
-  )
+const packageName = z.string().regex(
+  // Never ending in -, which apt reads as "remove" (g++ is fine).
+  /^[a-zA-Z0-9](?:[a-zA-Z0-9._+-]{0,126}[a-zA-Z0-9+])?$/,
+  'a package is a name, like ripgrep',
+)
 
 /** A whitelist entry as the station matches it: `api.github.com`, or
  *  `*.github.com` for every name under it. Names only, never an address. */

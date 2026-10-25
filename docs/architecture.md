@@ -268,7 +268,7 @@ composable userspace with live `switch` and rollback.
 | The agent manifest, command tools (section 5a) | Built (#19) |
 | `mirab dev` | Built (#21) |
 | The way out of a VM: whitelist, routes, keys for any service (section 5) | Built (#13, #15, #23, #25) |
-| Per-agent images from `packages`, cached, updated by booting (section 5b) | Next |
+| Per-agent images from `packages`, cached, updated by booting (section 5b) | Built (#28) |
 | The Nix front end for the manifest (section 5a) | After that |
 | Escalation as harar approvals | After harar#45 |
 | Station as a harar broker, `station install`, `up` | Phase 2 (needs harar's approvals and broker protocol) |
