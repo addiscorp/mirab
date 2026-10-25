@@ -9,6 +9,7 @@ import { gzipSync } from 'node:zlib'
 import { writeVmManifest } from '../../scripts/vm-release'
 import {
   ensureVmImage,
+  MIRAB_RELEASE,
   MIRAB_VERSION,
   VM_PLATFORMS,
   vmImagePaths,
@@ -91,7 +92,7 @@ afterAll(() => server.stop(true))
 
 describe('published VM image', () => {
   test('first use downloads, verifies and installs it; later uses stay offline', async () => {
-    await publish(`v${MIRAB_VERSION}`)
+    await publish(MIRAB_RELEASE)
     const dir = await configDir()
     const lines: string[] = []
     requests = []
@@ -110,7 +111,7 @@ describe('published VM image', () => {
           contents[role]!,
         ),
       ).toBe(true)
-    expect(requests[0]).toBe(`v${MIRAB_VERSION}/vm/manifest.json`)
+    expect(requests[0]).toBe(`${MIRAB_RELEASE}/vm/manifest.json`)
     expect(lines.join('\n')).toMatch(/downloading the VM image .*%/s)
     const record = JSON.parse(await readFile(paths.record, 'utf8'))
     expect(record).toMatchObject({
@@ -128,7 +129,7 @@ describe('published VM image', () => {
   })
 
   test('works offline when cached: --vm gets the installed image with no network', async () => {
-    await publish(`v${MIRAB_VERSION}`)
+    await publish(MIRAB_RELEASE)
     const dir = await configDir()
     await ensureVmImage({ configDir: dir, base, platform })
     const { host, vmUnavailable } = await prepareVm(dir, {
@@ -148,7 +149,7 @@ describe('published VM image', () => {
 
   test('a file whose sha256 is not the manifest one is refused and nothing is installed', async () => {
     // Same unpacked bytes, different gzip stream: only the published sha256 can tell.
-    await publish(`v${MIRAB_VERSION}`, async (dir) => {
+    await publish(MIRAB_RELEASE, async (dir) => {
       const name = roles.rootfs
       await writeFile(
         join(dir, platform, `${name}.gz`),
@@ -164,7 +165,7 @@ describe('published VM image', () => {
   })
 
   test('different unpacked bytes are refused too (the gunzipped file is checked as well)', async () => {
-    await publish(`v${MIRAB_VERSION}`, async (dir) => {
+    await publish(MIRAB_RELEASE, async (dir) => {
       const m = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'))
       m.platforms[platform].kernel.unpacked.sha256 = '0'.repeat(64)
       await writeFile(join(dir, 'manifest.json'), JSON.stringify(m))
@@ -177,7 +178,7 @@ describe('published VM image', () => {
   })
 
   test('a manifest for another mirab version is refused', async () => {
-    await publish(`v${MIRAB_VERSION}`, undefined, { version: '0.0.1' })
+    await publish(MIRAB_RELEASE, undefined, { version: '0.0.1' })
     const dir = await configDir()
     await expect(
       ensureVmImage({ configDir: dir, base, platform }),
@@ -186,7 +187,7 @@ describe('published VM image', () => {
   })
 
   test('a manifest for another guest protocol is refused', async () => {
-    await publish(`v${MIRAB_VERSION}`, async (dir) => {
+    await publish(MIRAB_RELEASE, async (dir) => {
       const m = JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8'))
       m.protocol = GUEST_PROTOCOL + 1
       await writeFile(join(dir, 'manifest.json'), JSON.stringify(m))
@@ -198,8 +199,8 @@ describe('published VM image', () => {
   })
 
   test('an installed image for an older mirab is replaced by this version', async () => {
-    await publish('v0.0.1', undefined, { version: '0.0.1' })
-    await publish(`v${MIRAB_VERSION}`)
+    await publish('0.0.1', undefined, { version: '0.0.1' })
+    await publish(MIRAB_RELEASE)
     const dir = await configDir()
     await ensureVmImage({ configDir: dir, base, platform, version: '0.0.1' })
     expect(await ensureVmImage({ configDir: dir, base, platform })).toBe(

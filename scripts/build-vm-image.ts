@@ -3,8 +3,8 @@
 //   bun run vm:image [--config-dir <dir>]
 // Needs Docker with BuildKit (rootfs) and network access (pinned downloads).
 // The kernel is Firecracker's CI build, pinned by sha256; the rootfs is
-// guest-agent/image/Dockerfile, which compiles the guest agent from this
-// checkout, so the image always speaks this checkout's protocol.
+// guest-agent/rootfs.Dockerfile (scripts/build-vm-guest.sh), with the guest
+// agent built from this checkout, so it always speaks this checkout's protocol.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -20,11 +20,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { vmImagePaths } from '../src/isolation'
 import { GUEST_PROTOCOL } from '../src/isolation/session'
-import {
-  buildFirecrackerRootfs,
-  fetchFirecrackerKernel,
-  KERNEL,
-} from './vm-release'
+import { buildGuest, fetchFirecrackerKernel, KERNEL } from './vm-release'
 
 const ROOT = resolve(import.meta.dir, '..')
 
@@ -50,9 +46,9 @@ const work = await mkdtemp(join(configDir, 'vm', '.build-'))
 try {
   // Kernel: download once, verify every time; the same functions build the published image.
   await fetchFirecrackerKernel(paths.kernel)
-  // Rootfs: docker build straight to a file, then swap it in atomically.
+  // Rootfs: the one recipe (guest-agent/rootfs.Dockerfile), then swapped in atomically.
   try {
-    buildFirecrackerRootfs(work)
+    buildGuest(work)
   } catch (e) {
     fail((e as Error).message)
   }

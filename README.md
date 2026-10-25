@@ -14,11 +14,24 @@ people in channels, inside the apps they help with.
 > Firecracker, containers, `mirab spawn`, and the Claude and Codex adapters.
 > `mirab init`, `mirab dev` and the station are in; channels come next.
 
+## Install
+
+```sh
+curl -fsSL https://mirab.addis.gg/install.sh | sh
+```
+
+It installs mirab into `~/.mirab` (the release in `~/.mirab/releases/`, the
+`mirab` command in `~/.mirab/bin`), checked against the SHA-256 in the
+release's manifest, with no sudo. It brings its own Bun, and on Linux its own
+Firecracker. The VM image is downloaded on first use. Builds: macOS (Apple
+silicon and Intel) and Linux x86_64. `sh -s -- --canary` installs the newest
+build of `main`.
+
 ## Make an agent
 
 ```sh
 mkdir ops && cd ops
-bun run <mirab checkout>/src/mirab.ts          # asks for the agent's harar name
+mirab                                           # asks for the agent's harar name
 # or: mirab init ops --name gg.addis.agent.ops
 ```
 
@@ -56,8 +69,7 @@ the manifest is read there and checked here. The VM can spend the model key
 on its route (that is what the route is for), but never read it.
 
 mirab runs on [Bun](https://bun.sh), and so do the agents it makes (their
-`agent/` files are TypeScript, run as is). Until mirab is on npm, run it from
-a checkout as above rather than with `npx`.
+`agent/` files are TypeScript, run as is).
 
 ## Claude Code on your own subscription
 

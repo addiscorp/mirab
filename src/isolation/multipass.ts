@@ -1,4 +1,4 @@
-// `mirab spawn --vm` on macOS and Windows: the agent runs in a Multipass VM
+// `mirab spawn --vm` on Windows: the agent runs in a Multipass VM
 // (Ubuntu), driven only through the `multipass` command and its JSON output.
 //
 // One VM, `mirab`, is made on first use and kept. Each session copies the
@@ -16,13 +16,14 @@ import type { VmChild } from '../spawn-vm'
 export const MULTIPASS_VM = 'mirab'
 const HOME = '/home/ubuntu'
 
-/** macOS and Windows run `--vm` in Multipass, unless isolation.json in the
- *  config directory sets up its own `vm` (kernel and rootfs for vz or Firecracker). */
+/** Windows runs `--vm` in Multipass (it has no vz or Firecracker), unless
+ *  isolation.json in the config directory sets up its own `vm`. A Mac uses vz,
+ *  with the published guest image fetched on first use. */
 export function usesMultipass(
   configDir?: string,
   platform: NodeJS.Platform = process.platform,
 ) {
-  if (platform !== 'darwin' && platform !== 'win32') return false
+  if (platform !== 'win32') return false
   if (!configDir) return true
   try {
     return !JSON.parse(readFileSync(join(configDir, 'isolation.json'), 'utf8'))

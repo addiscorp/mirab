@@ -68,7 +68,7 @@ if [ ! -s "$out/rootfs.ext4" ]; then
     printf '127.0.0.1 localhost\n::1 localhost\n' > /r/etc/hosts
     printf 'nameserver 1.1.1.1\n' > /r/etc/resolv.conf
     truncate -s $size /rootfs.ext4.part
-    # Fixed UUID, hash seed and filesystem timestamps (as guest-agent/image/Dockerfile).
+    # Fixed UUID, hash seed and filesystem timestamps.
     E2FSPROGS_FAKE_TIME=0 mke2fs -q -t ext4 -L mirab-root -U 6b1d0b9e-3f1a-4c5e-9a57-67696c64766d \\
       -E hash_seed=6b1d0b9e-3f1a-4c5e-9a57-67696c64766d,root_owner=0:0 -d /r -F /rootfs.ext4.part >&2
     tar -cSf - -C / rootfs.ext4.part" | tar -xSf - -C "$out"
