@@ -1,6 +1,7 @@
 // The station for one VM: its routes, its whitelist and, when the project's
-// .env names harar secrets that station.json gives hosts for, the hosts it
-// opens to swap placeholders for keys. Shared by `mirab spawn --vm` and
+// .env names harar secrets harar lets go somewhere (a `send` permission, or
+// `harar hosts allow` in a per-user vault), the hosts it opens to swap
+// placeholders for keys. harar decides each send, and records the host. Shared by `mirab spawn --vm` and
 // `mirab dev`, so both give a VM the same way out.
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -10,8 +11,9 @@ import { stationAuthority } from './ca'
 import type { StationConfig } from './config'
 import { auditor, lookupAll, startEgress, type Route } from './egress'
 import { asker, grants } from './escalations'
-import { hararGet } from './harar'
+import { hararHosts, hararSend } from './harar'
 import { startIntercept, type Intercept, type Upstream } from './intercept'
+import { domainProblem } from '../agent/define'
 import { Placeholders, referencesIn, type Secrets } from './secrets'
 
 /** Where the station's authority lands in the guest. */
@@ -24,7 +26,7 @@ const GUEST_BUNDLE = '/etc/ssl/certs/ca-certificates.crt'
 export interface VmStation {
   /** What the guest's programs get: a placeholder per secret, and the station as their proxy. */
   env: Record<string, string>
-  /** Things the person should know (a reference station.json has no hosts for). */
+  /** Things the person should know (a reference harar lets go nowhere). */
   notes: string[]
   /** Serves the VM's way out, and makes the guest trust the station's authority. */
   attach(iso: Isolation): Promise<void>
@@ -46,30 +48,39 @@ export async function vmStation(o: {
 }): Promise<VmStation> {
   const text = await readFile(join(o.project, '.env'), 'utf8').catch(() => '')
   const references = referencesIn(text)
-  const configured = o.station.secrets ?? {}
   const placeholders = new Placeholders()
   const secrets: Secrets = Object.create(null)
   const env: Record<string, string> = {}
   const notes: string[] = []
   for (const [name, secret] of references) {
-    if (!Object.hasOwn(configured, secret)) {
+    let hosts: string[]
+    try {
+      hosts = await hararHosts(o.station.harar.socket, secret)
+    } catch (e) {
+      notes.push(`${name}: ${(e as Error).message}; the VM doesn't get it`)
+      continue
+    }
+    // Only names the station can open: harar holds to the same rule.
+    hosts = hosts.filter((h) => !domainProblem(h.replace(/^\*\./, '')))
+    if (!hosts.length) {
       notes.push(
-        `${name} names harar://${secret}, which station.json has no hosts for (secrets); the VM doesn't get it`,
+        `${name} names harar://${secret}, which harar lets go nowhere yet (harar hosts allow ${secret} <host>, or a role's send at a primary); the VM doesn't get it`,
       )
       continue
     }
-    secrets[secret] = configured[secret]
+    secrets[secret] = { hosts }
     env[name] = placeholders.for(secret)
   }
-  // Each secret is read from harar at most every VALUE_TTL_MS, so a rotated
-  // key is picked up; a failure is not kept.
+  // Each secret is asked for, for one host, at most every VALUE_TTL_MS, so a
+  // rotated key or a revoked host is picked up; a failure is not kept.
   const values = new Map<string, { value: Promise<string>; until: number }>()
-  const value = (secret: string) => {
-    const held = values.get(secret)
+  const value = (secret: string, host: string) => {
+    const key = `${secret}\n${host}`
+    const held = values.get(key)
     if (held && held.until > Date.now()) return held.value
-    const v = hararGet(o.station.harar.socket, secret)
-    v.catch(() => values.delete(secret))
-    values.set(secret, { value: v, until: Date.now() + VALUE_TTL_MS })
+    const v = hararSend(o.station.harar.socket, secret, host)
+    v.catch(() => values.delete(key))
+    values.set(key, { value: v, until: Date.now() + VALUE_TTL_MS })
     return v
   }
   const audit = auditor(o.zone, o.auditLog)

@@ -1,32 +1,16 @@
 // Keys for any service, without the VM ever holding one. A project's .env
 // names its secrets by reference (`STRIPE_KEY=harar://prod/shop/STRIPE_KEY`,
 // what `harar import` leaves); the VM gets a placeholder for each, different
-// every session. On the way out, for a host that station.json lists for that
-// secret, the station swaps the placeholder in the request's headers for the
-// real value from harar. Anywhere else the request is refused. Bodies and URLs
-// are never rewritten.
+// every session. On the way out, for a host harar lets that secret go to (its
+// `hosts`), the station swaps the placeholder in the request's headers for the
+// value harar sends for that host. Anywhere else the request is refused.
+// Bodies and URLs are never rewritten.
 import { z } from 'zod'
-import { domainProblem } from '../agent/define'
 import { allowed } from './hosts'
 
-/** station.json `secrets`: each harar secret, and the hosts it may go to. */
-export const secretsSchema = z.record(
-  z
-    .string()
-    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$/, 'a harar secret path'),
-  z.strictObject({
-    hosts: z
-      .array(
-        z.string().superRefine((host, ctx) => {
-          const problem = domainProblem(host)
-          if (problem)
-            ctx.addIssue({ code: 'custom', message: `host ${problem}` })
-        }),
-      )
-      .min(1),
-  }),
-)
-export type Secrets = z.infer<typeof secretsSchema>
+/** Each secret this session holds a placeholder for, and the hosts harar
+ *  lets it go to (`hararHosts`). */
+export type Secrets = Record<string, { hosts: string[] }>
 
 /** Every placeholder looks like this, so the station can find them in a header. */
 export const PLACEHOLDER = /mirab-ph-[0-9a-f]{24}/g
@@ -97,7 +81,8 @@ export async function swapHeaders(
   rawHeaders: string[],
   placeholders: Placeholders,
   secrets: Secrets,
-  value: (secret: string) => Promise<string>,
+  /** The secret's value for this host: harar's `send`, which decides again. */
+  value: (secret: string, host: string) => Promise<string>,
 ): Promise<Swap> {
   const used = new Set<string>()
   const revealed: [string, string][] = []
@@ -110,7 +95,7 @@ export async function swapHeaders(
       const rule = Object.hasOwn(secrets, secret) ? secrets[secret] : undefined
       if (!rule || !allowed(host, rule.hosts))
         return { reason: `${secret} doesn't go to ${host}` }
-      const real = await value(secret)
+      const real = await value(secret, host.toLowerCase().replace(/\.$/, ''))
       if (!real) return { reason: `${secret} is empty in harar` }
       if (/[\r\n\0]/.test(real)) return { reason: `${secret} isn't one line` }
       out = out.split(token).join(real)

@@ -130,15 +130,18 @@ before it, for rollback. The same on macOS and Linux.
 ## Keys for any service
 
 Your project's `.env` holds only references (`harar import .env` writes
-them): `STRIPE_KEY=harar://prod/shop/STRIPE_KEY`. In `station.json`, give
-each secret the hosts it may go to:
+them): `STRIPE_KEY=harar://prod/shop/STRIPE_KEY`. harar says where each secret may
+go, and records each time it does:
 
-```json
-"secrets": {
-  "prod/shop/STRIPE_KEY": { "hosts": ["api.stripe.com"] },
-  "personal/github/TOKEN": { "hosts": ["github.com", "api.github.com"] }
-}
+```sh
+harar hosts allow prod/shop/STRIPE_KEY api.stripe.com
+harar hosts allow personal/github/TOKEN github.com
+harar hosts allow personal/github/TOKEN api.github.com
 ```
+
+At a primary, that's a role's `send` permission
+(`harar policy role set <role> --send "prod/shop/STRIPE_KEY api.stripe.com"`),
+approved like any widening. A secret harar lets go nowhere isn't given to the VM.
 
 In the VM, `STRIPE_KEY` is a placeholder, new every session. Programs run
 unchanged (`curl`, `git`, `gh`, SDKs), with the station as their proxy. The

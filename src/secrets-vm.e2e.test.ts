@@ -28,13 +28,25 @@ describe.skipIf(!configDir)('keys for any service in a VM, live', () => {
       'prod/shop/STRIPE_KEY': 'sk_live_REAL123',
       'personal/github/TOKEN': 'ghp_REAL456',
     }
+    // Where each may go is harar's to say: it answers hosts, and sends a
+    // value only for one of them.
+    const HOSTS: Record<string, string[]> = {
+      'prod/shop/STRIPE_KEY': ['api.stripe.test'],
+      'personal/github/TOKEN': ['github.test'],
+    }
+    const asked: string[] = []
     const harar = join(base, 'h.sock')
     const hararServer = createServer((conn) => {
       let body = ''
       conn.on('data', (c) => (body += c))
       conn.on('end', () => {
-        const key = JSON.parse(body).key
-        conn.end(JSON.stringify({ ok: true, value: REAL[key] }))
+        const { op, key, host } = JSON.parse(body)
+        asked.push(host ? `${op} ${key} ${host}` : `${op} ${key}`)
+        if (op === 'hosts')
+          return conn.end(JSON.stringify({ ok: true, hosts: HOSTS[key] ?? [] }))
+        if (op === 'send' && HOSTS[key]?.includes(host))
+          return conn.end(JSON.stringify({ ok: true, value: REAL[key] }))
+        conn.end(JSON.stringify({ ok: false, error: 'no_binding' }))
       })
     })
     await new Promise<void>((r) => hararServer.listen(harar, r))
@@ -79,10 +91,6 @@ describe.skipIf(!configDir)('keys for any service in a VM, live', () => {
         config: {
           harar: { socket: harar },
           models: {},
-          secrets: {
-            'prod/shop/STRIPE_KEY': { hosts: ['api.stripe.test'] },
-            'personal/github/TOKEN': { hosts: ['github.test'] },
-          },
         },
         auditLog,
         opened: async () => ({ address: '127.0.0.1', port, ca: world.cert }),
@@ -97,6 +105,13 @@ describe.skipIf(!configDir)('keys for any service in a VM, live', () => {
       expect(code).toBe(0)
       // The VM holds a placeholder, never the key.
       expect(screen).toMatch(/holds: mirab-ph-[0-9a-f]{24}/)
+      // harar was asked where each may go, then for each send by host; never
+      // for a plain read, and never for the key the VM aimed at the wrong host.
+      expect(asked).toContain('hosts prod/shop/STRIPE_KEY')
+      expect(asked).toContain('send prod/shop/STRIPE_KEY api.stripe.test')
+      expect(asked).toContain('send personal/github/TOKEN github.test')
+      expect(asked.some((a) => a.startsWith('get '))).toBe(false)
+      expect(asked).not.toContain('send prod/shop/STRIPE_KEY github.test')
       expect(screen).toContain('ok api.stripe.test')
       expect(screen).toContain('bun 200')
       expect(screen).toContain('wrong=403')
