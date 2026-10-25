@@ -69,7 +69,17 @@ export function decodeToAgent(line: string): ToAgent | undefined {
  *  someone else wrote can't move the cursor, set the title or the clipboard,
  *  or pass for a line the person typed. */
 export function printable(text: string): string {
-  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '�')
+  return (
+    text
+      // Controls, DEL and C1; bidi overrides and isolates, zero-width marks,
+      // line and paragraph separators: anything that hides or reorders text.
+      .replace(
+        /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g,
+        '�',
+      )
+      // A line it starts is indented, so it can't stand as one of the person's.
+      .replace(/\n/g, '\n  ')
+  )
 }
 
 /** Splits a byte stream into lines (`\r\n` or `\n`), holding the tail. A

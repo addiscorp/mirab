@@ -13,6 +13,9 @@ import {
   printable,
 } from './wire'
 
+/** Lines of the VM's other output shown per chat. */
+const VM_LINES = 200
+
 export function bridgeAgent(o: {
   channel: LocalChannel
   /** The agent's member name. */
@@ -28,6 +31,7 @@ export function bridgeAgent(o: {
   let ready = false
   const queued: string[] = []
   let refused = 0
+  let shown = 0
   const post = (
     text: string,
     options: { note?: boolean; answers?: string },
@@ -50,8 +54,14 @@ export function bridgeAgent(o: {
       if (!said) {
         // The pty echoing a message is neither the agent speaking nor worth
         // showing; anything else is, made safe for a terminal.
-        if (line.trim() && !decodeToAgent(line))
-          o.log?.(`(vm) ${printable(line)}`)
+        if (line.trim() && !decodeToAgent(line)) {
+          // Enough to see what went wrong; never a firehose.
+          shown++
+          if (shown <= VM_LINES)
+            o.log?.(`(vm) ${printable(line.slice(0, 500))}`)
+          else if (shown === VM_LINES + 1)
+            o.log?.('(vm) … more output from the VM is not shown')
+        }
         return
       }
       const answers =
@@ -63,6 +73,7 @@ export function bridgeAgent(o: {
           o.channel.post(o.agent, "the agent's answer couldn't be kept", {
             note: true,
             answers,
+            reserved: true,
           })
           given.delete(answers)
         } catch {}

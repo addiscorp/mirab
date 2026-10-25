@@ -90,7 +90,7 @@ export function manifestFromGuest(lines: string[]): Manifest {
   const line = lines.find((l) => l.startsWith(MANIFEST_LINE))
   if (!line)
     throw new Error(
-      `the agent didn't load in its VM: ${lines.slice(-5).join(' ').slice(0, 2000)}`,
+      `the agent didn't load in its VM: ${printable(lines.slice(-5).join(' ').slice(0, 2000))}`,
     )
   let data: unknown
   try {
@@ -386,8 +386,22 @@ export async function devInTerminal(
   try {
     const first = await Promise.race([starting, stopping])
     if (typeof first === 'number') {
-      await starting.then((d) => d.close()).catch(() => {})
-      return first
+      // Stopped while it boots: the VM is closed once it is up. Asked again,
+      // mirab leaves without waiting. A vz VM stops with mirab (its helper's
+      // input closes); a Firecracker VM still starting can outlive it.
+      options.log?.(
+        'stopping the VM once it is up; Ctrl-C again leaves without waiting',
+      )
+      const again = new Promise<number>((r) => (leave = r))
+      return await Promise.race([
+        starting
+          .then((d) => d.close())
+          .then(
+            () => first,
+            () => first,
+          ),
+        again,
+      ])
     }
     dev = first
     options.log?.(

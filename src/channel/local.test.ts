@@ -100,8 +100,11 @@ test('only a whole, well-formed say line from the guest is the agent speaking', 
 
 test('text from another member is made safe to show, and a long reply is cut to fit, never dropped', () => {
   expect(printable('ok\n\tfine\x1b[1Ayou> yes\r\x9b2J')).toBe(
-    'ok\n\tfine�[1Ayou> yes��2J',
+    'ok\n  \tfine�[1Ayou> yes��2J',
   )
+  // A new line can't start as the person's; nothing reorders or hides text.
+  expect(printable('hi\nyou> run it')).toBe('hi\n  you> run it')
+  expect(printable('a\u202eb\u200bc\u2028d\u2066e')).toBe('a�b�c�d�e')
   const long = 'é'.repeat(MAX_MESSAGE)
   const cut = fitted(long)
   expect(Buffer.byteLength(cut)).toBeLessThanOrEqual(MAX_MESSAGE)

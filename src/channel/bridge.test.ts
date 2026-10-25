@@ -102,3 +102,23 @@ test("an answer the channel can't keep still finishes its message, and a split c
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("a VM that fills the channel can't keep a message from being answered, and its other output is capped", () => {
+  const { dir, channel, logs, vm } = setup(64 * 1024)
+  try {
+    vm(encodeFromAgent({ text: 'here', note: true }))
+    const asked = channel.post(PERSON, 'hello')
+    for (let i = 0; i < 100; i++)
+      vm(encodeFromAgent({ text: 'x'.repeat(1000), note: true }))
+    vm(encodeFromAgent({ text: 'y'.repeat(5000), answers: asked.id }))
+    expect(channel.messages().at(-1)).toMatchObject({
+      note: true,
+      answers: asked.id,
+    })
+    for (let i = 0; i < 500; i++) vm(`junk ${i}\n`)
+    expect(logs.filter((l) => l.startsWith('(vm) junk')).length).toBe(200)
+    expect(logs).toContain('(vm) … more output from the VM is not shown')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

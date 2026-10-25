@@ -45,7 +45,13 @@ export interface LocalChannel {
   post(
     from: string,
     text: string,
-    options?: { note?: boolean; answers?: string },
+    options?: {
+      note?: boolean
+      answers?: string
+      /** The station's own note: it may use the room kept back for it, so
+       *  whatever fills the channel, a message can still be answered. */
+      reserved?: boolean
+    },
   ): Message
   messages(): Message[]
   /** Every message posted from now on, in order. */
@@ -124,7 +130,9 @@ export function openChannel(o: {
         ...(options?.answers ? { answers: options.answers } : {}),
       }
       const line = JSON.stringify(message) + '\n'
-      if (kept + Buffer.byteLength(line) > (o.maxBytes ?? MAX_CHANNEL))
+      const max = o.maxBytes ?? MAX_CHANNEL
+      const room = options?.reserved ? max : max - Math.min(max / 8, 1 << 20)
+      if (kept + Buffer.byteLength(line) > room)
         throw new Error(`${id} is full; open a new chat`)
       appendFileSync(path, line)
       kept += Buffer.byteLength(line)
