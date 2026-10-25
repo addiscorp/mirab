@@ -1,8 +1,8 @@
 // Claude Code in a VM on the person's own subscription: `mirab spawn --vm`
 // runs it with a placeholder token, and the station adds the real one, from
-// harar, on the way out. Needs a Mac with a vz guest image that has Claude
-// Code (guest-agent/rootfs.Dockerfile), described in
-// $TEST_VZ_CLAUDE_CONFIG_DIR/isolation.json (docs/VM.md). The model API is a
+// harar, on the way out. Needs a VM guest image (it has Claude Code,
+// guest-agent/rootfs.Dockerfile) described in
+// $TEST_VM_CONFIG_DIR/isolation.json (docs/VM.md). The model API is a
 // stand-in, so no real token or subscription is used.
 import { describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -10,12 +10,12 @@ import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { startVmChild } from './spawn-vm'
 
-const configDir = process.env.TEST_VZ_CLAUDE_CONFIG_DIR
+const configDir = process.env.TEST_VM_CONFIG_DIR
 
 const sse = (events: [string, unknown][]) =>
   events.map(([e, d]) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`).join('')
 
-describe.skipIf(!configDir)('Claude Code in a vz VM, live', () => {
+describe.skipIf(!configDir)('Claude Code in a VM, live', () => {
   test('claude -p in the VM reaches the API with the token from harar, which the VM never holds', async () => {
     await mkdir(resolve('.tmp'), { recursive: true })
     const base = await mkdtemp(join(resolve('.tmp'), 'claude-vm-'))

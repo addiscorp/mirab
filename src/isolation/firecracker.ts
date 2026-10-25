@@ -268,8 +268,17 @@ export async function startFirecracker(
   const fc: ChildProcess = spawn(cfg.firecracker, ['--api-sock', apiSock], {
     stdio: ['ignore', serial.fd, serial.fd],
   })
+  // A VM never outlives mirab, however mirab leaves (as vz's helper stops
+  // when its input closes).
+  const onExit = () => {
+    try {
+      fc.kill('SIGKILL')
+    } catch {}
+  }
+  process.once('exit', onExit)
   const listeners: Server[] = []
   const kill = () => {
+    process.off('exit', onExit)
     try {
       fc.kill('SIGKILL')
     } catch {}

@@ -3,8 +3,8 @@
 // scripts/build-vm-guest.sh). The release workflow builds each architecture on
 // its own runner, gzips the files, and the publish job writes the manifest:
 //
-//   bun scripts/vm-release.ts build x64 <out>     linux-x64 (Firecracker's kernel) and
-//                                                 darwin-x64 (bzImage), one x86_64 rootfs
+//   bun scripts/vm-release.ts build x64 <out>     linux-x64 (vmlinux) and darwin-x64
+//                                                 (bzImage): one kernel, one rootfs
 //   bun scripts/vm-release.ts build arm64 <out>   darwin-arm64 (Image, arm64 rootfs)
 //   scripts/build-vz-helper.sh                    mirab-vz for each Mac (macOS)
 //   gzip -n <out>/<platform>/*                    what is uploaded
@@ -15,13 +15,12 @@
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { createReadStream, existsSync } from 'node:fs'
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { createGunzip } from 'node:zlib'
 import pkg from '../package.json'
-import KERNEL from '../guest-agent/firecracker-kernel.json'
 import {
   VM_PLATFORMS,
   vmManifestSchema,
@@ -31,10 +30,7 @@ import {
 } from '../src/isolation/image'
 import { GUEST_PROTOCOL } from '../src/isolation/session'
 
-export { KERNEL }
 const ROOT = resolve(import.meta.dir, '..')
-const sha256 = (data: Uint8Array) =>
-  createHash('sha256').update(data).digest('hex')
 
 function run(argv: string[], env: Record<string, string> = {}) {
   const r = spawnSync(argv[0]!, argv.slice(1), {
@@ -46,23 +42,9 @@ function run(argv: string[], env: Record<string, string> = {}) {
     throw new Error(`${argv.join(' ')} exited ${r.status ?? r.signal}`)
 }
 
-/** Firecracker's CI kernel, checked against the pinned sha256; kept when `to` already matches. */
-export async function fetchFirecrackerKernel(to: string) {
-  if (existsSync(to) && sha256(await readFile(to)) === KERNEL.sha256) return
-  console.error(`vm: kernel ${KERNEL.url}`)
-  const res = await fetch(KERNEL.url)
-  if (!res.ok) throw new Error(`kernel download: HTTP ${res.status}`)
-  const bytes = new Uint8Array(await res.arrayBuffer())
-  if (sha256(bytes) !== KERNEL.sha256)
-    throw new Error(
-      `kernel sha256 ${sha256(bytes)} is not the pinned ${KERNEL.sha256}`,
-    )
-  await writeFile(`${to}.part`, bytes, { mode: 0o644 })
-  await rename(`${to}.part`, to)
-}
-
 /** The guest from the one recipe, into `<work>`: rootfs.ext4, the guest
- *  agent, and the vz kernel for this architecture (bzImage or Image). */
+ *  agent, and mirab's kernel for this architecture (Image on arm64; bzImage
+ *  and vmlinux from one x86_64 compile). */
 export function buildGuest(work: string) {
   run(['sh', join(ROOT, 'scripts/build-vm-guest.sh'), work])
 }
@@ -81,8 +63,7 @@ async function build(arch: 'x64' | 'arm64', out: string) {
     run(['cp', '--sparse=always', join(work, from), join(out, platform, name)])
   }
   if (arch === 'x64') {
-    await mkdir(join(out, 'linux-x64'), { recursive: true })
-    await fetchFirecrackerKernel(join(out, 'linux-x64', 'vmlinux'))
+    await take('linux-x64', 'vmlinux', 'vmlinux')
     await take('linux-x64', 'rootfs.ext4', 'rootfs.ext4')
     await take('darwin-x64', 'bzImage', 'bzImage')
     await take('darwin-x64', 'rootfs.ext4', 'rootfs.ext4')

@@ -111,7 +111,7 @@ It writes:
 
 | file | what |
 |---|---|
-| `vm/vmlinux` | Firecracker's CI kernel 5.10.245, downloaded and checked against a pinned sha256 |
+| `vm/vmlinux` | mirab's kernel (Linux 6.12.112, `guest-agent/kernel-x86_64.config`): the same compile Intel Macs boot as `bzImage` under vz |
 | `vm/rootfs.ext4` | `guest-agent/rootfs.Dockerfile` (one recipe for every platform): Ubuntu 24.04 with bash, git, curl, python3, ripgrep, Node 24, Bun and Claude Code (pinned by sha256), plus the guest agent compiled from this checkout |
 | `vm/image.json` | protocol, agent version, commit and sha256 of both files |
 
@@ -143,7 +143,7 @@ scripts/build-vm-guest.sh <dir>                       # mirab-guest-agent, rootf
 ```
 
 The x86_64 kernel must be relocatable (`CONFIG_RELOCATABLE`, in
-`guest-agent/kernel-x86_64-vz.config`): the framework places the kernel itself,
+`guest-agent/kernel-x86_64.config`): the framework places the kernel itself,
 and one built for a fixed address fails with "Internal Virtualization error"
 before it runs. Paths in `isolation.json` are absolute (`~` is not expanded).
 The build script copies files in and out of docker instead of mounting them,
@@ -169,3 +169,16 @@ needs 2. Rebuild the guest image from a mirab checkout at this version:
 
 Bump the number with any new guest op. Protocol 1 was ping, pty, put and
 exec; protocol 2 added list and get (`mirab sync`).
+
+## Live VM tests
+
+The tests that boot real VMs (`src/**/*.e2e.test.ts`) run the same way on
+both backends: point `TEST_VM_CONFIG_DIR` at a config directory whose
+`isolation.json` has a `vm` block (vz on a Mac, Firecracker on Linux).
+
+```sh
+TEST_VM_CONFIG_DIR=<dir> bun test src/dev.e2e.test.ts src/dev-sync.e2e.test.ts
+```
+
+CI runs them under Firecracker on Linux (`.github/workflows/ci.yml`, job
+`vm-linux`), with the guest built from the checkout.

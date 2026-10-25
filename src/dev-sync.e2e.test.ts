@@ -1,17 +1,17 @@
 // Live sync in a real VM: the person edits the agent on the host during a
 // `mirab dev` session and the next turn has it; what the VM writes comes back
 // at the end, and a path both changed keeps the person's version, the agent's
-// saved aside. Needs a Mac with a vz guest image described in
-// $TEST_VZ_CONFIG_DIR/isolation.json (docs/VM.md).
+// saved aside. Needs a VM guest image described in
+// $TEST_VM_CONFIG_DIR/isolation.json (docs/VM.md).
 import { describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { startDev } from './dev'
 
-const configDir = process.env.TEST_VZ_CONFIG_DIR
+const configDir = process.env.TEST_VM_CONFIG_DIR
 
-describe.skipIf(!configDir)('mirab dev live sync in a vz VM, live', () => {
+describe.skipIf(!configDir)('mirab dev live sync in a VM, live', () => {
   test('edits on the host reach the next turn, and the VM’s work comes back', async () => {
     await mkdir(resolve('.tmp'), { recursive: true })
     const base = await mkdtemp(join(resolve('.tmp'), 'live-e2e-'))

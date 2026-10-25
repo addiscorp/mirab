@@ -1,16 +1,16 @@
 // Escalation in a real VM: a host the whitelist refuses is asked for, a person
 // allows it outside the VM while the session runs, and the VM's next try goes
-// through. Needs a Mac with a vz guest image described in
-// $TEST_VZ_CONFIG_DIR/isolation.json (docs/VM.md), and the internet.
+// through. Needs a VM guest image described in
+// $TEST_VM_CONFIG_DIR/isolation.json (docs/VM.md), and the internet.
 import { describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { startVmChild } from './spawn-vm'
 import { allow, asks } from './station/escalations'
 
-const configDir = process.env.TEST_VZ_CONFIG_DIR
+const configDir = process.env.TEST_VM_CONFIG_DIR
 
-describe.skipIf(!configDir)('escalation in a vz VM, live', () => {
+describe.skipIf(!configDir)('escalation in a VM, live', () => {
   test('refused, asked for, allowed outside the VM, then reached', async () => {
     await mkdir(resolve('.tmp'), { recursive: true })
     const base = await mkdtemp(join(resolve('.tmp'), 'escalation-vm-'))

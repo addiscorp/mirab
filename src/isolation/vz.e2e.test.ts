@@ -1,6 +1,6 @@
 // The macOS vz backend against a real Virtualization.framework VM.
 // Needs a Mac with the signed helper, kernel and rootfs described in
-// $TEST_VZ_CONFIG_DIR/isolation.json (see FINDINGS.md, "macOS vz backend").
+// $TEST_VM_CONFIG_DIR/isolation.json (see FINDINGS.md, "macOS vz backend").
 import { describe, expect, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
 import {
@@ -15,7 +15,9 @@ import { loadHostConfig } from './index'
 import type { Isolation } from './session'
 import { startVz, vzNetworkState } from './vz'
 
-const configDir = process.env.TEST_VZ_CONFIG_DIR
+// The vz backend itself: only on a Mac.
+const configDir =
+  process.platform === 'darwin' ? process.env.TEST_VM_CONFIG_DIR : undefined
 
 async function run(iso: Isolation, cmd: string, env = {}) {
   const lines: string[] = []
