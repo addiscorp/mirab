@@ -148,6 +148,68 @@ imageCmd
   })
 
 imageCmd
+  .command('list')
+  .description('the agent images cached on this machine')
+  .action(async () => {
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { requireVm } = await import('./spawn-vm')
+    const { baseId, listImages } = await import('./images')
+    const vm = await requireVm(configDir, (line) => console.error(line))
+    const images = await listImages(configDir, await baseId(vm.rootfs))
+    console.log(
+      JSON.stringify(
+        images.map((i) => ({ ...i, usedAt: i.usedAt.toISOString() })),
+        null,
+        2,
+      ),
+    )
+  })
+
+imageCmd
+  .command('prune')
+  .description(
+    'remove images built on an older base, unused ones, and what stopped builds left',
+  )
+  .option('--days <n>', 'how long unused before an image goes', '30')
+  .option('--dry-run', 'say what would go, remove nothing')
+  .action(async (options: { days: string; dryRun?: boolean }) => {
+    const days = /^[1-9][0-9]*$/.test(options.days) ? Number(options.days) : NaN
+    if (!Number.isInteger(days)) {
+      console.error(
+        'mirab image prune: --days is a whole number of days, at least 1',
+      )
+      process.exitCode = 2
+      return
+    }
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { requireVm } = await import('./spawn-vm')
+    const { baseId, pruneImages } = await import('./images')
+    const vm = await requireVm(configDir, (line) => console.error(line))
+    const { removed, failed } = await pruneImages({
+      configDir,
+      currentBase: await baseId(vm.rootfs),
+      days,
+      dryRun: options.dryRun,
+    })
+    const freed = removed.reduce((sum, r) => sum + r.bytes, 0)
+    console.log(
+      JSON.stringify(
+        {
+          removed,
+          failed,
+          freedBytes: freed,
+          dryRun: Boolean(options.dryRun),
+        },
+        null,
+        2,
+      ),
+    )
+    if (failed.length) process.exitCode = 1
+  })
+
+imageCmd
   .command('update [project]')
   .description(
     "boot the agent's image, and upgrade it if apt has anything newer",
