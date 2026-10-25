@@ -11,11 +11,13 @@ import {
   mkdir,
   mkdtemp,
   open,
+  readdir,
   readFile,
   realpath,
   rename,
   rm,
   stat,
+  utimes,
   writeFile,
 } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -214,7 +216,16 @@ export async function agentImage(o: {
   const base = await baseId(o.vm.rootfs)
   const key = imageKey(base, o.packages)
   const hit = await cachedImage(o.configDir, key, base)
-  if (hit) return hit.rootfs
+  if (hit) {
+    // When it was last used, for `mirab image prune`.
+    const now = new Date()
+    await utimes(
+      join(imagesDir(o.configDir), key, 'meta.json'),
+      now,
+      now,
+    ).catch(() => {})
+    return hit.rootfs
+  }
   const packages = [...new Set(o.packages)].sort()
   o.log?.(`building the agent's image: ${packages.join(' ')}`)
   const dir = join(imagesDir(o.configDir), key)
@@ -293,4 +304,94 @@ export async function updateImage(o: {
   } finally {
     await cleanup()
   }
+}
+
+export interface ListedImage {
+  key: string
+  packages: string[]
+  /** Built on the base this mirab boots now; otherwise it is never used again. */
+  current: boolean
+  /** When it was built, updated or booted last. */
+  usedAt: Date
+  bytes: number
+}
+
+/** Bytes a file takes on disk (images are sparse), not its length. */
+async function onDisk(path: string) {
+  const st = await stat(path)
+  return st.blocks * 512
+}
+
+/** Every cached agent image, newest use first. */
+export async function listImages(
+  configDir: string,
+  currentBase: string,
+): Promise<ListedImage[]> {
+  let names: string[] = []
+  try {
+    names = await readdir(imagesDir(configDir))
+  } catch {
+    return []
+  }
+  const out: ListedImage[] = []
+  for (const key of names) {
+    if (!/^[0-9a-f]{32}$/.test(key)) continue
+    const hit = await cachedImage(configDir, key)
+    if (!hit) continue
+    const meta = await stat(join(imagesDir(configDir), key, 'meta.json'))
+    out.push({
+      key,
+      packages: hit.meta.packages,
+      current: hit.meta.base === currentBase,
+      usedAt: meta.mtime,
+      bytes: await onDisk(hit.rootfs),
+    })
+  }
+  return out.sort((a, b) => b.usedAt.getTime() - a.usedAt.getTime())
+}
+
+/**
+ * What `mirab image prune` removes: images built on a base this mirab no
+ * longer boots (after an upgrade they are never used again), images unused
+ * for `days`, and what a build left behind a day or more ago. A VM boots
+ * from its own copy, so removing an image never touches one that is running.
+ */
+export async function pruneImages(o: {
+  configDir: string
+  currentBase: string
+  days: number
+  dryRun?: boolean
+  now?: Date
+}): Promise<{ removed: { key: string; why: string; bytes: number }[] }> {
+  const now = (o.now ?? new Date()).getTime()
+  const removed: { key: string; why: string; bytes: number }[] = []
+  for (const image of await listImages(o.configDir, o.currentBase)) {
+    const idle = (now - image.usedAt.getTime()) / 86_400_000
+    const why = !image.current
+      ? 'built on an older base'
+      : idle >= o.days
+        ? `unused for ${Math.floor(idle)} days`
+        : undefined
+    if (!why) continue
+    removed.push({ key: image.key, why, bytes: image.bytes })
+    if (!o.dryRun)
+      await rm(join(imagesDir(o.configDir), image.key), {
+        recursive: true,
+        force: true,
+      })
+  }
+  // Scratch from a build that never finished: only once it is a day old, so
+  // a build under way now keeps its own.
+  let names: string[] = []
+  try {
+    names = await readdir(imagesDir(o.configDir))
+  } catch {}
+  for (const name of names.filter((n) => n.startsWith('.vm-'))) {
+    const path = join(imagesDir(o.configDir), name)
+    const st = await stat(path).catch(() => undefined)
+    if (!st || now - st.mtimeMs < 86_400_000) continue
+    removed.push({ key: name, why: 'left by a build that stopped', bytes: 0 })
+    if (!o.dryRun) await rm(path, { recursive: true, force: true })
+  }
+  return { removed }
 }

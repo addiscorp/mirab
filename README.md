@@ -119,9 +119,11 @@ Ubuntu base image the first time it runs, then cached:
 ```sh
 mirab image build     # build the agent's image now (mirab dev does it on first use)
 mirab image update    # boot it, and upgrade it if apt has anything newer
+mirab image list      # the images cached on this machine
+mirab image prune     # remove ones on an older base, unused 30 days, or left by a stopped build
 ```
 
-Both happen in a mirab VM whose only way out is the station, with only
+Building and updating happen in a mirab VM whose only way out is the station, with only
 Ubuntu's mirrors on its whitelist, over HTTPS. An update keeps the image
 before it, for rollback. The same on macOS and Linux.
 

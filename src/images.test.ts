@@ -1,5 +1,26 @@
 import { expect, test } from 'bun:test'
-import { imageKey, upgradesIn } from './images'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { defineAgent } from './agent/define'
+import {
+  baseId,
+  cachedImage,
+  keep,
+  type ImageMeta,
+  imageKey,
+  imagesDir,
+  listImages,
+  pruneImages,
+  upgradesIn,
+} from './images'
 
 test("an image's key is its base and its package list, order and repeats aside", () => {
   const a = imageKey('base-1', ['jq', 'git', 'jq'])
@@ -22,11 +43,6 @@ test("a dry-run upgrade's Inst lines are the packages it would upgrade", () => {
   expect(upgradesIn(lines)).toEqual(['libc6', 'openssl'])
   expect(upgradesIn(['0 upgraded, 0 newly installed'])).toEqual([])
 })
-
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { defineAgent } from './agent/define'
-import { baseId, cachedImage, keep, type ImageMeta } from './images'
 
 test("package names apt can't read as anything but a package", () => {
   const agent = (packages: string[]) => () =>
@@ -116,5 +132,73 @@ test('a base changed in place, same size and time, is a new base', async () => {
     expect(await cachedImage(dir, 'k', await baseId(file))).toBeUndefined()
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('prune removes images on an older base, unused ones and stale scratch, and nothing else', async () => {
+  mkdirSync(resolve('.tmp'), { recursive: true })
+  const configDir = mkdtempSync(join(resolve('.tmp'), 'prune-'))
+  const now = new Date('2026-10-25T12:00:00Z')
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000)
+  const image = (key: string, base: string, used: Date) => {
+    const dir = join(imagesDir(configDir), key)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'rootfs.ext4'), Buffer.alloc(8192, 1))
+    writeFileSync(
+      join(dir, 'meta.json'),
+      JSON.stringify({
+        key,
+        packages: ['jq'],
+        base,
+        builtAt: '',
+        updatedAt: '',
+        upgraded: [],
+      }),
+    )
+    utimesSync(join(dir, 'meta.json'), used, used)
+    return dir
+  }
+  try {
+    const fresh = image('a'.repeat(32), 'base-now', daysAgo(1))
+    const idle = image('b'.repeat(32), 'base-now', daysAgo(40))
+    const old = image('c'.repeat(32), 'base-before', daysAgo(2))
+    const stale = join(imagesDir(configDir), '.vm-stale')
+    const building = join(imagesDir(configDir), '.vm-now')
+    mkdirSync(stale)
+    mkdirSync(building)
+    utimesSync(stale, daysAgo(2), daysAgo(2))
+    utimesSync(building, now, now)
+    // Not an image: never touched.
+    mkdirSync(join(imagesDir(configDir), 'notes'))
+    expect(
+      (await listImages(configDir, 'base-now')).map((i) => [
+        i.key[0],
+        i.current,
+      ]),
+    ).toEqual([
+      ['a', true],
+      ['c', false],
+      ['b', true],
+    ])
+    const dry = await pruneImages({
+      configDir,
+      currentBase: 'base-now',
+      days: 30,
+      dryRun: true,
+      now,
+    })
+    expect(dry.removed.map((r) => r.why)).toEqual([
+      'built on an older base',
+      'unused for 40 days',
+      'left by a build that stopped',
+    ])
+    expect(existsSync(old) && existsSync(idle) && existsSync(stale)).toBe(true)
+    await pruneImages({ configDir, currentBase: 'base-now', days: 30, now })
+    expect(existsSync(fresh)).toBe(true)
+    expect(existsSync(building)).toBe(true)
+    expect(existsSync(join(imagesDir(configDir), 'notes'))).toBe(true)
+    expect(existsSync(old) || existsSync(idle) || existsSync(stale)).toBe(false)
+  } finally {
+    rmSync(configDir, { recursive: true, force: true })
   }
 })
