@@ -276,16 +276,14 @@ jobs:
           # Every guest image file too, against vm/manifest.json.
           curl -fsSL "$base/vm/manifest.json" -o vm.json
           cmp vm.json "release/${VERSION}/vm/manifest.json"
-          python3 - "$base" <<'PY'
-          import hashlib, json, sys, urllib.request
-          base = sys.argv[1]
-          m = json.load(open("vm.json"))
-          for platform, roles in m["platforms"].items():
-              for role, e in roles.items():
-                  data = urllib.request.urlopen(f"{base}/vm/{e['file']}").read()
-                  assert hashlib.sha256(data).hexdigest() == e["sha256"], f"{e['file']} does not match"
-          print("every guest image file matches vm/manifest.json")
-          PY
+          # curl, like a customer's installer and mirab itself (Cloudflare turns
+          # away Python's default user agent).
+          python3 -c "import json; m=json.load(open('vm.json')); [print(e['file'], e['sha256']) for r in m['platforms'].values() for e in r.values()]" |
+            while read -r file want; do
+              got="$(curl -fsSL "$base/vm/$file" | sha256sum | cut -d' ' -f1)"
+              [ "$want" = "$got" ] || { echo "::error::vm/$file served from R2 does not match vm/manifest.json"; exit 1; }
+            done
+          echo "every guest image file matches vm/manifest.json"
       - name: Point canary.json at it
         run: |
           VERSION="${{ needs.resolve.outputs.version }}"
