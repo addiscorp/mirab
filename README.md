@@ -93,7 +93,10 @@ the agent's VM:
 mirab escalations              # what agents asked for
 mirab allow api.stripe.com     # yes: the running station lets it through at once
 mirab dismiss api.stripe.com   # no
+mirab revoke api.stripe.com --agent gg.addis.agent.ops   # take a yes back
 ```
+
+Quote wildcards so the shell leaves them alone: `mirab allow '*.example.com'`.
 
 A yes goes into that agent's allow file in `~/.config/mirab/allow/`. To
 keep it, add the host to `domains` in `agent/agent.ts`, so it lives in git.

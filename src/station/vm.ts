@@ -9,7 +9,7 @@ import { EGRESS_GUEST_PORT, EGRESS_HOST_PORT } from '../isolation/vz'
 import { stationAuthority } from './ca'
 import type { StationConfig } from './config'
 import { auditor, lookupAll, startEgress, type Route } from './egress'
-import { allowedFor, recordAsk } from './escalations'
+import { asker, grants } from './escalations'
 import { hararGet } from './harar'
 import { startIntercept, type Intercept, type Upstream } from './intercept'
 import { Placeholders, referencesIn, type Secrets } from './secrets'
@@ -97,6 +97,9 @@ export async function vmStation(o: {
       NODE_EXTRA_CA_CERTS: GUEST_CA,
     })
   }
+  // Escalation: asks recorded sparingly, grants read when they change.
+  const asked = asker(o.configDir, o.agent)
+  const granted = grants(o.configDir, o.agent)
   return {
     env,
     notes,
@@ -109,8 +112,8 @@ export async function vmStation(o: {
           routes: o.routes,
           auditLog: o.auditLog,
           intercept,
-          granted: () => allowedFor(o.configDir, o.agent),
-          asked: (host) => recordAsk(o.configDir, o.agent, host),
+          granted,
+          asked,
         }),
       )
       if (!authority) return
