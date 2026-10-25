@@ -14,7 +14,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { domainProblem } from '../agent/define'
 
 /** New hosts one agent may ask for per minute; the rest are refused without a record. */
@@ -232,6 +232,11 @@ export function revoke(configDir: string, agent: string, host: string) {
 // reference alone gives an agent nothing: the person grants each secret to
 // each agent once, here, outside the VM (`mirab secrets allow`), and harar
 // still decides where it may go.
+
+/** Whose grants a session in `project` uses: the folder on this machine,
+ *  never a name the agent's own code gives. One function for mirab dev,
+ *  spawn --vm and the commands that grant. */
+export const projectAgent = (project: string) => `project:${resolve(project)}`
 
 const SECRET_PATH = /^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$/
 

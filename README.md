@@ -103,7 +103,7 @@ the agent's VM:
 mirab escalations              # what agents asked for
 mirab allow api.stripe.com     # yes: the running station lets it through at once
 mirab dismiss api.stripe.com   # no
-mirab revoke api.stripe.com --agent gg.addis.agent.ops   # take a yes back
+mirab revoke api.stripe.com --agent project:$PWD   # take a yes back (a project is its folder)
 ```
 
 Quote wildcards so the shell leaves them alone: `mirab allow '*.example.com'`.
@@ -144,13 +144,15 @@ At a primary, that's a role's `send` permission
 approved like any widening. A secret harar lets go nowhere isn't given to the VM.
 
 A `.env` comes with whatever repo you cloned, so a reference alone gives an
-agent nothing: you let each agent use each secret once, here, never in its VM.
-`mirab dev` and `mirab spawn --vm` print the exact line when one is missing:
+agent nothing: you let each project use each secret once, here, never in its
+VM. A project is its folder on this machine, never the name its agent gives.
+`mirab dev` and `mirab spawn --vm` print the exact line when one is missing;
+in the project's folder it's just:
 
 ```sh
-mirab secrets allow prod/shop/STRIPE_KEY --agent gg.addis.agent.ops
-mirab secrets list --agent gg.addis.agent.ops
-mirab secrets revoke prod/shop/STRIPE_KEY --agent gg.addis.agent.ops
+mirab secrets allow prod/shop/STRIPE_KEY
+mirab secrets list
+mirab secrets revoke prod/shop/STRIPE_KEY
 ```
 
 In the VM, `STRIPE_KEY` is a placeholder, new every session. Programs run

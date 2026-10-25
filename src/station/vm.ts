@@ -63,7 +63,7 @@ export async function vmStation(o: {
   const wanted = [...references].filter(([name, secret]) => {
     if (allowedSecrets.has(secret)) return true
     notes.push(
-      `${name} names harar://${secret}, which ${o.agent} hasn't been allowed: mirab secrets allow ${secret} --agent ${o.agent} (here, never in the VM); the VM doesn't get it`,
+      `${name} names harar://${secret}, which ${o.agent} hasn't been allowed: mirab secrets allow ${secret} --agent '${o.agent}' (here, never in the VM); the VM doesn't get it`,
     )
     return false
   })
@@ -110,7 +110,10 @@ export async function vmStation(o: {
     values.delete(key)
     while (values.size >= MAX_VALUES) values.delete(values.keys().next().value!)
     const v = hararSend(o.station.harar.socket, secret, host)
-    v.catch(() => values.delete(key))
+    // A failure goes, but only if nothing newer took its place.
+    v.catch(() => {
+      if (values.get(key)?.value === v) values.delete(key)
+    })
     values.set(key, { value: v, until: Date.now() + VALUE_TTL_MS })
     return v
   }

@@ -69,7 +69,7 @@ test('a VM gets a placeholder only for a secret its agent was allowed and harar 
       const notes = station.notes.join('\n')
       expect(notes).toContain("station.json's secrets are ignored now")
       expect(notes).toContain(
-        `mirab secrets allow personal/bank/TOKEN --agent ${AGENT}`,
+        `mirab secrets allow personal/bank/TOKEN --agent '${AGENT}'`,
       )
       expect(notes).toContain('prod/shop/NOWHERE, which harar lets go nowhere')
       expect(notes).toContain("hosts the station can't open, left out: API.bad")
@@ -106,5 +106,37 @@ test('secret grants are per agent, only harar paths, and revocable', async () =>
     )
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('in a project folder, mirab secrets grants to the name mirab dev and spawn --vm look up', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const { projectAgent } = await import('./escalations')
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const base = await mkdtemp(join(resolve('.tmp'), 'grant-cli-'))
+  const project = join(base, 'project')
+  await mkdir(project)
+  try {
+    const run = (...args: string[]) =>
+      spawnSync(
+        'bun',
+        [resolve('src/mirab.ts'), '--config-dir', base, 'secrets', ...args],
+        {
+          cwd: project,
+          encoding: 'utf8',
+        },
+      )
+    expect(run('allow', 'prod/shop/STRIPE_KEY').status).toBe(0)
+    expect(secretGrants(base, projectAgent(project))).toEqual([
+      'prod/shop/STRIPE_KEY',
+    ])
+    expect(JSON.parse(run('list').stdout).secrets).toEqual([
+      'prod/shop/STRIPE_KEY',
+    ])
+    expect(run('allow', '../x').status).toBe(2)
+    expect(run('revoke', 'prod/shop/STRIPE_KEY').status).toBe(0)
+    expect(secretGrants(base, projectAgent(project))).toEqual([])
+  } finally {
+    await rm(base, { recursive: true, force: true })
   }
 })

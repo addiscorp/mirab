@@ -332,46 +332,50 @@ secretsCmd
   .description(
     "let an agent use a harar secret (run it here, never in the agent's VM)",
   )
-  .requiredOption('--agent <name>', 'an agent name, or project:<path>')
-  .action(async (secret: string, opts: { agent: string }) => {
-    const { allowSecret, secretsPath } = await import('./station/escalations')
+  .option('--agent <name>', 'whose: project:<path> (default: the project here)')
+  .action(async (secret: string, opts: { agent?: string }) => {
+    const { allowSecret, projectAgent, secretsPath } =
+      await import('./station/escalations')
+    const agent = opts.agent ?? projectAgent('.')
     try {
-      allowSecret(configDirOf(), opts.agent, secret)
+      allowSecret(configDirOf(), agent, secret)
     } catch (e) {
       console.error(`mirab secrets allow: ${(e as Error).message}`)
       process.exitCode = 2
       return
     }
     console.log(
-      `${opts.agent} may now use harar://${secret} (${secretsPath(configDirOf(), opts.agent)}), on the hosts harar allows it: harar hosts list ${secret}`,
+      `${agent} may now use harar://${secret} (${secretsPath(configDirOf(), agent)}), on the hosts harar allows it: harar hosts list ${secret}`,
     )
   })
 
 secretsCmd
   .command('revoke <secret>')
   .description('take back a secret from an agent, from its next session')
-  .requiredOption('--agent <name>', 'an agent name, or project:<path>')
-  .action(async (secret: string, opts: { agent: string }) => {
-    const { revokeSecret } = await import('./station/escalations')
+  .option('--agent <name>', 'whose: project:<path> (default: the project here)')
+  .action(async (secret: string, opts: { agent?: string }) => {
+    const { projectAgent, revokeSecret } = await import('./station/escalations')
+    const agent = opts.agent ?? projectAgent('.')
     try {
-      revokeSecret(configDirOf(), opts.agent, secret)
+      revokeSecret(configDirOf(), agent, secret)
     } catch (e) {
       console.error(`mirab secrets revoke: ${(e as Error).message}`)
       process.exitCode = 1
       return
     }
-    console.log(`${opts.agent} may no longer use harar://${secret}`)
+    console.log(`${agent} may no longer use harar://${secret}`)
   })
 
 secretsCmd
   .command('list')
   .description('the secrets an agent may use')
-  .requiredOption('--agent <name>', 'an agent name, or project:<path>')
-  .action(async (opts: { agent: string }) => {
-    const { secretGrants } = await import('./station/escalations')
+  .option('--agent <name>', 'whose: project:<path> (default: the project here)')
+  .action(async (opts: { agent?: string }) => {
+    const { projectAgent, secretGrants } = await import('./station/escalations')
+    const agent = opts.agent ?? projectAgent('.')
     console.log(
       JSON.stringify(
-        { agent: opts.agent, secrets: secretGrants(configDirOf(), opts.agent) },
+        { agent, secrets: secretGrants(configDirOf(), agent) },
         null,
         2,
       ),
