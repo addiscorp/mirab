@@ -88,7 +88,7 @@ export function spawnCommands(
     )
     .option(
       '--vm',
-      'run the agent inside a VM: Firecracker on Linux (shipped with mirab), Multipass on macOS and Windows (made on first use; vz on macOS when isolation.json sets up vm)',
+      'run the agent inside a VM: vz on macOS, Firecracker on Linux (each with its image fetched on first use), Multipass on Windows',
     )
     .option(
       '--config-dir <path>',
