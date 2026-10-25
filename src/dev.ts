@@ -13,7 +13,7 @@ import { agentImage } from './images'
 import { liveSync, type LiveSync } from './dev-sync'
 import { describeSync, hostManifest, syncBack } from './isolation/sync'
 import type { PtyHandle } from './isolation/session'
-import { guestEnvironment, requireVm } from './spawn-vm'
+import { finishVmSync, guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
 import type { StationConfig } from './station/config'
 import type { Upstream } from './station/intercept'
@@ -136,8 +136,9 @@ export async function startDev(o: {
     )
   const vm = await requireVm(o.configDir, o.log)
   const loop = await guestLoop()
+  let vmDir = ''
   const boot = async (rootfs: string) => {
-    const vmDir = await mkdtemp(join(await privateSessionsDirectory(), 'dev-'))
+    vmDir = await mkdtemp(join(await privateSessionsDirectory(), 'dev-'))
     // No network of its own: the station is the only way out. The VM works on
     // a clone of the project; nothing it writes comes back.
     const vmIso = await startVm(
@@ -201,28 +202,34 @@ export async function startDev(o: {
     })
     const live = liveSync({ project, iso, baseline, log: o.log })
     const close = async () => {
-      live.stop()
+      // The agent stops first, so what comes back is what it finished; a
+      // push under way ends before sync-back starts.
+      pty.close()
+      await live.stop()
       // What the agent changed comes back; where the person changed the same
-      // path, theirs stays and the agent's is saved aside.
+      // path, theirs stays and the agent's is saved aside. Anything that
+      // couldn't come back keeps the VM's disk for recovery.
       try {
-        const synced = await syncBack({
-          root: project,
-          guestRoot: '/workspace',
-          files: iso.files!,
-          baseline,
-          conflictDir: join(
-            await privateSessionsDirectory(),
-            `${zone}.conflicts`,
-          ),
-        })
+        const synced = await finishVmSync(
+          () =>
+            syncBack({
+              root: project,
+              guestRoot: '/workspace',
+              files: iso.files!,
+              baseline,
+              conflictDir: join(vmDir, 'conflicts'),
+            }),
+          iso,
+          vmDir,
+          (line) => o.log?.(line),
+        )
         o.log?.(`back from the VM: ${describeSync(synced)}`)
       } catch (e) {
         o.log?.(
-          `the agent's changes couldn't come back: ${(e as Error).message}`,
+          `the agent's changes couldn't all come back: ${(e as Error).message}`,
         )
       }
       await closeStation()
-      await iso.close()
     }
     return { pty, iso, zone, close, live }
   } catch (e) {

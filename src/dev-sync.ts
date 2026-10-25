@@ -7,8 +7,7 @@
 // the host and the agent's comes back as a conflict at the end (sync.ts),
 // never silently overwritten either way. Host Git metadata is never pushed.
 import { watch, type FSWatcher } from 'node:fs'
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { AnchoredDirectory } from './isolation/anchored-fs'
 import type { Isolation } from './isolation/session'
 import {
   hostManifest,
@@ -25,7 +24,9 @@ const GUEST_ROOT = '/workspace'
 export interface LiveSync {
   /** Pushes whatever changed now (also what the watcher calls). */
   push(): Promise<{ pushed: string[]; kept: string[] }>
-  stop(): void
+  /** Stops watching and waits for a push under way, so sync-back never
+   *  runs beside one. */
+  stop(): Promise<void>
 }
 
 export function liveSync(o: {
@@ -34,10 +35,14 @@ export function liveSync(o: {
   /** The tree as the VM got it; updated as paths are pushed (sync-back reads it). */
   baseline: Manifest
   log?: (line: string) => void
+  /** Off: only `push()` pushes (tests drive it by hand). */
+  watch?: boolean
 }): LiveSync {
-  let host = new Map(o.baseline)
+  // What the host had when each path was last looked at.
+  const host = new Map(o.baseline)
   let running: Promise<{ pushed: string[]; kept: string[] }> | undefined
   let again = false
+  let stopped = false
   const run = async (argv: string[]) => {
     const code = await o.iso.exec(argv, {
       cwd: GUEST_ROOT,
@@ -49,6 +54,9 @@ export function liveSync(o: {
     if (code !== 0) throw new Error(`${argv[0]} exited ${code}`)
   }
   const once = async () => {
+    const pushed: string[] = []
+    const kept: string[] = []
+    if (stopped) return { pushed, kept }
     const next = await hostManifest(o.project)
     const changed = [...new Set([...host.keys(), ...next.keys()])].filter(
       (p) =>
@@ -56,12 +64,19 @@ export function liveSync(o: {
         validPath(p) &&
         !protectedMetadata(p),
     )
-    const pushed: string[] = []
-    const kept: string[] = []
     if (!changed.length) return { pushed, kept }
     const guest: Manifest = new Map(
       (await o.iso.files!.list(GUEST_ROOT)).map((e) => [e.p, e]),
     )
+    /** The agent changed `p`, or anything under it. */
+    const agentTouched = (p: string) => {
+      if (!sameEntry(guest.get(p), o.baseline.get(p))) return true
+      const under = `${p}/`
+      for (const q of new Set([...guest.keys(), ...o.baseline.keys()]))
+        if (q.startsWith(under) && !sameEntry(guest.get(q), o.baseline.get(q)))
+          return true
+      return false
+    }
     // Deletions deepest first, then directories and files parents first.
     const order = [
       ...changed
@@ -70,72 +85,117 @@ export function liveSync(o: {
         .reverse(),
       ...changed.filter((p) => next.has(p)).sort(),
     ]
-    for (const p of order) {
-      const now = next.get(p)
-      if (!sameEntry(guest.get(p), o.baseline.get(p))) {
-        // The agent changed it too: the person's version waits on the host.
-        kept.push(p)
-        continue
+    const root = AnchoredDirectory.open(o.project)
+    try {
+      for (const p of order) {
+        const now = next.get(p)
+        if (now) host.set(p, now)
+        else host.delete(p)
+        const was = guest.get(p)
+        // Removing a directory, or one of a different kind in the way,
+        // would take whatever the agent made inside it.
+        const removes = !now || (was && was.k !== now.k)
+        if (agentTouched(p) || now?.k === 'l') {
+          // The agent changed it too (the person's version waits on the
+          // host for sync-back), or it is a link, which stays as the VM has
+          // it until then.
+          kept.push(p)
+          continue
+        }
+        const at = `${GUEST_ROOT}/${p}`
+        try {
+          let entry = now
+          if (removes && was) await run(['rm', '-rf', '--', at])
+          if (now?.k === 'd') {
+            await run(['mkdir', '-p', '--', at])
+            await run(['chmod', (now.m & 0o777).toString(8), '--', at])
+          } else if (now?.k === 'f') {
+            // Read through the anchored root (never a link), and record the
+            // bytes that went, not the ones listed a moment before.
+            const parent = root.parent(p)
+            let read
+            try {
+              read = parent.read(p.split('/').at(-1)!, p)
+            } finally {
+              if (parent !== root) parent.close()
+            }
+            if (!read) throw new Error('it changed while it was read')
+            entry = read.entry
+            await o.iso.put(at, read.data, read.entry.m & 0o777)
+            await run(['chmod', (read.entry.m & 0o777).toString(8), '--', at])
+            host.set(p, read.entry)
+          }
+          if (entry) o.baseline.set(p, entry)
+          else o.baseline.delete(p)
+          pushed.push(p)
+        } catch (e) {
+          // One path that can't go doesn't hold up the rest; the next edit
+          // tries again, and sync-back settles it at the end.
+          host.delete(p)
+          kept.push(p)
+          o.log?.(`live sync: ${p}: ${(e as Error).message}`)
+        }
       }
-      const at = `${GUEST_ROOT}/${p}`
-      if (!now) await run(['rm', '-rf', '--', at])
-      else if (now.k === 'd') await run(['mkdir', '-p', '--', at])
-      else if (now.k === 'f')
-        await o.iso.put(at, await readFile(join(o.project, p)), now.m ?? 0o644)
-      else {
-        // Links stay as the VM has them until sync-back.
-        kept.push(p)
-        continue
-      }
-      if (now) o.baseline.set(p, now)
-      else o.baseline.delete(p)
-      pushed.push(p)
+    } finally {
+      root.close()
     }
-    host = next
     if (pushed.length) o.log?.(`synced into the VM: ${pushed.join(', ')}`)
     if (kept.length)
       o.log?.(`changed in the VM too, kept on this machine: ${kept.join(', ')}`)
     return { pushed, kept }
   }
-  // One push at a time; edits during one start another after it.
-  const push = async () => {
+  // One push at a time; edits during one start another after it, even when
+  // it failed.
+  const push = () => {
     if (running) {
       again = true
       return running
     }
-    try {
+    running = (async () => {
+      let result = { pushed: [] as string[], kept: [] as string[] }
       do {
         again = false
-        running = once()
-        await running
-      } while (again)
-      return await running
-    } finally {
-      running = undefined
-    }
+        try {
+          result = await once()
+        } catch (e) {
+          if (!again || stopped) throw e
+          o.log?.(`live sync: ${(e as Error).message}`)
+        }
+      } while (again && !stopped)
+      return result
+    })().finally(() => (running = undefined))
+    return running
   }
   let timer: ReturnType<typeof setTimeout> | undefined
   let watcher: FSWatcher | undefined
   try {
-    watcher = watch(o.project, { recursive: true }, (_, name) => {
-      if (name && (name === '.git' || String(name).startsWith('.git/'))) return
-      clearTimeout(timer)
-      timer = setTimeout(
-        () =>
-          void push().catch((e) =>
-            o.log?.(`live sync: ${(e as Error).message}`),
-          ),
-        SETTLE_MS,
-      )
+    if (o.watch !== false)
+      watcher = watch(o.project, { recursive: true }, (_, name) => {
+        if (name && (name === '.git' || String(name).startsWith('.git/')))
+          return
+        clearTimeout(timer)
+        timer = setTimeout(
+          () =>
+            void push().catch((e) =>
+              o.log?.(`live sync: ${(e as Error).message}`),
+            ),
+          SETTLE_MS,
+        )
+      })
+    watcher?.on('error', (e) => {
+      o.log?.(`live sync is off: ${e.message}`)
+      watcher?.close()
     })
   } catch (e) {
     o.log?.(`live sync is off: ${(e as Error).message}`)
   }
   return {
     push,
-    stop() {
+    async stop() {
+      stopped = true
       clearTimeout(timer)
       watcher?.close()
+      await running?.catch(() => {})
     },
   }
 }

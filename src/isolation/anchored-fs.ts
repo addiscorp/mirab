@@ -206,6 +206,43 @@ export class AnchoredDirectory {
       closeSync(fd)
     }
   }
+  /** A regular file's bytes and its entry, hashed from those same bytes;
+   *  undefined when `name` is gone or is anything but a file. */
+  read(name: string, rel: string): { entry: Entry; data: Buffer } | undefined {
+    const p = cstr(name)
+    const fd = sys().openat(
+      this.fd,
+      ptr(p),
+      constants.O_RDONLY |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK |
+        CLOEXEC,
+      0,
+    )
+    if (fd < 0) return undefined
+    try {
+      const st = fstatSync(fd)
+      if (!st.isFile()) return undefined
+      const chunks: Buffer[] = []
+      const buffer = Buffer.alloc(64 * 1024)
+      let n: number
+      while ((n = readSync(fd, buffer, 0, buffer.length, null)) > 0)
+        chunks.push(Buffer.from(buffer.subarray(0, n)))
+      const data = Buffer.concat(chunks)
+      return {
+        entry: {
+          p: rel,
+          k: 'f',
+          m: st.mode & 0o7777,
+          s: data.length,
+          h: createHash('sha256').update(data).digest('hex'),
+        },
+        data,
+      }
+    } finally {
+      closeSync(fd)
+    }
+  }
   put(name: string, e: Entry, data?: Buffer, replaceDirectory = false) {
     const temp = cstr(`.mirab-sync-${randomBytes(12).toString('hex')}`),
       dest = cstr(name)

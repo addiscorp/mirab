@@ -59,6 +59,10 @@ function fakeVm(baseline: Map<string, Entry>) {
         if (argv[0] === 'rm')
           for (const key of [...files.keys()])
             if (key === p || key.startsWith(p + '/')) files.delete(key)
+        if (argv[0] === 'mkdir' && !files.has(p))
+          files.set(p, { p, k: 'd', m: 0o755 })
+        if (argv[0] === 'chmod')
+          files.set(p, { ...files.get(p)!, m: parseInt(argv[1], 8) })
         log.push(`${argv[0]} ${p}`)
         return 0
       },
@@ -75,8 +79,12 @@ test("the person's edits reach the VM; what the agent changed too, and Git, stay
   try {
     const baseline = await hostManifest(dir)
     const vm = fakeVm(baseline)
-    const live = liveSync({ project: dir, iso: vm.iso as never, baseline })
-    live.stop() // driven by hand here, not by the watcher
+    const live = liveSync({
+      project: dir,
+      iso: vm.iso as never,
+      baseline,
+      watch: false,
+    })
     writeFileSync(join(dir, 'agent/instructions.md'), 'v2\n')
     writeFileSync(join(dir, 'notes.md'), 'mine, edited\n')
     rmSync(join(dir, 'old.txt'))
@@ -95,6 +103,113 @@ test("the person's edits reach the VM; what the agent changed too, and Git, stay
     )
     expect(baseline.has('old.txt')).toBe(false)
     // Nothing new: nothing pushed.
+    expect((await live.push()).pushed).toEqual([])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a directory the person removes stays in the VM while the agent has work in it', async () => {
+  const dir = project()
+  try {
+    mkdirSync(join(dir, 'src/old'), { recursive: true })
+    writeFileSync(join(dir, 'src/old/a.ts'), 'a\n')
+    const baseline = await hostManifest(dir)
+    const vm = fakeVm(baseline)
+    const live = liveSync({
+      project: dir,
+      iso: vm.iso as never,
+      baseline,
+      watch: false,
+    })
+    vm.agentWrites('src/old/new.ts', 'the agent made this\n')
+    rmSync(join(dir, 'src/old'), { recursive: true })
+    const { pushed, kept } = await live.push()
+    // a.ts was the person's alone: it goes. The directory holds the agent's file: it stays.
+    expect(pushed).toEqual(['src/old/a.ts'])
+    expect(kept).toEqual(['src/old'])
+    expect(vm.files.has('src/old/new.ts')).toBe(true)
+    expect(vm.files.has('src/old/a.ts')).toBe(false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a new directory gets the person's mode, a file can become a directory, and one bad path holds up nothing", async () => {
+  const dir = project()
+  try {
+    const baseline = await hostManifest(dir)
+    const vm = fakeVm(baseline)
+    const failing = {
+      ...vm.iso,
+      put: async (
+        path: string,
+        content: string | Uint8Array,
+        mode?: number,
+      ) => {
+        if (path.endsWith('/b-broken.txt')) throw new Error('the VM refused it')
+        return vm.iso.put(path, content, mode)
+      },
+    }
+    const live = liveSync({
+      project: dir,
+      iso: failing as never,
+      baseline,
+      watch: false,
+    })
+    mkdirSync(join(dir, 'scripts'), { mode: 0o700 })
+    rmSync(join(dir, 'old.txt'))
+    mkdirSync(join(dir, 'old.txt'))
+    writeFileSync(join(dir, 'b-broken.txt'), 'b\n')
+    writeFileSync(join(dir, 'c.txt'), 'c\n')
+    const first = await live.push()
+    expect(first.pushed.sort()).toEqual(['c.txt', 'old.txt', 'scripts'])
+    expect(first.kept).toEqual(['b-broken.txt'])
+    expect(vm.files.get('scripts')?.m).toBe(0o700)
+    expect(vm.files.get('old.txt')?.k).toBe('d')
+    // The directory matches its baseline, so a file in it is the person's to push.
+    writeFileSync(join(dir, 'scripts/run.sh'), 'echo\n')
+    expect((await live.push()).pushed).toContain('scripts/run.sh')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('stop waits for a push under way, and nothing pushes after it', async () => {
+  const dir = project()
+  try {
+    const baseline = await hostManifest(dir)
+    const vm = fakeVm(baseline)
+    let release = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    const slow = {
+      ...vm.iso,
+      put: async (
+        path: string,
+        content: string | Uint8Array,
+        mode?: number,
+      ) => {
+        await gate
+        return vm.iso.put(path, content, mode)
+      },
+    }
+    const live = liveSync({
+      project: dir,
+      iso: slow as never,
+      baseline,
+      watch: false,
+    })
+    writeFileSync(join(dir, 'notes.md'), 'v2\n')
+    const pushing = live.push()
+    await Bun.sleep(20)
+    let stopped = false
+    const stopping = live.stop().then(() => (stopped = true))
+    await Bun.sleep(20)
+    expect(stopped).toBe(false)
+    release()
+    await stopping
+    expect((await pushing).pushed).toEqual(['notes.md'])
+    writeFileSync(join(dir, 'notes.md'), 'v3\n')
     expect((await live.push()).pushed).toEqual([])
   } finally {
     rmSync(dir, { recursive: true, force: true })
