@@ -69,10 +69,13 @@ export function liveSync(o: {
       (await o.iso.files!.list(GUEST_ROOT)).map((e) => [e.p, e]),
     )
     /** The agent changed `p`, or anything under it. */
+    const paths = [...new Set([...guest.keys(), ...o.baseline.keys()])]
     const agentTouched = (p: string) => {
       if (!sameEntry(guest.get(p), o.baseline.get(p))) return true
+      // Only a directory has anything under it.
+      if (guest.get(p)?.k !== 'd' && o.baseline.get(p)?.k !== 'd') return false
       const under = `${p}/`
-      for (const q of new Set([...guest.keys(), ...o.baseline.keys()]))
+      for (const q of paths)
         if (q.startsWith(under) && !sameEntry(guest.get(q), o.baseline.get(q)))
           return true
       return false
@@ -89,6 +92,7 @@ export function liveSync(o: {
     try {
       for (const p of order) {
         const now = next.get(p)
+        const before = host.get(p)
         if (now) host.set(p, now)
         else host.delete(p)
         const was = guest.get(p)
@@ -131,7 +135,8 @@ export function liveSync(o: {
         } catch (e) {
           // One path that can't go doesn't hold up the rest; the next edit
           // tries again, and sync-back settles it at the end.
-          host.delete(p)
+          if (before) host.set(p, before)
+          else host.delete(p)
           kept.push(p)
           o.log?.(`live sync: ${p}: ${(e as Error).message}`)
         }

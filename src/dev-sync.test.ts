@@ -215,3 +215,30 @@ test('stop waits for a push under way, and nothing pushes after it', async () =>
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('a deletion that fails is tried again on the next pass', async () => {
+  const dir = project()
+  try {
+    const baseline = await hostManifest(dir)
+    const vm = fakeVm(baseline)
+    let refuse = true
+    const flaky = {
+      ...vm.iso,
+      exec: async (argv: string[]) =>
+        argv[0] === 'rm' && refuse ? 1 : vm.iso.exec(argv),
+    }
+    const live = liveSync({
+      project: dir,
+      iso: flaky as never,
+      baseline,
+      watch: false,
+    })
+    rmSync(join(dir, 'old.txt'))
+    expect((await live.push()).kept).toEqual(['old.txt'])
+    refuse = false
+    expect((await live.push()).pushed).toEqual(['old.txt'])
+    expect(vm.files.has('old.txt')).toBe(false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

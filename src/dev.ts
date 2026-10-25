@@ -200,12 +200,20 @@ export async function startDev(o: {
       cols: o.cols,
       rows: o.rows,
     })
+    const exited = new Promise<void>((r) => pty.onExit(() => r()))
     const live = liveSync({ project, iso, baseline, log: o.log })
     const close = async () => {
       // The agent stops first, so what comes back is what it finished; a
       // push under way ends before sync-back starts.
-      pty.close()
+      try {
+        pty.close()
+      } catch {}
+      await Promise.race([exited, Bun.sleep(5_000)])
       await live.stop()
+      const conflictDir = join(
+        await privateSessionsDirectory(),
+        `${zone}.conflicts`,
+      )
       // What the agent changed comes back; where the person changed the same
       // path, theirs stays and the agent's is saved aside. Anything that
       // couldn't come back keeps the VM's disk for recovery.
@@ -217,7 +225,7 @@ export async function startDev(o: {
               guestRoot: '/workspace',
               files: iso.files!,
               baseline,
-              conflictDir: join(vmDir, 'conflicts'),
+              conflictDir,
             }),
           iso,
           vmDir,
