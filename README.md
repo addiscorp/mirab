@@ -62,9 +62,11 @@ the key:
 }
 ```
 
-For now `mirab dev` starts from the project as it is: restart it to pick up
-edits (a VM boots in well under a second). What the agent writes in its VM
-stays there. The agent's files run only in its VM, never on this machine:
+While `mirab dev` runs, what you save reaches the agent's VM, and the agent
+picks up edits to `agent/` before its next turn, keeping the conversation.
+When the session ends, what the agent changed comes back to your project. If
+you both changed the same file, yours stays and the agent's is saved aside,
+never merged and never silently dropped. Your `.git` is never touched. The agent's files run only in its VM, never on this machine:
 the manifest is read there and checked here. The VM can spend the model key
 on its route (that is what the route is for), but never read it.
 

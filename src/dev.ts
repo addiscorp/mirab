@@ -10,6 +10,8 @@ import { MANIFEST_LINE } from './agent/guest'
 import { parseManifest, type Manifest } from './agent/manifest'
 import { startVm, type Isolation, type VmConfig } from './isolation'
 import { agentImage } from './images'
+import { liveSync, type LiveSync } from './dev-sync'
+import { describeSync, hostManifest, syncBack } from './isolation/sync'
 import type { PtyHandle } from './isolation/session'
 import { guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
@@ -43,6 +45,8 @@ export interface Dev {
   iso: Isolation
   /** The zone this VM is, in the station's audit log. */
   zone: string
+  /** The person's edits into the VM as they save. */
+  live: LiveSync
   close(): Promise<void>
 }
 
@@ -150,6 +154,8 @@ export async function startDev(o: {
     }
     return vmIso
   }
+  // What the VM starts from: the baseline live sync and sync-back compare against.
+  const baseline = await hostManifest(project)
   let iso = await boot(vm.rootfs)
   let closeStation = async () => {}
   try {
@@ -193,11 +199,32 @@ export async function startDev(o: {
       cols: o.cols,
       rows: o.rows,
     })
+    const live = liveSync({ project, iso, baseline, log: o.log })
     const close = async () => {
+      live.stop()
+      // What the agent changed comes back; where the person changed the same
+      // path, theirs stays and the agent's is saved aside.
+      try {
+        const synced = await syncBack({
+          root: project,
+          guestRoot: '/workspace',
+          files: iso.files!,
+          baseline,
+          conflictDir: join(
+            await privateSessionsDirectory(),
+            `${zone}.conflicts`,
+          ),
+        })
+        o.log?.(`back from the VM: ${describeSync(synced)}`)
+      } catch (e) {
+        o.log?.(
+          `the agent's changes couldn't come back: ${(e as Error).message}`,
+        )
+      }
       await closeStation()
       await iso.close()
     }
-    return { pty, iso, zone, close }
+    return { pty, iso, zone, close, live }
   } catch (e) {
     await closeStation()
     await iso.close().catch(() => {})

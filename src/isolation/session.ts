@@ -35,7 +35,11 @@ export interface Isolation {
   readonly label: string
   /** Host path of the job work directory -> where the guest sees it. */
   guestPath(hostPath: string): string
-  put(hostPath: string, content: string, mode?: number): Promise<void>
+  put(
+    hostPath: string,
+    content: string | Uint8Array,
+    mode?: number,
+  ): Promise<void>
   /** Run a step; resolves with its exit code (124 timeout, 130 cancelled). */
   exec(argv: string[], options: ExecOptions): Promise<number>
   /** Interactive program on a guest pty (spawn --vm). */
@@ -200,7 +204,7 @@ export function checkGuestProtocol(hello: GuestHello, image: string) {
 export async function guestPut(
   open: Opener,
   path: string,
-  content: string,
+  content: string | Uint8Array,
   mode = 0o600,
 ) {
   await converse<true>(
