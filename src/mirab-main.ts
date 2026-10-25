@@ -178,6 +178,87 @@ imageCmd
     )
   })
 
+// ---------- escalations: what agents asked for, and a person's answer ----------
+
+const configDirOf = () =>
+  program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+
+/** The agent whose ask `host` is: the one given, or the only one that asked. */
+async function askFor(host: string, agent?: string) {
+  const { asks } = await import('./station/escalations')
+  if (agent) return agent
+  const askers = asks(configDirOf()).filter((ask) => ask.host === host)
+  if (askers.length === 1) return askers[0].agent
+  throw Error(
+    askers.length
+      ? `${host} was asked for by ${askers.map((a) => a.agent).join(', ')}: say which with --agent`
+      : `nothing asked for ${host}; give --agent to allow it anyway`,
+  )
+}
+
+program
+  .command('escalations')
+  .description(
+    'hosts agents asked for that their whitelist refused, most asked first',
+  )
+  .action(async () => {
+    const { asks } = await import('./station/escalations')
+    const shown = asks(configDirOf()).map((ask) => ({
+      ...ask,
+      host: ask.host.length > 80 ? `${ask.host.slice(0, 77)}...` : ask.host,
+      // Punycode can look like a familiar name once a browser shows it.
+      ...(ask.host.split('.').some((label) => label.startsWith('xn--'))
+        ? { warning: 'punycode name: check what it spells' }
+        : {}),
+    }))
+    console.log(JSON.stringify(shown, null, 2))
+  })
+
+const hostArg = (host: string) => host.toLowerCase().replace(/\.$/, '')
+
+program
+  .command('allow <host>')
+  .description(
+    "let an agent reach a host it asked for (run it here, never in the agent's VM; quote wildcards: '*.example.com')",
+  )
+  .option('--agent <name>', 'whose ask: an agent name, or project:<path>')
+  .action(async (host: string, opts: { agent?: string }) => {
+    const { allow, allowPath } = await import('./station/escalations')
+    const name = hostArg(host)
+    const agent = await askFor(name, opts.agent)
+    allow(configDirOf(), agent, name)
+    console.log(
+      `${agent} may now reach ${name}, for every session it runs (${allowPath(configDirOf(), agent)}); mirab revoke ${name} takes it back. To keep it in git, add '${name}' to domains in agent/agent.ts`,
+    )
+  })
+
+program
+  .command('dismiss <host>')
+  .description('say no to an ask: it is dropped, and the host stays refused')
+  .option('--agent <name>', 'whose ask: an agent name, or project:<path>')
+  .action(async (host: string, opts: { agent?: string }) => {
+    const { dismiss } = await import('./station/escalations')
+    const name = hostArg(host)
+    const agent = await askFor(name, opts.agent)
+    dismiss(configDirOf(), agent, name)
+    console.log(`dismissed ${agent}'s ask for ${name}`)
+  })
+
+program
+  .command('revoke <host>')
+  .description(
+    'take back a yes: the host is refused again from the next connection',
+  )
+  .requiredOption(
+    '--agent <name>',
+    'whose grant: an agent name, or project:<path>',
+  )
+  .action(async (host: string, opts: { agent: string }) => {
+    const { revoke } = await import('./station/escalations')
+    revoke(configDirOf(), opts.agent, hostArg(host))
+    console.log(`${opts.agent} may no longer reach ${hostArg(host)}`)
+  })
+
 // A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
 // anything else here (an option, a mistyped command) never does.
 program.action(async () => {

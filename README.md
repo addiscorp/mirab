@@ -83,6 +83,24 @@ station as its API. The station swaps in your token on the way to
 telemetry and updates are off, and anything else it tries goes through the
 station's whitelist and audit log. One person's token, on their own machine.
 
+## When an agent asks for more
+
+A host that isn't in an agent's `domains` is refused, and the station
+records the ask on this machine. You decide in your own terminal, never in
+the agent's VM:
+
+```sh
+mirab escalations              # what agents asked for
+mirab allow api.stripe.com     # yes: the running station lets it through at once
+mirab dismiss api.stripe.com   # no
+mirab revoke api.stripe.com --agent gg.addis.agent.ops   # take a yes back
+```
+
+Quote wildcards so the shell leaves them alone: `mirab allow '*.example.com'`.
+
+A yes goes into that agent's allow file in `~/.config/mirab/allow/`. To
+keep it, add the host to `domains` in `agent/agent.ts`, so it lives in git.
+
 ## Packages
 
 An agent's `packages` (apt names, in `agent.ts`) are installed on mirab's

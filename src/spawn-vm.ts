@@ -299,6 +299,7 @@ export async function startVmChild(opts: {
         auditLog: opts.station.auditLog,
         routes: claude ? { claude } : {},
         allow: [],
+        agent: `project:${opts.cwd}`,
         upstream: opts.station.opened,
       })
       for (const note of station.notes) opts.log?.(note)

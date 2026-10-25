@@ -270,7 +270,7 @@ composable userspace with live `switch` and rollback.
 | The way out of a VM: whitelist, routes, keys for any service (section 5) | Built (#13, #15, #23, #25) |
 | Per-agent images from `packages`, cached, updated by booting (section 5b) | Built (#28) |
 | The Nix front end for the manifest (section 5a) | After that |
-| Escalation as harar approvals | After harar#45 |
+| Escalation: refused hosts asked for, allowed outside the VM (`mirab escalations`, `allow`) | Built (#33); as harar approvals for a station on an org primary, next |
 | Station as a harar broker, `station install`, `up` | Phase 2 (needs harar's approvals and broker protocol) |
 | Channels to apps | Phase 3 (needs harar's apps and channels) |
 
