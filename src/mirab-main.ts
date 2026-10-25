@@ -174,9 +174,11 @@ imageCmd
   .option('--days <n>', 'how long unused before an image goes', '30')
   .option('--dry-run', 'say what would go, remove nothing')
   .action(async (options: { days: string; dryRun?: boolean }) => {
-    const days = Number(options.days)
-    if (!Number.isFinite(days) || days < 0) {
-      console.error('mirab image prune: --days is a number of days')
+    const days = /^[1-9][0-9]*$/.test(options.days) ? Number(options.days) : NaN
+    if (!Number.isInteger(days)) {
+      console.error(
+        'mirab image prune: --days is a whole number of days, at least 1',
+      )
       process.exitCode = 2
       return
     }
@@ -185,7 +187,7 @@ imageCmd
     const { requireVm } = await import('./spawn-vm')
     const { baseId, pruneImages } = await import('./images')
     const vm = await requireVm(configDir, (line) => console.error(line))
-    const { removed } = await pruneImages({
+    const { removed, failed } = await pruneImages({
       configDir,
       currentBase: await baseId(vm.rootfs),
       days,
@@ -194,11 +196,17 @@ imageCmd
     const freed = removed.reduce((sum, r) => sum + r.bytes, 0)
     console.log(
       JSON.stringify(
-        { removed, freedBytes: freed, dryRun: Boolean(options.dryRun) },
+        {
+          removed,
+          failed,
+          freedBytes: freed,
+          dryRun: Boolean(options.dryRun),
+        },
         null,
         2,
       ),
     )
+    if (failed.length) process.exitCode = 1
   })
 
 imageCmd

@@ -283,6 +283,8 @@ export async function updateImage(o: {
     const upgraded = upgradesIn(await run(iso, ['apt-get', '-s', 'upgrade']))
     if (!upgraded.length) {
       await iso.close()
+      const now = new Date()
+      await utimes(join(dir, 'meta.json'), now, now).catch(() => {})
       return { rootfs: hit.rootfs, upgraded }
     }
     o.log?.(`upgrading: ${upgraded.join(' ')}`)
@@ -316,11 +318,23 @@ export interface ListedImage {
   bytes: number
 }
 
-/** Bytes a file takes on disk (images are sparse), not its length. */
-async function onDisk(path: string) {
-  const st = await stat(path)
-  return st.blocks * 512
+/** Bytes on disk (images are sparse), not length: an image and the copy an update keeps (`previous.rootfs.ext4`), counted
+ *  once where they are still the same file. */
+async function imageBytes(dir: string) {
+  const now = await stat(join(dir, 'rootfs.ext4'))
+  const before = await stat(join(dir, 'previous.rootfs.ext4')).catch(
+    () => undefined,
+  )
+  return (
+    now.blocks * 512 +
+    (before && before.ino !== now.ino ? before.blocks * 512 : 0)
+  )
 }
+
+const DAY_MS = 86_400_000
+/** Used this recently, an image is never removed: a `mirab dev` that just
+ *  found it in the cache may be about to boot it. */
+const IN_USE_MS = 60 * 60 * 1000
 
 /** Every cached agent image, newest use first. */
 export async function listImages(
@@ -336,16 +350,21 @@ export async function listImages(
   const out: ListedImage[] = []
   for (const key of names) {
     if (!/^[0-9a-f]{32}$/.test(key)) continue
-    const hit = await cachedImage(configDir, key)
-    if (!hit) continue
-    const meta = await stat(join(imagesDir(configDir), key, 'meta.json'))
-    out.push({
-      key,
-      packages: hit.meta.packages,
-      current: hit.meta.base === currentBase,
-      usedAt: meta.mtime,
-      bytes: await onDisk(hit.rootfs),
-    })
+    const dir = join(imagesDir(configDir), key)
+    try {
+      const hit = await cachedImage(configDir, key)
+      if (!hit) continue
+      const meta = await stat(join(dir, 'meta.json'))
+      out.push({
+        key,
+        packages: hit.meta.packages,
+        current: hit.meta.base === currentBase,
+        usedAt: meta.mtime,
+        bytes: await imageBytes(dir),
+      })
+    } catch {
+      // Gone, or going, as it was read: not one to list.
+    }
   }
   return out.sort((a, b) => b.usedAt.getTime() - a.usedAt.getTime())
 }
@@ -353,8 +372,11 @@ export async function listImages(
 /**
  * What `mirab image prune` removes: images built on a base this mirab no
  * longer boots (after an upgrade they are never used again), images unused
- * for `days`, and what a build left behind a day or more ago. A VM boots
- * from its own copy, so removing an image never touches one that is running.
+ * for `days` (at least one), and what a build left behind a day or more ago:
+ * scratch and an image directory that never got as far as its meta.json. An
+ * image used in the last hour always stays, and a VM boots from its own copy,
+ * so a running one is never touched. One that can't be removed is reported,
+ * and the rest go on.
  */
 export async function pruneImages(o: {
   configDir: string
@@ -362,36 +384,63 @@ export async function pruneImages(o: {
   days: number
   dryRun?: boolean
   now?: Date
-}): Promise<{ removed: { key: string; why: string; bytes: number }[] }> {
+}): Promise<{
+  removed: { key: string; why: string; bytes: number }[]
+  failed: { key: string; error: string }[]
+}> {
+  if (!Number.isInteger(o.days) || o.days < 1)
+    throw new Error('days is a whole number, at least 1')
   const now = (o.now ?? new Date()).getTime()
   const removed: { key: string; why: string; bytes: number }[] = []
-  for (const image of await listImages(o.configDir, o.currentBase)) {
-    const idle = (now - image.usedAt.getTime()) / 86_400_000
+  const failed: { key: string; error: string }[] = []
+  const remove = async (key: string, why: string, bytes: number) => {
+    try {
+      if (!o.dryRun)
+        await rm(join(imagesDir(o.configDir), key), {
+          recursive: true,
+          force: true,
+        })
+      removed.push({ key, why, bytes })
+    } catch (e) {
+      failed.push({ key, error: (e as Error).message })
+    }
+  }
+  const images = await listImages(o.configDir, o.currentBase)
+  for (const image of images) {
+    // Looked at again just before it goes: a use since the list keeps it.
+    const meta = await stat(
+      join(imagesDir(o.configDir), image.key, 'meta.json'),
+    ).catch(() => undefined)
+    if (!meta || now - meta.mtimeMs < IN_USE_MS) continue
+    const idle = (now - meta.mtimeMs) / DAY_MS
     const why = !image.current
       ? 'built on an older base'
       : idle >= o.days
         ? `unused for ${Math.floor(idle)} days`
         : undefined
-    if (!why) continue
-    removed.push({ key: image.key, why, bytes: image.bytes })
-    if (!o.dryRun)
-      await rm(join(imagesDir(o.configDir), image.key), {
-        recursive: true,
-        force: true,
-      })
+    if (why) await remove(image.key, why, image.bytes)
   }
-  // Scratch from a build that never finished: only once it is a day old, so
-  // a build under way now keeps its own.
+  // What a build left: scratch, and an image's directory that never got its
+  // meta.json; only once a day old, so a build under way keeps its own.
+  const listed = new Set(images.map((i) => i.key))
   let names: string[] = []
   try {
     names = await readdir(imagesDir(o.configDir))
   } catch {}
-  for (const name of names.filter((n) => n.startsWith('.vm-'))) {
-    const path = join(imagesDir(o.configDir), name)
-    const st = await stat(path).catch(() => undefined)
-    if (!st || now - st.mtimeMs < 86_400_000) continue
-    removed.push({ key: name, why: 'left by a build that stopped', bytes: 0 })
-    if (!o.dryRun) await rm(path, { recursive: true, force: true })
+  for (const name of names) {
+    const leftover =
+      name.startsWith('.vm-') ||
+      (/^[0-9a-f]{32}$/.test(name) &&
+        !listed.has(name) &&
+        !(await stat(join(imagesDir(o.configDir), name, 'meta.json')).catch(
+          () => undefined,
+        )))
+    if (!leftover) continue
+    const st = await stat(join(imagesDir(o.configDir), name)).catch(
+      () => undefined,
+    )
+    if (!st || now - st.mtimeMs < DAY_MS) continue
+    await remove(name, 'left by a build that stopped', 0)
   }
-  return { removed }
+  return { removed, failed }
 }

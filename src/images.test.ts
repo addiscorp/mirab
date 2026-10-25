@@ -170,12 +170,26 @@ test('prune removes images on an older base, unused ones and stale scratch, and 
     utimesSync(building, now, now)
     // Not an image: never touched.
     mkdirSync(join(imagesDir(configDir), 'notes'))
+    // A first build that stopped before its meta.json, and one under way now.
+    const stopped = join(imagesDir(configDir), 'd'.repeat(32))
+    const underWay = join(imagesDir(configDir), 'e'.repeat(32))
+    mkdirSync(stopped)
+    mkdirSync(underWay)
+    utimesSync(stopped, daysAgo(3), daysAgo(3))
+    utimesSync(underWay, now, now)
+    // Just found in the cache by a mirab dev about to boot it, even on an old base.
+    const justUsed = image(
+      'f'.repeat(32),
+      'base-before',
+      new Date(now.getTime() - 60_000),
+    )
     expect(
       (await listImages(configDir, 'base-now')).map((i) => [
         i.key[0],
         i.current,
       ]),
     ).toEqual([
+      ['f', false],
       ['a', true],
       ['c', false],
       ['b', true],
@@ -187,17 +201,25 @@ test('prune removes images on an older base, unused ones and stale scratch, and 
       dryRun: true,
       now,
     })
-    expect(dry.removed.map((r) => r.why)).toEqual([
-      'built on an older base',
-      'unused for 40 days',
-      'left by a build that stopped',
+    expect(dry.removed.map((r) => [r.key[0], r.why])).toEqual([
+      ['c', 'built on an older base'],
+      ['b', 'unused for 40 days'],
+      ['d', 'left by a build that stopped'],
+      ['.', 'left by a build that stopped'],
     ])
+    expect(dry.failed).toEqual([])
     expect(existsSync(old) && existsSync(idle) && existsSync(stale)).toBe(true)
     await pruneImages({ configDir, currentBase: 'base-now', days: 30, now })
     expect(existsSync(fresh)).toBe(true)
     expect(existsSync(building)).toBe(true)
     expect(existsSync(join(imagesDir(configDir), 'notes'))).toBe(true)
     expect(existsSync(old) || existsSync(idle) || existsSync(stale)).toBe(false)
+    expect(existsSync(stopped)).toBe(false)
+    expect(existsSync(underWay) && existsSync(justUsed)).toBe(true)
+    // Zero days would take everything: refused.
+    await expect(
+      pruneImages({ configDir, currentBase: 'base-now', days: 0, now }),
+    ).rejects.toThrow('at least 1')
   } finally {
     rmSync(configDir, { recursive: true, force: true })
   }
