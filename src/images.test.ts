@@ -22,3 +22,99 @@ test("a dry-run upgrade's Inst lines are the packages it would upgrade", () => {
   expect(upgradesIn(lines)).toEqual(['libc6', 'openssl'])
   expect(upgradesIn(['0 upgraded, 0 newly installed'])).toEqual([])
 })
+
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { defineAgent } from './agent/define'
+import { baseId, cachedImage, keep, type ImageMeta } from './images'
+
+test("package names apt can't read as anything but a package", () => {
+  const agent = (packages: string[]) => () =>
+    defineAgent({ name: 'gg.addis.agent.ops', model: 'anthropic/x', packages })
+  expect(agent(['ripgrep', 'g++', 'libc6-dev', 'python3.12'])).not.toThrow()
+  for (const bad of ['bash-', '-o', 'APT::Get', 'jq=1.7', 'jq/noble', 'a b'])
+    expect(agent([bad])).toThrow('package')
+})
+
+const meta = (upgraded: string[]): ImageMeta => ({
+  key: 'k',
+  packages: ['jq'],
+  base: 'b',
+  builtAt: 't',
+  updatedAt: 't',
+  upgraded,
+})
+
+/** A VM that only pretends: close({ keepRoot }) writes `disk` there. */
+function fakeVm(disk: string, fail = false) {
+  const ran: string[][] = []
+  return {
+    ran,
+    exec: async (argv: string[]) => (ran.push(argv), 0),
+    close: async (options?: { keepRoot?: string }) => {
+      if (options?.keepRoot) await writeFile(options.keepRoot, disk)
+      if (fail) throw new Error('stopped badly')
+    },
+  }
+}
+
+test('keeping a disk replaces the image in one step and keeps the one before', async () => {
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const dir = await mkdtemp(join(resolve('.tmp'), 'keep-'))
+  try {
+    await writeFile(join(dir, 'rootfs.ext4'), 'old')
+    const vm = fakeVm('new')
+    await keep(vm as any, dir, meta(['zlib1g']))
+    expect(await readFile(join(dir, 'rootfs.ext4'), 'utf8')).toBe('new')
+    expect(await readFile(join(dir, 'previous.rootfs.ext4'), 'utf8')).toBe(
+      'old',
+    )
+    expect(
+      JSON.parse(await readFile(join(dir, 'meta.json'), 'utf8')).upgraded,
+    ).toEqual(['zlib1g'])
+    // The build's proxy setting is gone before the disk is kept.
+    expect(vm.ran[0].join(' ')).toContain(
+      'rm -f /etc/apt/apt.conf.d/90mirab-station',
+    )
+    // A VM that stops badly leaves the image as it was, and no partial file.
+    await expect(
+      keep(fakeVm('broken', true) as any, dir, meta([])),
+    ).rejects.toThrow('stopped badly')
+    expect(await readFile(join(dir, 'rootfs.ext4'), 'utf8')).toBe('new')
+    const { readdirSync } = await import('node:fs')
+    expect(readdirSync(dir).sort()).toEqual([
+      'meta.json',
+      'previous.rootfs.ext4',
+      'rootfs.ext4',
+    ])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a base changed in place, same size and time, is a new base', async () => {
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const dir = await mkdtemp(join(resolve('.tmp'), 'base-'))
+  try {
+    const file = join(dir, 'rootfs.ext4')
+    await writeFile(file, 'aaaa')
+    const { utimes } = await import('node:fs/promises')
+    await utimes(file, 1000, 1000)
+    const first = await baseId(file)
+    await writeFile(file, 'bbbb')
+    await utimes(file, 1000, 1000)
+    expect(await baseId(file)).not.toBe(first)
+    // And a cached image built on another base is a miss.
+    const img = join(dir, 'images', 'k')
+    await mkdir(img, { recursive: true })
+    await writeFile(join(img, 'rootfs.ext4'), 'x')
+    await writeFile(
+      join(img, 'meta.json'),
+      JSON.stringify({ ...meta([]), base: first }),
+    )
+    expect(await cachedImage(dir, 'k', first)).toBeDefined()
+    expect(await cachedImage(dir, 'k', await baseId(file))).toBeUndefined()
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})

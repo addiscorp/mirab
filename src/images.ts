@@ -7,8 +7,10 @@
 // disk, and the one apt ran in is the one kept.
 import { createHash } from 'node:crypto'
 import {
+  link,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   realpath,
   rename,
@@ -54,12 +56,21 @@ export interface ImageMeta {
 
 export const imagesDir = (configDir: string) => join(configDir, 'images')
 
-/** The base image, by what can be read without hashing 3 GB: where it is, its
- *  size and when it was written. A new base is a new key. */
+/** The base image: where it is, its size, when it was written, and a hash of
+ *  its first 4 MB (the filesystem's superblock and early blocks), without
+ *  reading all 3 GB. A new base is a new key. */
 export async function baseId(rootfs: string): Promise<string> {
   const path = await realpath(rootfs)
   const st = await stat(path)
-  return `${path}:${st.size}:${Math.floor(st.mtimeMs)}`
+  const handle = await open(path, 'r')
+  try {
+    const head = Buffer.alloc(Math.min(st.size, 4 * 1024 * 1024))
+    await handle.read(head, 0, head.length, 0)
+    const sum = createHash('sha256').update(head).digest('hex').slice(0, 16)
+    return `${path}:${st.size}:${Math.floor(st.mtimeMs)}:${sum}`
+  } finally {
+    await handle.close()
+  }
 }
 
 /** The cache key: the base and the package list, order and repeats aside. */
@@ -79,12 +90,15 @@ export interface CachedImage {
 export async function cachedImage(
   configDir: string,
   key: string,
+  base?: string,
 ): Promise<CachedImage | undefined> {
   const dir = join(imagesDir(configDir), key)
   try {
     const meta = JSON.parse(
       await readFile(join(dir, 'meta.json'), 'utf8'),
     ) as ImageMeta
+    // Built on another base (a key collision, or a base changed in place): a miss.
+    if (base !== undefined && meta.base !== base) return undefined
     const rootfs = join(dir, 'rootfs.ext4')
     await stat(rootfs)
     return { rootfs, meta }
@@ -94,7 +108,11 @@ export async function cachedImage(
 }
 
 /** Runs one command as root in the VM; a failure carries the end of its output. */
-async function run(iso: Isolation, argv: string[], log?: (l: string) => void) {
+async function run(
+  iso: Pick<Isolation, 'exec'>,
+  argv: string[],
+  log?: (l: string) => void,
+) {
   const lines: string[] = []
   const code = await iso.exec(argv, {
     cwd: '/',
@@ -154,18 +172,35 @@ async function bootForApt(o: {
 
 /** Stops the VM and keeps its root disk as the image in `dir`, moving any
  *  image there now aside as the previous one. */
-async function keep(
-  iso: Isolation,
+export async function keep(
+  iso: Pick<Isolation, 'exec' | 'close'>,
   dir: string,
   meta: ImageMeta,
 ): Promise<string> {
-  await run(iso, ['sync'])
-  const part = join(dir, `rootfs.ext4.${process.pid}.${Date.now()}`)
-  await iso.close({ keepRoot: part })
+  // The station's proxy is only for building; sessions use their own station.
+  await run(iso, [
+    'sh',
+    '-c',
+    'rm -f /etc/apt/apt.conf.d/90mirab-station && sync',
+  ])
+  const tag = `${process.pid}.${Date.now()}`
+  const part = join(dir, `rootfs.ext4.${tag}`)
+  try {
+    await iso.close({ keepRoot: part })
+  } catch (e) {
+    await rm(part, { force: true })
+    throw e
+  }
+  // The new image is whole before anything moves: the old one is kept by a
+  // second name, then replaced in one rename, so there is always an image.
   const rootfs = join(dir, 'rootfs.ext4')
-  await rename(rootfs, join(dir, 'previous.rootfs.ext4')).catch(() => {})
+  const previous = join(dir, 'previous.rootfs.ext4')
+  const metaPart = join(dir, `meta.json.${tag}`)
+  await writeFile(metaPart, JSON.stringify(meta, null, 2) + '\n')
+  await rm(previous, { force: true })
+  await link(rootfs, previous).catch(() => {})
   await rename(part, rootfs)
-  await writeFile(join(dir, 'meta.json'), JSON.stringify(meta, null, 2) + '\n')
+  await rename(metaPart, join(dir, 'meta.json'))
   return rootfs
 }
 
@@ -178,7 +213,7 @@ export async function agentImage(o: {
 }): Promise<string> {
   const base = await baseId(o.vm.rootfs)
   const key = imageKey(base, o.packages)
-  const hit = await cachedImage(o.configDir, key)
+  const hit = await cachedImage(o.configDir, key, base)
   if (hit) return hit.rootfs
   const packages = [...new Set(o.packages)].sort()
   o.log?.(`building the agent's image: ${packages.join(' ')}`)
@@ -228,7 +263,7 @@ export async function updateImage(o: {
 }): Promise<{ rootfs: string; upgraded: string[] }> {
   const base = await baseId(o.vm.rootfs)
   const key = imageKey(base, o.packages)
-  const hit = await cachedImage(o.configDir, key)
+  const hit = await cachedImage(o.configDir, key, base)
   if (!hit) return { rootfs: await agentImage(o), upgraded: [] }
   const dir = join(imagesDir(o.configDir), key)
   const { iso, cleanup } = await bootForApt({ ...o, rootfs: hit.rootfs, key })

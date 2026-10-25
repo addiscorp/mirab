@@ -346,7 +346,13 @@ export async function startFirecracker(
       ...vsockMembers(open, uds, work, listeners),
       close: async (options) => {
         for (const l of listeners) l.close()
+        const exited =
+          fc.exitCode !== null || fc.signalCode !== null
+            ? Promise.resolve()
+            : new Promise<void>((r) => fc.once('exit', () => r()))
         kill()
+        // Its disk is only taken once Firecracker is gone.
+        await Promise.race([exited, wait(5000)])
         await serial.close()
         await rm(sockDir, { recursive: true, force: true })
         if (options?.keepRoot) await rename(root, options.keepRoot)
