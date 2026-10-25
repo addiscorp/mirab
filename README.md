@@ -66,8 +66,16 @@ While `mirab dev` runs, what you save reaches the agent's VM, and the agent
 picks up edits to `agent/` before its next turn, keeping the conversation.
 When the session ends, what the agent changed comes back to your project. If
 you both changed the same file, yours stays and the agent's is saved aside,
-never merged and never silently dropped. Your `.git` is never touched. The agent's files run only in its VM, never on this machine:
-the manifest is read there and checked here. The VM can spend the model key
+never merged and never silently dropped. Your `.git` is never touched.
+
+The chat is a channel the station hosts, between you and the agent, and it
+stays on this machine (`~/.mirab/sessions/channels`, readable only by
+you). `mirab dev` prints its id when it starts. In it you are `station.json`'s
+`human` (your harar name, like `gg.addis.human.sami`), or your login in the
+agent's org until you set one. Later the same chat can live in an app.
+
+The agent's files run only in its VM, never on this machine: the manifest is
+read there and checked here. The VM can spend the model key
 on its route (that is what the route is for), but never read it.
 
 mirab runs on [Bun](https://bun.sh), and so do the agents it makes (their

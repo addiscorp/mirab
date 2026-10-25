@@ -71,23 +71,33 @@ describe.skipIf(!configDir)('mirab dev in a vz VM, live', () => {
       auditLog,
       upstream: api.url.origin,
     })
+    // What the VM printed, raw, and what the agent said in the chat.
     let screen = ''
     dev.pty.onData((d) => (screen += d.toString()))
-    const exited = new Promise<number>((r) => dev.pty.onExit(r))
+    const said: string[] = []
+    dev.channel.onMessage((m) => {
+      if (m.from === dev.agent) said.push(m.note ? `(${m.text})` : m.text)
+    })
     const until = async (text: string) => {
-      for (let i = 0; i < 300 && !screen.includes(text); i++)
+      for (let i = 0; i < 300 && !said.some((s) => s.includes(text)); i++)
         await Bun.sleep(50)
-      expect(screen).toContain(text)
+      expect(said.join('\n')).toContain(text)
     }
     try {
-      await until('you> ')
-      dev.pty.write('hello\r')
-      await until('ops> real key: true')
+      await until('is here')
+      dev.say('hello')
+      await until('real key: true')
       expect(asked).toEqual(['personal/anthropic/API_KEY'])
       expect(keys).toEqual(['sk-real-from-harar'])
-      // Ctrl-D ends the chat, and the loop with it.
-      dev.pty.write('\x04')
-      expect(await exited).toBe(0)
+      // The chat is the station's channel: both members, and it keeps what was said.
+      expect(dev.channel.members.map((m) => m.name)).toEqual([
+        dev.person,
+        'gg.addis.agent.ops',
+      ])
+      const transcript = await readFile(dev.channel.path, 'utf8')
+      expect(transcript).toContain('"text":"hello"')
+      expect(transcript).toContain('real key: true')
+      expect(transcript).not.toContain('sk-real')
       expect(await readFile(auditLog, 'utf8')).not.toContain('sk-real')
       expect(screen).not.toContain('sk-real')
       // The host never ran the project's code.

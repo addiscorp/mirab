@@ -83,8 +83,14 @@ grants nothing else, and a message is untrusted input.
 - What an agent may *do* comes only from its harar grants, never from what a
   channel says. A request in a channel that needs more pauses for a person's
   approval, signed on their device.
-- gild's mention bridge (`src/spawn-bridge.ts`) is where this starts: it types
-  a channel's @mentions into the agent today, against gild's forge (#2).
+- The chat in `mirab dev` is the first: a channel the station hosts
+  (`src/channel`), its messages kept on the machine, with two members, the
+  person (`station.json` `human`) and the agent. The terminal is one client
+  of it and the agent loop in the VM another, one JSON line each way on the
+  guest pty (`src/channel/wire.ts`). An app's channel takes the station's
+  place, with the same messages.
+- gild's mention bridge (`src/spawn-bridge.ts`) types a channel's @mentions
+  into the agent today, against gild's forge (#2).
 
 ## 5. The way out of a VM
 

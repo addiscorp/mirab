@@ -25,7 +25,7 @@ const KINDS = new Set([
 /** Why `name` isn't a harar name of `kind` (`<org>.<kind>.<local>`), or null. */
 export function nameProblem(
   name: string,
-  kind: 'agent' | 'channel',
+  kind: 'agent' | 'channel' | 'human',
   example: string,
 ): string | null {
   if (name.length > 253) return 'is longer than 253 characters'
@@ -45,6 +45,11 @@ export function nameProblem(
 /** Why `name` isn't an agent name (`<org>.agent.<local>`, harar's rules), or null. */
 export function agentNameProblem(name: string): string | null {
   return nameProblem(name, 'agent', 'gg.addis.agent.ops')
+}
+
+/** Why `name` isn't a human's harar name (`<org>.human.<local>`), or null. */
+export function humanNameProblem(name: string): string | null {
+  return nameProblem(name, 'human', 'gg.addis.human.sami')
 }
 
 const agentName = z.string().superRefine((name, ctx) => {

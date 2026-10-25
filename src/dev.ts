@@ -1,12 +1,22 @@
 // `mirab dev`: the agent in a project, running in its own VM on this
 // machine (docs/architecture.md section 3). The VM has no network of its own;
 // its only way out is the station, which lets it reach the manifest's
-// `domains` and adds the model key from harar on the host. The person's
-// terminal is the agent loop's pty in the guest.
+// `domains` and adds the model key from harar on the host. The chat is a
+// channel the station hosts (src/channel): the terminal is one client of it,
+// the agent loop in the guest another.
 import { randomBytes } from 'node:crypto'
+import { userInfo } from 'node:os'
+import { clearLine, createInterface, cursorTo } from 'node:readline'
 import { mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { MANIFEST_LINE } from './agent/guest'
+import { bridgeAgent } from './channel/bridge'
+import {
+  openChannel,
+  type LocalChannel,
+  type Member,
+  type Message,
+} from './channel/local'
 import { parseManifest, type Manifest } from './agent/manifest'
 import { startVm, type Isolation, type VmConfig } from './isolation'
 import { agentImage } from './images'
@@ -47,7 +57,31 @@ export interface Dev {
   zone: string
   /** The person's edits into the VM as they save. */
   live: LiveSync
+  /** The chat: a channel the station hosts, between the person and the agent. */
+  channel: LocalChannel
+  /** The person's and the agent's member names. */
+  person: string
+  agent: string
+  /** Says `text` in the channel as the person. */
+  say(text: string): Message
   close(): Promise<void>
+}
+
+/** The person at this terminal, as a channel member: `station.json`'s
+ *  `human`, or this login in the agent's org, which nothing has vouched for. */
+export function personMember(
+  station: StationConfig,
+  org: string,
+  login = userInfo().username,
+): Member {
+  if (station.human) return { name: station.human, can: 'speak' }
+  const local =
+    login
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 63) || 'person'
+  return { name: `${org}.human.${local}`, can: 'speak', unverified: true }
 }
 
 /** Reads the manifest the guest printed; the host trusts only what the schema allows. */
@@ -178,6 +212,13 @@ export async function startDev(o: {
       iso = await boot(rootfs)
     }
     const zone = devZone(manifest.name)
+    const org = manifest.name.replace(/\.agent\.[^.]+$/, '')
+    const person = personMember(o.station, org)
+    const channel = openChannel({
+      dir: join(await privateSessionsDirectory(), 'channels'),
+      org,
+      members: [person, { name: manifest.name, can: 'speak' }],
+    })
     const station = await vmStation({
       project,
       station: o.station,
@@ -201,6 +242,12 @@ export async function startDev(o: {
       rows: o.rows,
     })
     const exited = new Promise<void>((r) => pty.onExit(() => r()))
+    const unbridge = bridgeAgent({
+      channel,
+      agent: manifest.name,
+      pty,
+      log: o.log,
+    })
     const live = liveSync({ project, iso, baseline, log: o.log })
     const close = async () => {
       // The agent stops first, so what comes back is what it finished; a
@@ -209,6 +256,7 @@ export async function startDev(o: {
         pty.close()
       } catch {}
       await Promise.race([exited, Bun.sleep(5_000)])
+      unbridge()
       await live.stop()
       const conflictDir = join(
         await privateSessionsDirectory(),
@@ -239,7 +287,17 @@ export async function startDev(o: {
       }
       await closeStation()
     }
-    return { pty, iso, zone, close, live }
+    return {
+      pty,
+      iso,
+      zone,
+      close,
+      live,
+      channel,
+      person: person.name,
+      agent: manifest.name,
+      say: (text) => channel.post(person.name, text),
+    }
   } catch (e) {
     await closeStation()
     await iso.close().catch(() => {})
@@ -247,51 +305,87 @@ export async function startDev(o: {
   }
 }
 
-/** Handled while mirab dev runs: Ctrl-C before the terminal is raw (the VM is
- *  still starting), and being told to stop. The VM is closed either way. */
+/** Handled while mirab dev runs: being told to stop. The VM is closed either way. */
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
 
-/** Ctrl-]: leaves mirab dev from the host, whatever the guest is doing. */
-export const ESCAPE = 0x1d
+/**
+ * The chat in a terminal: one client of its channel. What the person types is
+ * said as them; what the agent says is shown. Ctrl-D, or input that ends,
+ * ends the chat once everything said is answered; Ctrl-C leaves at once.
+ */
+export function terminalChat(
+  d: Pick<Dev, 'channel' | 'person' | 'agent' | 'say'> & {
+    pty: Pick<PtyHandle, 'onExit'>
+  },
+  input: NodeJS.ReadableStream & { isTTY?: boolean },
+  out: NodeJS.WritableStream,
+): { done: Promise<number>; leave(code: number): void } {
+  let leave: (code: number) => void = () => {}
+  const done = new Promise<number>((r) => (leave = r))
+  const local = d.agent.split('.').at(-1)
+  const tty = Boolean(input.isTTY)
+  const chat = createInterface({
+    input,
+    output: out,
+    prompt: 'you> ',
+    terminal: tty,
+  })
+  const waiting = new Set<string>()
+  let ending = false
+  const settle = () => ending && !waiting.size && leave(0)
+  const off = d.channel.onMessage((m) => {
+    if (m.from === d.person) return
+    if (m.answers) waiting.delete(m.answers)
+    if (tty) {
+      clearLine(out, 0)
+      cursorTo(out, 0)
+    }
+    out.write(m.note ? `(${m.text})\n` : `${local}> ${m.text}\n`)
+    if (!ending && tty) chat.prompt(true)
+    settle()
+  })
+  chat.on('line', (line) => {
+    if (line.trim())
+      try {
+        waiting.add(d.say(line).id)
+      } catch (e) {
+        out.write(`(${(e as Error).message})\n`)
+      }
+    if (!ending && tty) chat.prompt()
+  })
+  chat.on('close', () => {
+    ending = true
+    settle()
+  })
+  chat.on('SIGINT', () => leave(130))
+  d.pty.onExit(leave)
+  if (tty) chat.prompt()
+  void done.then(() => {
+    off()
+    chat.close()
+  })
+  return { done, leave: (code) => leave(code) }
+}
 
-/** `mirab dev` in a terminal: the person's keys to the guest, its output back. */
+/** `mirab dev` in a terminal. */
 export async function devInTerminal(
   options: Omit<Parameters<typeof startDev>[0], 'cols' | 'rows'>,
 ): Promise<number> {
-  const out = process.stdout
-  const input = process.stdin
-  const raw = input.isTTY
   let dev: Dev | undefined
   let leave: (code: number) => void = () => {}
-  const left = new Promise<number>((r) => (leave = r))
-  const forward = (data: Buffer) =>
-    data.includes(ESCAPE) ? leave(130) : dev?.pty.write(data)
-  const resize = () => dev?.pty.resize(out.columns || 80, out.rows || 24)
   const onSignal = () => leave(143)
-  const ended = () => dev?.pty.write('\x04')
   for (const signal of SIGNALS) process.on(signal, onSignal)
   try {
-    dev = await startDev({
-      ...options,
-      cols: out.columns || 80,
-      rows: out.rows || 24,
-    })
-    options.log?.('Ctrl-D ends the chat; Ctrl-] leaves at once.')
-    dev.pty.onData((data) => out.write(data))
-    dev.pty.onExit(leave)
-    if (raw) input.setRawMode(true)
-    input.on('data', forward)
-    // Input that ends (not a terminal) ends the chat as Ctrl-D would.
-    input.on('end', ended)
-    out.on('resize', resize)
-    return await left
+    dev = await startDev({ ...options, cols: 80, rows: 24 })
+    options.log?.(
+      `This chat is ${dev.channel.id}, kept at ${dev.channel.path}. Ctrl-D ends it; Ctrl-C leaves at once.`,
+    )
+    const chat = terminalChat(dev, process.stdin, process.stdout)
+    leave = chat.leave
+    return await chat.done
   } finally {
-    input.off('data', forward)
-    input.off('end', ended)
-    out.off('resize', resize)
     for (const signal of SIGNALS) process.off(signal, onSignal)
-    if (raw) input.setRawMode(false)
-    input.pause()
+    process.stdin.pause()
     await dev?.close()
   }
 }

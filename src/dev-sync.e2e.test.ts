@@ -63,17 +63,20 @@ describe.skipIf(!configDir)('mirab dev live sync in a vz VM, live', () => {
       upstream: api.url.origin,
       log: (line) => void logs.push(line),
     })
-    let screen = ''
-    dev.pty.onData((d) => (screen += d.toString()))
+    // What the agent said in the chat.
+    const said: string[] = []
+    dev.channel.onMessage((m) => {
+      if (m.from === dev.agent) said.push(m.note ? `(${m.text})` : m.text)
+    })
     const until = async (text: string) => {
-      for (let i = 0; i < 300 && !screen.includes(text); i++)
+      for (let i = 0; i < 300 && !said.some((s) => s.includes(text)); i++)
         await Bun.sleep(50)
-      expect(screen).toContain(text)
+      expect(said.join('\n')).toContain(text)
     }
     try {
-      await until('you> ')
-      dev.pty.write('hello\r')
-      await until('ops> turn 1')
+      await until('is here')
+      dev.say('hello')
+      await until('turn 1')
       // The person edits the agent, and a note the agent will also change.
       await dev.iso.exec(
         [
@@ -97,12 +100,11 @@ describe.skipIf(!configDir)('mirab dev live sync in a vz VM, live', () => {
       const { pushed, kept } = await dev.live.push()
       expect(pushed).toContain('agent/instructions.md')
       expect(kept).toEqual(['notes.md'])
-      dev.pty.write('again\r')
-      await until('ops> turn 2')
+      dev.say('again')
+      await until('turn 2')
       expect(systems[0]).toContain('Be brief.')
       expect(systems[1]).toContain('Answer in French, always.')
-      expect(screen).toContain('(the agent changed; reloaded)')
-      dev.pty.write('\x04')
+      expect(said).toContain('(the agent changed; reloaded)')
     } finally {
       await dev.close()
       api.stop(true)

@@ -1,11 +1,13 @@
 // The agent loop as it runs in the VM: `bun loop.js <project>` on the guest
-// pty that `mirab dev` hands the person's terminal. The model is the
-// station's route on the guest's loopback; the key is a placeholder the
-// station replaces on the host, so nothing in the VM ever holds it.
+// pty, speaking the channel `mirab dev` opens between the person and the
+// agent (src/channel). The model is the station's route on the guest's
+// loopback; the key is a placeholder the station replaces on the host, so
+// nothing in the VM ever holds it.
 import { lstatSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ModelMessage } from 'ai'
+import { decodeToAgent, encodeFromAgent, type FromAgent } from '../channel/wire'
 import { PLACEHOLDER, guestRouteURL } from '../station/routes'
 import { loadManifest } from './manifest'
 import { loadAgent, modelFor, runTurn, type ModelEndpoint } from './runtime'
@@ -36,54 +38,68 @@ export function agentStamp(project: string): string {
   return parts.join('|')
 }
 
-/** A terminal chat with the agent in `project`, until its input ends. */
-export async function chat(
+/**
+ * The agent's side of the channel its station hosts (src/channel): a message
+ * in on `input`, one JSON line each; what the agent says out on `output`.
+ * Every message gets exactly one answer, its reply or why there is none. A
+ * message is untrusted input, and only ever the next thing said to the agent.
+ */
+export async function serve(
   project: string,
   input: NodeJS.ReadableStream,
   output: NodeJS.WritableStream,
   endpoint: ModelEndpoint = GUEST_MODEL,
 ) {
+  // On the guest pty: no echo, no line editing, the bytes as the host sent them.
+  const tty = input as NodeJS.ReadableStream & {
+    isTTY?: boolean
+    setRawMode?: (raw: boolean) => void
+  }
+  if (tty.isTTY) tty.setRawMode?.(true)
+  const say = (m: FromAgent) => output.write(encodeFromAgent(m))
   let loaded = await loadAgent(project)
   let model = modelFor(loaded.agent, endpoint)
   let stamp = agentStamp(project)
-  const local = loaded.agent.name.split('.').at(-1)
-  const say = (line: string) => output.write(line + '\n')
-  say(`${loaded.agent.name} is here. Ctrl-D ends the chat.`)
-  const rl = createInterface({ input, output, prompt: 'you> ' })
-  let open = true
-  rl.on('close', () => (open = false))
+  say({ text: `${loaded.agent.name} is here.`, note: true })
   let history: ModelMessage[] = []
-  rl.prompt()
-  for await (const line of rl) {
-    if (line.trim()) {
+  for await (const line of createInterface({ input, crlfDelay: Infinity })) {
+    const message = decodeToAgent(line)
+    if (!message) continue
+    // The person's edits reach the VM as they save (live sync): pick up
+    // agent.ts, instructions and tools before the next turn, keeping the
+    // conversation.
+    const now = agentStamp(project)
+    if (now !== stamp) {
+      // Only a load that worked counts: a half-saved agent is tried again
+      // next turn, and the one that loaded answers meanwhile.
       try {
-        // The person's edits reach the VM as they save (live sync): pick up
-        // agent.ts, instructions and tools before the next turn, keeping the
-        // conversation.
-        const now = agentStamp(project)
-        if (now !== stamp) {
-          // Only a load that worked counts: a half-saved agent is tried
-          // again next turn, and the one that loaded answers meanwhile.
-          try {
-            const next = await loadAgent(project)
-            model = modelFor(next.agent, endpoint)
-            loaded = next
-            stamp = now
-            say('(the agent changed; reloaded)')
-          } catch (e) {
-            say(`(the agent changed but didn't load: ${(e as Error).message})`)
-          }
-        }
-        const turn = await runTurn({ loaded, model, history, message: line })
-        history = turn.messages
-        say(
-          `${local}> ${turn.text}${turn.truncated ? ' [stopped: too many steps]' : ''}`,
-        )
+        const next = await loadAgent(project)
+        model = modelFor(next.agent, endpoint)
+        loaded = next
+        stamp = now
+        say({ text: 'the agent changed; reloaded', note: true })
       } catch (e) {
-        say(`(${(e as Error).message})`)
+        say({
+          text: `the agent changed but didn't load: ${(e as Error).message}`,
+          note: true,
+        })
       }
     }
-    if (open) rl.prompt()
+    try {
+      const turn = await runTurn({
+        loaded,
+        model,
+        history,
+        message: message.text,
+      })
+      history = turn.messages
+      say({
+        text: `${turn.text}${turn.truncated ? ' [stopped: too many steps]' : ''}`,
+        answers: message.id,
+      })
+    } catch (e) {
+      say({ text: (e as Error).message, note: true, answers: message.id })
+    }
   }
 }
 
@@ -99,5 +115,5 @@ if (import.meta.main) {
       MANIFEST_LINE +
         JSON.stringify((await loadManifest(second ?? '/workspace')).manifest),
     )
-  else await chat(first ?? '/workspace', process.stdin, process.stdout)
+  else await serve(first ?? '/workspace', process.stdin, process.stdout)
 }
