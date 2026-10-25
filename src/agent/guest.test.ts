@@ -2,9 +2,28 @@ import { expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { chat } from './guest'
+import {
+  decodeFromAgent,
+  encodeToAgent,
+  lineSplitter,
+  type FromAgent,
+} from '../channel/wire'
+import { serve } from './guest'
 
-test('the terminal chat runs turns until its input ends, and keeps the conversation', async () => {
+/** What the agent said, as the host reads it off the guest's output. */
+function heard(output: PassThrough) {
+  const said: FromAgent[] = []
+  output.on(
+    'data',
+    lineSplitter((line) => {
+      const m = decodeFromAgent(line)
+      if (m) said.push(m)
+    }),
+  )
+  return said
+}
+
+test('the agent answers each channel message once, until its input ends, and keeps the conversation', async () => {
   await mkdir(resolve('.tmp'), { recursive: true })
   const root = await mkdtemp(join(resolve('.tmp'), 'chat-'))
   await mkdir(join(root, 'agent'), { recursive: true })
@@ -32,20 +51,24 @@ test('the terminal chat runs turns until its input ends, and keeps the conversat
   })
   const input = new PassThrough()
   const output = new PassThrough()
-  let printed = ''
-  output.on('data', (c) => (printed += c))
+  const said = heard(output)
+  const from = 'gg.addis.human.sami'
   try {
-    const done = chat(root, input, output, {
+    const done = serve(root, input, output, {
       baseURL: `${server.url.origin}/v1`,
       key: 'k',
     })
+    input.write(encodeToAgent({ id: 'm1', from, text: 'first' }))
+    // Anything that isn't a message (the pty's echo, noise) is no message.
     input.write('first\n')
-    input.write('second\n')
+    input.write(encodeToAgent({ id: 'm2', from, text: 'second' }))
     input.end()
     await done
-    expect(printed).toContain('gg.addis.agent.ops is here')
-    expect(printed).toContain('ops> answer 1')
-    expect(printed).toContain('ops> answer 2')
+    expect(said).toEqual([
+      { text: 'gg.addis.agent.ops is here.', note: true },
+      { text: 'answer 1', answers: 'm1' },
+      { text: 'answer 2', answers: 'm2' },
+    ])
     // The second turn carries the first.
     expect(JSON.stringify(bodies[1].messages)).toContain('first')
     expect(JSON.stringify(bodies[1].messages)).toContain('answer 1')
@@ -84,27 +107,30 @@ test('an edit to the agent between turns is picked up, and the conversation goes
   })
   const input = new PassThrough()
   const output = new PassThrough()
-  let printed = ''
-  output.on('data', (c) => (printed += c))
+  const said = heard(output)
+  const from = 'gg.addis.human.sami'
   const system = (body: any) => JSON.stringify(body.system ?? '')
   try {
-    const done = chat(root, input, output, {
+    const done = serve(root, input, output, {
       baseURL: `${server.url.origin}/v1`,
       key: 'k',
     })
-    input.write('first\n')
-    for (let i = 0; i < 100 && !printed.includes('answer 1'); i++)
+    input.write(encodeToAgent({ id: 'm1', from, text: 'first' }))
+    for (let i = 0; i < 100 && !said.some((m) => m.answers === 'm1'); i++)
       await Bun.sleep(20)
     await writeFile(
       join(root, 'agent/instructions.md'),
       'Answer in French, always.\n',
     )
-    input.write('second\n')
+    input.write(encodeToAgent({ id: 'm2', from, text: 'second' }))
     input.end()
     await done
     expect(system(bodies[0])).toContain('Be brief.')
     expect(system(bodies[1])).toContain('Answer in French, always.')
-    expect(printed).toContain('(the agent changed; reloaded)')
+    expect(said).toContainEqual({
+      text: 'the agent changed; reloaded',
+      note: true,
+    })
     expect(JSON.stringify(bodies[1].messages)).toContain('answer 1')
   } finally {
     server.stop(true)
