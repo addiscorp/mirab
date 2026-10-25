@@ -51,7 +51,12 @@ export interface Isolation {
     serve: (socketPath: string) => Promise<import('node:net').Server>,
   ): Promise<void>
   /** Stop the backend; preserve its workspace for recovery after incomplete sync. */
-  close(options?: { preserveWorkspace?: boolean }): Promise<void>
+  close(options?: {
+    preserveWorkspace?: boolean
+    /** Keep this VM's root disk (its own copy) at this path once it has
+     *  stopped: how an agent's image is built and updated. */
+    keepRoot?: string
+  }): Promise<void>
 }
 
 /** One entry under a sync root, the same shape the guest agent's `list` op returns. */

@@ -18,6 +18,7 @@ import {
   rm,
   truncate,
   readFile,
+  rename,
 } from 'node:fs/promises'
 import { existsSync, accessSync, constants } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -237,7 +238,8 @@ export async function startFirecracker(
   const sockDir = await mkdtemp(join(tmpdir(), 'gf-'))
   const apiSock = join(sockDir, 'a'),
     uds = join(sockDir, 'v'),
-    image = join(vmDir, 'work.ext4')
+    image = join(vmDir, 'work.ext4'),
+    root = join(vmDir, 'rootfs.ext4')
   // Pack the checkout into a fresh ext4 image (no root needed).
   const t0 = Date.now()
   const used = Number(
@@ -247,6 +249,11 @@ export async function startFirecracker(
   await (await openFile(image, 'w', 0o600)).close()
   await truncate(image, sizeBytes)
   execFileSync('mke2fs', ['-q', '-t', 'ext4', '-d', work, '-F', image], {
+    stdio: 'ignore',
+  })
+  // This VM's own writable copy of the root disk, as on vz: copy-on-write
+  // where the filesystem can (reflink), a sparse copy where it can't.
+  execFileSync('cp', ['--reflink=auto', '--sparse=always', cfg.rootfs, root], {
     stdio: 'ignore',
   })
   const timings: BootTimings = { imageMs: Date.now() - t0, bootToAgentMs: 0 }
@@ -284,9 +291,9 @@ export async function startFirecracker(
     })
     await api(apiSock, 'PUT', '/drives/rootfs', {
       drive_id: 'rootfs',
-      path_on_host: cfg.rootfs,
+      path_on_host: root,
       is_root_device: true,
-      is_read_only: true,
+      is_read_only: false,
     })
     await api(apiSock, 'PUT', '/drives/work', {
       drive_id: 'work',
@@ -342,6 +349,7 @@ export async function startFirecracker(
         kill()
         await serial.close()
         await rm(sockDir, { recursive: true, force: true })
+        if (options?.keepRoot) await rename(root, options.keepRoot)
         if (!options?.preserveWorkspace)
           await rm(vmDir, { recursive: true, force: true })
       },

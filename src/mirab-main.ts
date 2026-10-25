@@ -120,6 +120,64 @@ program
     })
   })
 
+const imageCmd = program
+  .command('image')
+  .description("an agent's VM image: its packages, built once and cached")
+
+imageCmd
+  .command('build [project]')
+  .description("build the agent's image from its packages, unless it's cached")
+  .action(async (project: string | undefined) => {
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { agentManifest } = await import('./dev')
+    const { agentImage } = await import('./images')
+    const log = (line: string) => console.error(line)
+    const { manifest, vm } = await agentManifest({
+      project: project ?? '.',
+      configDir,
+      log,
+    })
+    if (!manifest.packages.length)
+      return console.log(
+        `${manifest.name} has no packages: it runs on the base image`,
+      )
+    console.log(
+      await agentImage({ configDir, vm, packages: manifest.packages, log }),
+    )
+  })
+
+imageCmd
+  .command('update [project]')
+  .description(
+    "boot the agent's image, and upgrade it if apt has anything newer",
+  )
+  .action(async (project: string | undefined) => {
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { agentManifest } = await import('./dev')
+    const { updateImage } = await import('./images')
+    const log = (line: string) => console.error(line)
+    const { manifest, vm } = await agentManifest({
+      project: project ?? '.',
+      configDir,
+      log,
+    })
+    if (!manifest.packages.length)
+      return console.log(
+        `${manifest.name} has no packages: it runs on the base image`,
+      )
+    const { upgraded } = await updateImage({
+      configDir,
+      vm,
+      packages: manifest.packages,
+      log,
+    })
+    console.log(
+      upgraded.length ? `upgraded: ${upgraded.join(' ')}` : 'up to date',
+    )
+  })
+
 // A bare `mirab`, with nothing else at all, in an empty folder makes an agent;
 // anything else here (an option, a mistyped command) never does.
 program.action(async () => {

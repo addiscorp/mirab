@@ -71,6 +71,20 @@ station as its API. The station swaps in your token on the way to
 telemetry and updates are off, and anything else it tries goes through the
 station's whitelist and audit log. One person's token, on their own machine.
 
+## Packages
+
+An agent's `packages` (apt names, in `agent.ts`) are installed on mirab's
+Ubuntu base image the first time it runs, then cached:
+
+```sh
+mirab image build     # build the agent's image now (mirab dev does it on first use)
+mirab image update    # boot it, and upgrade it if apt has anything newer
+```
+
+Both happen in a mirab VM whose only way out is the station, with only
+Ubuntu's mirrors on its whitelist, over HTTPS. An update keeps the image
+before it, for rollback. The same on macOS and Linux.
+
 ## Keys for any service
 
 Your project's `.env` holds only references (`harar import .env` writes
