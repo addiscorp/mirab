@@ -1,15 +1,17 @@
-// The published microVM guest image (src/isolation/image.ts reads it).
-// The release workflow builds each platform on its own runner, gzips the
-// files, and the publish job writes the manifest next to them:
+// The published microVM guest images (src/isolation/image.ts reads them), all
+// from the one recipe (guest-agent/rootfs.Dockerfile via
+// scripts/build-vm-guest.sh). The release workflow builds each architecture on
+// its own runner, gzips the files, and the publish job writes the manifest:
 //
-//   bun scripts/vm-release.ts build linux-x64 <out>     vmlinux, rootfs.ext4 (x86_64 Linux + Docker BuildKit)
-//   bun scripts/vm-release.ts build darwin-arm64 <out>  Image, rootfs.ext4 (arm64 Linux + Docker; scripts/build-vm-guest.sh)
-//   scripts/build-vz-helper.sh <out>/mirab-vz            the signed vz helper (macOS)
-//   gzip -n <out>/*                                     what is uploaded
-//   bun scripts/vm-release.ts manifest <vm dir>         <vm dir>/manifest.json from <vm dir>/<platform>/*.gz
+//   bun scripts/vm-release.ts build x64 <out>     linux-x64 (Firecracker's kernel) and
+//                                                 darwin-x64 (bzImage), one x86_64 rootfs
+//   bun scripts/vm-release.ts build arm64 <out>   darwin-arm64 (Image, arm64 rootfs)
+//   scripts/build-vz-helper.sh                    mirab-vz for each Mac (macOS)
+//   gzip -n <out>/<platform>/*                    what is uploaded
+//   bun scripts/vm-release.ts manifest <vm dir>   <vm dir>/manifest.json from <vm dir>/<platform>/*.gz
 //
-// `bun run vm:image` (scripts/build-vm-image.ts) builds the linux-x64 image
-// with the same functions for a local install.
+// `bun run vm:image` (scripts/build-vm-image.ts) builds the guest with the
+// same recipe for a local install.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { createReadStream, existsSync } from 'node:fs'
@@ -59,42 +61,34 @@ export async function fetchFirecrackerKernel(to: string) {
   await rename(`${to}.part`, to)
 }
 
-/** guest-agent/image/Dockerfile (guest agent from this checkout) as `<dir>/rootfs.ext4`. */
-export function buildFirecrackerRootfs(dir: string) {
-  console.error('vm: building the rootfs (guest-agent/image/Dockerfile)')
-  run(
-    [
-      'docker',
-      'buildx',
-      'build',
-      '--file',
-      join(ROOT, 'guest-agent/image/Dockerfile'),
-      '--output',
-      `type=local,dest=${dir}`,
-      ROOT,
-    ],
-    { DOCKER_BUILDKIT: '1' },
-  )
-  if (!existsSync(join(dir, 'rootfs.ext4')))
-    throw new Error('the build produced no rootfs.ext4')
+/** The guest from the one recipe, into `<work>`: rootfs.ext4, the guest
+ *  agent, and the vz kernel for this architecture (bzImage or Image). */
+export function buildGuest(work: string) {
+  run(['sh', join(ROOT, 'scripts/build-vm-guest.sh'), work])
 }
 
-async function build(platform: VmPlatform, out: string) {
-  await mkdir(out, { recursive: true })
-  if (platform === 'linux-x64') {
-    if (process.arch !== 'x64' || process.platform !== 'linux')
-      throw new Error('the linux-x64 image builds on x86_64 Linux')
-    await fetchFirecrackerKernel(join(out, 'vmlinux'))
-    buildFirecrackerRootfs(out)
-    return
-  }
-  // arm64 Linux docker host: build-vm-guest.sh makes rootfs.ext4 and the vz kernel `Image`.
+/** Every platform's image this runner's architecture builds. */
+async function build(arch: 'x64' | 'arm64', out: string) {
+  const want = arch === 'x64' ? 'x64' : 'arm64'
+  if (process.platform !== 'linux' || process.arch !== want)
+    throw new Error(`the ${arch} images build on ${want} Linux with Docker`)
   const work = join(out, '.guest')
-  run(['sh', join(ROOT, 'scripts/build-vm-guest.sh'), work])
-  for (const name of ['Image', 'rootfs.ext4']) {
-    if (!existsSync(join(work, name)))
-      throw new Error(`build-vm-guest.sh produced no ${name}`)
-    await rename(join(work, name), join(out, name))
+  buildGuest(work)
+  const take = async (platform: VmPlatform, name: string, from: string) => {
+    await mkdir(join(out, platform), { recursive: true })
+    if (!existsSync(join(work, from)))
+      throw new Error(`build-vm-guest.sh produced no ${from}`)
+    run(['cp', '--sparse=always', join(work, from), join(out, platform, name)])
+  }
+  if (arch === 'x64') {
+    await mkdir(join(out, 'linux-x64'), { recursive: true })
+    await fetchFirecrackerKernel(join(out, 'linux-x64', 'vmlinux'))
+    await take('linux-x64', 'rootfs.ext4', 'rootfs.ext4')
+    await take('darwin-x64', 'bzImage', 'bzImage')
+    await take('darwin-x64', 'rootfs.ext4', 'rootfs.ext4')
+  } else {
+    await take('darwin-arm64', 'Image', 'Image')
+    await take('darwin-arm64', 'rootfs.ext4', 'rootfs.ext4')
   }
 }
 
@@ -168,12 +162,14 @@ export async function writeVmManifest(
 if (import.meta.main) {
   const [command, a, b] = process.argv.slice(2)
   try {
-    if (command === 'build' && a && b && a in VM_PLATFORMS)
-      await build(a as VmPlatform, resolve(b))
+    if (command === 'build' && b && (a === 'x64' || a === 'arm64'))
+      await build(a, resolve(b))
     else if (command === 'manifest' && a)
       console.log(
         JSON.stringify(
           await writeVmManifest(resolve(a), {
+            // The release this manifest belongs to (its directory's name).
+            version: b,
             require: Object.keys(VM_PLATFORMS) as VmPlatform[],
           }),
           null,
@@ -182,7 +178,7 @@ if (import.meta.main) {
       )
     else
       throw new Error(
-        'usage: vm-release.ts build <linux-x64|darwin-arm64> <out> | manifest <vm dir>',
+        'usage: vm-release.ts build <x64|arm64> <out> | manifest <vm dir> [release]',
       )
   } catch (e) {
     console.error(`vm-release: ${(e as Error).message}`)

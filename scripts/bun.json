@@ -1,0 +1,17 @@
+{
+  "version": "1.4.3",
+  "zips": {
+    "darwin-x64": {
+      "name": "bun-darwin-x64",
+      "sha256": "62660e6438eb872278877acca77e1152d5d031324df368d4a81b428211489d2d"
+    },
+    "darwin-arm64": {
+      "name": "bun-darwin-aarch64",
+      "sha256": "80afd4c069b46a6fa8f3ec520bebc750a7843e4a8d5b9583d29ad436c00a3403"
+    },
+    "linux-x64": {
+      "name": "bun-linux-x64",
+      "sha256": "3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18"
+    }
+  }
+}

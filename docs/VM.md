@@ -112,7 +112,7 @@ It writes:
 | file | what |
 |---|---|
 | `vm/vmlinux` | Firecracker's CI kernel 5.10.245, downloaded and checked against a pinned sha256 |
-| `vm/rootfs.ext4` | `guest-agent/image/Dockerfile`: Ubuntu 24.04 with bash, git, curl, python3, ripgrep, Node 24 and Bun (pinned by sha256), plus the guest agent compiled from this checkout |
+| `vm/rootfs.ext4` | `guest-agent/rootfs.Dockerfile` (one recipe for every platform): Ubuntu 24.04 with bash, git, curl, python3, ripgrep, Node 24, Bun and Claude Code (pinned by sha256), plus the guest agent compiled from this checkout |
 | `vm/image.json` | protocol, agent version, commit and sha256 of both files |
 
 and, if `isolation.json` has no `vm` block yet, adds `"vm": {}`. With no

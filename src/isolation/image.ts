@@ -1,15 +1,15 @@
 // The published microVM guest image: built by the release workflow for each
-// VM platform, uploaded next to the CLI binaries, and fetched here on first VM
-// use into <config dir>/vm/, so `mirab spawn --vm` works without building
-// anything. mirab doesn't publish images yet: RELEASES is still gild's, whose
-// images use gild's names, so build the guest locally (docs/VM.md).
+// VM platform, published next to mirab's own release, and fetched here on
+// first VM use into <config dir>/vm/, so `mirab spawn --vm` works without
+// building anything.
 //
-// Layout of one release (scripts/vm-release.ts writes it):
-//   cli/v<version>/vm/manifest.json            VmManifest (sha256 of every file)
-//   cli/v<version>/vm/<platform>/<name>.gz     one gzip per role
+// Layout of one release on mirab.addis.gg (R2 mirab-releases; directories are
+// the release's full version with no "v", scripts/vm-release.ts writes vm/):
+//   <release>/vm/manifest.json            VmManifest (sha256 of every file)
+//   <release>/vm/<platform>/<name>.gz     one gzip per role
 // Every file is checked against the manifest's sha256 (compressed and
 // unpacked) before it replaces anything; the manifest itself must name this
-// CLI's version and guest protocol. At boot the guest agent handshake
+// release and this CLI's guest protocol. At boot the guest agent handshake
 // (session.ts checkGuestProtocol) checks the protocol once more.
 import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync, readFileSync, statSync } from 'node:fs'
@@ -22,9 +22,23 @@ import { z } from 'zod'
 import pkg from '../../package.json'
 import { GUEST_PROTOCOL } from './session'
 
-/** Where release binaries and guest images live. */
-export const RELEASES = 'https://releases.gild.gg/cli'
+/** Where mirab's releases and guest images live. */
+export const RELEASES = 'https://mirab.addis.gg'
 export const MIRAB_VERSION: string = pkg.version
+
+/** The release this copy of mirab was installed from (`0.1.0-canary-abc1234`):
+ *  the release workflow stamps release.json into what it ships. From a
+ *  checkout there is none, and the package version stands in. */
+export const MIRAB_RELEASE: string = (() => {
+  try {
+    const stamped = JSON.parse(
+      readFileSync(join(import.meta.dir, '..', '..', 'release.json'), 'utf8'),
+    )
+    return typeof stamped.version === 'string' ? stamped.version : pkg.version
+  } catch {
+    return pkg.version
+  }
+})()
 
 /** Where the guest kernel, rootfs and (macOS) vz helper live, published or
  *  built by `bun run vm:image`; `vm` uses them when isolation.json names no
@@ -43,6 +57,7 @@ export function vmImagePaths(configDir: string) {
 /** The VM platforms a release publishes, and the file each role is built as. */
 export const VM_PLATFORMS = {
   'linux-x64': { kernel: 'vmlinux', rootfs: 'rootfs.ext4' },
+  'darwin-x64': { kernel: 'bzImage', rootfs: 'rootfs.ext4', vz: 'mirab-vz' },
   'darwin-arm64': { kernel: 'Image', rootfs: 'rootfs.ext4', vz: 'mirab-vz' },
 } as const
 export type VmPlatform = keyof typeof VM_PLATFORMS
@@ -60,7 +75,9 @@ const hex = z.string().regex(/^[0-9a-f]{64}$/)
 const size = z.number().int().nonnegative()
 const entry = z.object({
   /** Relative to the manifest: `<platform>/<name>.gz`. */
-  file: z.string().regex(/^(linux-x64|darwin-arm64)\/[A-Za-z0-9._-]+\.gz$/),
+  file: z
+    .string()
+    .regex(/^(linux-x64|darwin-x64|darwin-arm64)\/[A-Za-z0-9._-]+\.gz$/),
   sha256: hex,
   size,
   unpacked: z.object({ sha256: hex, size }),
@@ -72,6 +89,9 @@ export const vmManifestSchema = z.object({
   commit: z.string(),
   platforms: z.object({
     'linux-x64': z.object({ kernel: entry, rootfs: entry }).optional(),
+    'darwin-x64': z
+      .object({ kernel: entry, rootfs: entry, vz: entry })
+      .optional(),
     'darwin-arm64': z
       .object({ kernel: entry, rootfs: entry, vz: entry })
       .optional(),
@@ -115,7 +135,7 @@ const rolesOf = (platform: VmPlatform) =>
 /** The published image for this CLI version and platform is installed and intact (cheap: sizes). */
 export function releaseImageInstalled(
   configDir: string,
-  version = MIRAB_VERSION,
+  version = MIRAB_RELEASE,
   platform = vmPlatform(),
 ): boolean {
   const record = readRecord(configDir)
@@ -158,7 +178,7 @@ export interface EnsureOptions {
 export async function ensureVmImage(
   o: EnsureOptions,
 ): Promise<'installed' | 'downloaded' | 'local'> {
-  const version = o.version ?? MIRAB_VERSION,
+  const version = o.version ?? MIRAB_RELEASE,
     platform = o.platform ?? vmPlatform(),
     base = o.base ?? RELEASES,
     log = o.log ?? (() => {})
@@ -169,7 +189,7 @@ export async function ensureVmImage(
   if (localImageInstalled(o.configDir)) return 'local'
   if (releaseImageInstalled(o.configDir, version, platform)) return 'installed'
 
-  const url = `${base}/v${version}/vm/manifest.json`
+  const url = `${base}/${version}/vm/manifest.json`
   const offline = (why: string) =>
     new VmImageError(
       `could not fetch the VM image for mirab ${version} (${platform}) from ${url}: ${why}; ${VM_IMAGE_FALLBACK_HINT}`,
@@ -220,7 +240,7 @@ export async function ensureVmImage(
     )
     for (const role of roles)
       await download(
-        `${base}/v${version}/vm/${files[role]!.file}`,
+        `${base}/${version}/vm/${files[role]!.file}`,
         files[role]!,
         join(stage, role),
         role,
