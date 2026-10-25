@@ -10,8 +10,10 @@ import { MANIFEST_LINE } from './agent/guest'
 import { parseManifest, type Manifest } from './agent/manifest'
 import { startVm, type Isolation, type VmConfig } from './isolation'
 import { agentImage } from './images'
+import { liveSync, type LiveSync } from './dev-sync'
+import { describeSync, hostManifest, syncBack } from './isolation/sync'
 import type { PtyHandle } from './isolation/session'
-import { guestEnvironment, requireVm } from './spawn-vm'
+import { finishVmSync, guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
 import type { StationConfig } from './station/config'
 import type { Upstream } from './station/intercept'
@@ -43,6 +45,8 @@ export interface Dev {
   iso: Isolation
   /** The zone this VM is, in the station's audit log. */
   zone: string
+  /** The person's edits into the VM as they save. */
+  live: LiveSync
   close(): Promise<void>
 }
 
@@ -132,8 +136,9 @@ export async function startDev(o: {
     )
   const vm = await requireVm(o.configDir, o.log)
   const loop = await guestLoop()
+  let vmDir = ''
   const boot = async (rootfs: string) => {
-    const vmDir = await mkdtemp(join(await privateSessionsDirectory(), 'dev-'))
+    vmDir = await mkdtemp(join(await privateSessionsDirectory(), 'dev-'))
     // No network of its own: the station is the only way out. The VM works on
     // a clone of the project; nothing it writes comes back.
     const vmIso = await startVm(
@@ -150,6 +155,8 @@ export async function startDev(o: {
     }
     return vmIso
   }
+  // What the VM starts from: the baseline live sync and sync-back compare against.
+  const baseline = await hostManifest(project)
   let iso = await boot(vm.rootfs)
   let closeStation = async () => {}
   try {
@@ -193,11 +200,46 @@ export async function startDev(o: {
       cols: o.cols,
       rows: o.rows,
     })
+    const exited = new Promise<void>((r) => pty.onExit(() => r()))
+    const live = liveSync({ project, iso, baseline, log: o.log })
     const close = async () => {
+      // The agent stops first, so what comes back is what it finished; a
+      // push under way ends before sync-back starts.
+      try {
+        pty.close()
+      } catch {}
+      await Promise.race([exited, Bun.sleep(5_000)])
+      await live.stop()
+      const conflictDir = join(
+        await privateSessionsDirectory(),
+        `${zone}.conflicts`,
+      )
+      // What the agent changed comes back; where the person changed the same
+      // path, theirs stays and the agent's is saved aside. Anything that
+      // couldn't come back keeps the VM's disk for recovery.
+      try {
+        const synced = await finishVmSync(
+          () =>
+            syncBack({
+              root: project,
+              guestRoot: '/workspace',
+              files: iso.files!,
+              baseline,
+              conflictDir,
+            }),
+          iso,
+          vmDir,
+          (line) => o.log?.(line),
+        )
+        o.log?.(`back from the VM: ${describeSync(synced)}`)
+      } catch (e) {
+        o.log?.(
+          `the agent's changes couldn't all come back: ${(e as Error).message}`,
+        )
+      }
       await closeStation()
-      await iso.close()
     }
-    return { pty, iso, zone, close }
+    return { pty, iso, zone, close, live }
   } catch (e) {
     await closeStation()
     await iso.close().catch(() => {})

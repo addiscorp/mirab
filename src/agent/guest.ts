@@ -2,6 +2,8 @@
 // pty that `mirab dev` hands the person's terminal. The model is the
 // station's route on the guest's loopback; the key is a placeholder the
 // station replaces on the host, so nothing in the VM ever holds it.
+import { lstatSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { ModelMessage } from 'ai'
 import { PLACEHOLDER, guestRouteURL } from '../station/routes'
@@ -13,6 +15,27 @@ export const GUEST_MODEL: ModelEndpoint = {
   key: PLACEHOLDER,
 }
 
+/** When anything under the agent's folder last changed. */
+export function agentStamp(project: string): string {
+  const dir = join(project, 'agent')
+  const parts: string[] = []
+  const walk = (path: string) => {
+    for (const name of readdirSync(path).sort()) {
+      const full = join(path, name)
+      // Links are part of the folder as they are; never followed.
+      const st = lstatSync(full)
+      parts.push(`${full}:${st.mtimeMs}:${st.size}`)
+      if (st.isDirectory()) walk(full)
+    }
+  }
+  try {
+    walk(dir)
+  } catch {
+    return ''
+  }
+  return parts.join('|')
+}
+
 /** A terminal chat with the agent in `project`, until its input ends. */
 export async function chat(
   project: string,
@@ -20,8 +43,9 @@ export async function chat(
   output: NodeJS.WritableStream,
   endpoint: ModelEndpoint = GUEST_MODEL,
 ) {
-  const loaded = await loadAgent(project)
-  const model = modelFor(loaded.agent, endpoint)
+  let loaded = await loadAgent(project)
+  let model = modelFor(loaded.agent, endpoint)
+  let stamp = agentStamp(project)
   const local = loaded.agent.name.split('.').at(-1)
   const say = (line: string) => output.write(line + '\n')
   say(`${loaded.agent.name} is here. Ctrl-D ends the chat.`)
@@ -33,6 +57,23 @@ export async function chat(
   for await (const line of rl) {
     if (line.trim()) {
       try {
+        // The person's edits reach the VM as they save (live sync): pick up
+        // agent.ts, instructions and tools before the next turn, keeping the
+        // conversation.
+        const now = agentStamp(project)
+        if (now !== stamp) {
+          // Only a load that worked counts: a half-saved agent is tried
+          // again next turn, and the one that loaded answers meanwhile.
+          try {
+            const next = await loadAgent(project)
+            model = modelFor(next.agent, endpoint)
+            loaded = next
+            stamp = now
+            say('(the agent changed; reloaded)')
+          } catch (e) {
+            say(`(the agent changed but didn't load: ${(e as Error).message})`)
+          }
+        }
         const turn = await runTurn({ loaded, model, history, message: line })
         history = turn.messages
         say(

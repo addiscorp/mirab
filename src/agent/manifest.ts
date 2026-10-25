@@ -2,7 +2,7 @@
 // agent, and the one thing mirab reads about it. agent/agent.ts is one way to
 // write it (a Nix flake will be the other); both end up checked by
 // manifestSchema, so there is one definition of what an agent is.
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -37,6 +37,12 @@ export const manifestSchema = z.strictObject({
 })
 export type Manifest = z.infer<typeof manifestSchema>
 
+/** The file as it is now: its URL carries its modification time, so a file
+ *  edited since the last load is imported again, not served from the cache. */
+function fresh(path: string) {
+  return `${pathToFileURL(path).href}?v=${statSync(path).mtimeMs}`
+}
+
 /** Checks manifest data from anywhere (agent.ts, `nix eval --json`). */
 export function parseManifest(data: unknown, from: string): Manifest {
   const parsed = manifestSchema.safeParse(data)
@@ -61,7 +67,7 @@ export async function loadManifest(project: string): Promise<LoadedManifest> {
   if (!existsSync(definition))
     throw new Error(`${definition} is missing; mirab init makes one`)
   const parsed = agentSchema.safeParse(
-    (await import(pathToFileURL(definition).href)).default,
+    (await import(fresh(definition))).default,
   )
   if (!parsed.success)
     throw new Error(
@@ -97,8 +103,8 @@ export async function loadManifest(project: string): Promise<LoadedManifest> {
         throw new Error(
           `tools/${file}: agent.ts has a command tool named ${name} too; one name, one tool`,
         )
-      const defined = (await import(pathToFileURL(join(toolsDir, file)).href))
-        .default as Tool<z.ZodType> | undefined
+      const defined = (await import(fresh(join(toolsDir, file)))).default as
+        Tool<z.ZodType> | undefined
       if (!defined?.description || !defined.inputSchema || !defined.execute)
         throw new Error(
           `tools/${file} must export default defineTool({ description, inputSchema, execute })`,
