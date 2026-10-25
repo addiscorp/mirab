@@ -60,7 +60,7 @@ export const VZ_SETUP_COMMAND = 'sudo scripts/vz-network-setup.sh'
 export function vzHostReady() {
   try {
     return (
-      execFileSync('sysctl', ['-n', 'kern.hv_support'], {
+      execFileSync('/usr/sbin/sysctl', ['-n', 'kern.hv_support'], {
         encoding: 'utf8',
       }).trim() === '1'
     )
