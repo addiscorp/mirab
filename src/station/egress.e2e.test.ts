@@ -1,17 +1,17 @@
-// The way out of a real VM: a vz guest with no network of its own reaches a
+// The way out of a real VM: a guest with no network of its own reaches a
 // whitelisted domain only through the station, is refused anything else, and
-// gets the model route's key added on the host. Needs a Mac with a vz guest
-// image described in $TEST_VZ_CONFIG_DIR/isolation.json (docs/VM.md), and the
+// gets the model route's key added on the host. Needs a VM guest image
+// described in $TEST_VM_CONFIG_DIR/isolation.json (docs/VM.md), and the
 // internet for the whitelisted domain.
 import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadHostConfig } from '../isolation/index'
+import { loadHostConfig, startVm } from '../isolation/index'
 import type { Isolation } from '../isolation/session'
-import { EGRESS_HOST_PORT, startVz } from '../isolation/vz'
+import { EGRESS_HOST_PORT } from '../isolation/vz'
 import { startEgress } from './egress'
 
-const configDir = process.env.TEST_VZ_CONFIG_DIR
+const configDir = process.env.TEST_VM_CONFIG_DIR
 
 async function run(iso: Isolation, cmd: string) {
   const lines: string[] = []
@@ -25,7 +25,7 @@ async function run(iso: Isolation, cmd: string) {
   return { code, out: lines.join('\n') }
 }
 
-describe.skipIf(!configDir)('the way out of a vz VM, live', () => {
+describe.skipIf(!configDir)('the way out of a VM, live', () => {
   test('whitelisted through the station, everything else refused, the key added on the host', async () => {
     const host = await loadHostConfig(configDir!)
     const base = mkdtempSync(join(process.env.TMPDIR ?? '.', 'egress-e2e-'))
@@ -42,8 +42,8 @@ describe.skipIf(!configDir)('the way out of a vz VM, live', () => {
         }),
     })
     const auditLog = join(base, 'egress.log')
-    const iso = await startVz(
-      { ...host.vm!, helper: host.vm!.vz, port: 9002, egress: 'block' },
+    const iso = await startVm(
+      { ...host.vm!, egress: 'block' },
       work,
       join(base, 'vm'),
     )

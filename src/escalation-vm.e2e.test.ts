@@ -1,16 +1,17 @@
 // Escalation in a real VM: a host the whitelist refuses is asked for, a person
 // allows it outside the VM while the session runs, and the VM's next try goes
-// through. Needs a Mac with a vz guest image described in
-// $TEST_VZ_CONFIG_DIR/isolation.json (docs/VM.md), and the internet.
+// through. Needs a VM guest image described in
+// $TEST_VM_CONFIG_DIR/isolation.json (docs/VM.md), and the internet.
 import { describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { loadHostConfig } from './isolation'
 import { startVmChild } from './spawn-vm'
 import { allow, asks } from './station/escalations'
 
-const configDir = process.env.TEST_VZ_CONFIG_DIR
+const configDir = process.env.TEST_VM_CONFIG_DIR
 
-describe.skipIf(!configDir)('escalation in a vz VM, live', () => {
+describe.skipIf(!configDir)('escalation in a VM, live', () => {
   test('refused, asked for, allowed outside the VM, then reached', async () => {
     await mkdir(resolve('.tmp'), { recursive: true })
     const base = await mkdtemp(join(resolve('.tmp'), 'escalation-vm-'))
@@ -20,10 +21,10 @@ describe.skipIf(!configDir)('escalation in a vz VM, live', () => {
     // own; the VM settings come from the test's.
     const config = join(base, 'config')
     await mkdir(config)
-    await Bun.write(
-      join(config, 'isolation.json'),
-      Bun.file(join(configDir!, 'isolation.json')),
-    )
+    // As the test's config resolves them: its default paths are relative to
+    // its own directory (`vm: {}` from `bun run vm:image`).
+    const { vm } = await loadHostConfig(configDir!)
+    await Bun.write(join(config, 'isolation.json'), JSON.stringify({ vm }))
     const script = [
       'try() { curl -s -o /dev/null -w "%{http_code}" --max-time 15 -x http://127.0.0.1:8790 https://registry.npmjs.org/ || echo "-$?"; }',
       'echo first=$(try)',

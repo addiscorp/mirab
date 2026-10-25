@@ -1,7 +1,7 @@
 // Agent images in a real VM: the manifest's packages installed with apt on
 // the base image, through the station (Ubuntu's mirrors only, over HTTPS),
-// cached, booted, and updated by booting it again. Needs a Mac with a vz guest
-// image described in $TEST_VZ_CONFIG_DIR/isolation.json (docs/VM.md), and the
+// cached, booted, and updated by booting it again. Needs a VM guest image
+// described in $TEST_VM_CONFIG_DIR/isolation.json (docs/VM.md), and the
 // internet for Ubuntu's mirrors.
 import { describe, expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
@@ -17,7 +17,7 @@ import {
   updateImage,
 } from './images'
 
-const testConfig = process.env.TEST_VZ_CONFIG_DIR
+const testConfig = process.env.TEST_VM_CONFIG_DIR
 
 async function sh(iso: Isolation, cmd: string) {
   const lines: string[] = []
@@ -31,7 +31,7 @@ async function sh(iso: Isolation, cmd: string) {
   return { code, out: lines.join('\n') }
 }
 
-describe.skipIf(!testConfig)('agent images in a vz VM, live', () => {
+describe.skipIf(!testConfig)('agent images in a VM, live', () => {
   test(
     'packages are installed once, cached, booted, and updated by booting the image',
     async () => {

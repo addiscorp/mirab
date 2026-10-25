@@ -268,8 +268,19 @@ export async function startFirecracker(
   const fc: ChildProcess = spawn(cfg.firecracker, ['--api-sock', apiSock], {
     stdio: ['ignore', serial.fd, serial.fd],
   })
+  // A VM never outlives mirab when it exits (as vz's helper stops when its
+  // input closes). `mirab dev` and the spawn worker turn SIGINT, SIGTERM and
+  // SIGHUP into an exit, so this runs for them; a signal that kills mirab
+  // outright (SIGKILL, or one nothing handles) skips it.
+  const onExit = () => {
+    try {
+      fc.kill('SIGKILL')
+    } catch {}
+  }
+  process.once('exit', onExit)
   const listeners: Server[] = []
   const kill = () => {
+    process.off('exit', onExit)
     try {
       fc.kill('SIGKILL')
     } catch {}
@@ -287,6 +298,8 @@ export async function startFirecracker(
       // i8042 flags skip a 500 ms keyboard probe; measured 1.2 s -> 0.3 s boot.
       boot_args:
         'console=ttyS0 reboot=k panic=1 pci=off init=/init-mirab.sh i8042.noaux i8042.nokbd i8042.nopnp i8042.dumbkbd quiet loglevel=1' +
+        // The host's time, as vz passes it: TLS needs a right clock from the start.
+        ` mirab.time=${Math.floor(Date.now() / 1000)}` +
         (plan.net ? ' ' + bootNetArgs(plan.net) : ''),
     })
     await api(apiSock, 'PUT', '/drives/rootfs', {

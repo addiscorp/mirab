@@ -4,7 +4,8 @@
 #   <out>/mirab-guest-agent   static musl guest agent (guest-agent/)
 #   <out>/rootfs.ext4         guest-agent/rootfs.Dockerfile as an ext4 image
 #   <out>/Image               arm64: the vz guest kernel (guest-agent/kernel-arm64-vz.config)
-#   <out>/bzImage             x86_64: the vz guest kernel (guest-agent/kernel-x86_64-vz.config)
+#   <out>/bzImage, vmlinux    x86_64: one kernel (guest-agent/kernel-x86_64.config),
+#                             bzImage for vz on Intel Macs, vmlinux for Firecracker
 # Each stage is skipped when its output exists; delete the file to rebuild it.
 # Files go in and out with `docker cp`, never a bind mount: Colima only shares
 # $HOME with its VM, and a checkout can live anywhere.
@@ -22,7 +23,7 @@ src=''
 cleanup() {
   docker rm -f "$tag-agent" "$tag-kernel" >/dev/null 2>&1 || true
   [ -z "$src" ] || rm -rf "$src"
-  rm -f "$out/mirab-guest-agent.part" "$out/rootfs.ext4.part" "$out/Image.part" "$out/bzImage.part"
+  rm -f "$out/mirab-guest-agent.part" "$out/rootfs.ext4.part" "$out/Image.part" "$out/bzImage.part" "$out/vmlinux.part"
 }
 trap cleanup EXIT INT TERM
 
@@ -78,11 +79,11 @@ fi
 ls -l "$out/rootfs.ext4"
 
 case "$(docker info --format '{{.Architecture}}')" in
-  aarch64) arch=arm64 config=kernel-arm64-vz.config image=arch/arm64/boot/Image file=Image ;;
-  x86_64) arch=x86_64 config=kernel-x86_64-vz.config image=arch/x86/boot/bzImage file=bzImage ;;
+  aarch64) arch=arm64 config=kernel-arm64-vz.config image=arch/arm64/boot/Image file=Image also='' ;;
+  x86_64) arch=x86_64 config=kernel-x86_64.config image=arch/x86/boot/bzImage file=bzImage also=vmlinux ;;
   *) arch='' ;;
 esac
-if [ -n "$arch" ] && [ ! -s "$out/$file" ]; then
+if [ -n "$arch" ] && { [ ! -s "$out/$file" ] || { [ -n "$also" ] && [ ! -s "$out/$also" ]; }; }; then
   run_in "$tag-kernel" debian:trixie-slim "
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
@@ -97,10 +98,16 @@ if [ -n "$arch" ] && [ ! -s "$out/$file" ]; then
       grep -q \"^\$o=y\" .config || missing=\"\$missing \$o\"
     done
     [ -z \"\$missing\" ] || { echo \"kernel config: did not stick:\$missing\" >&2; exit 1; }
-    make -s ARCH=$arch -j\$(nproc) $(basename $image)
+    make -s ARCH=$arch -j\$(nproc) $(basename $image) $also
     cp .config /kernel.built.config
-    cp $image /kernel.out" "$here/guest-agent/$config:/kernel.config"
+    cp $image /kernel.out
+    # The same compile's ELF image, for Firecracker.
+    if [ -n '$also' ]; then cp $also /kernel.also; fi" "$here/guest-agent/$config:/kernel.config"
   docker cp "$tag-kernel:/kernel.built.config" "$out/$file.config"
+  if [ -n "$also" ]; then
+    docker cp "$tag-kernel:/kernel.also" "$out/$also.part"
+    mv "$out/$also.part" "$out/$also"
+  fi
   docker cp "$tag-kernel:/kernel.out" "$out/$file.part"
   mv "$out/$file.part" "$out/$file"
 fi

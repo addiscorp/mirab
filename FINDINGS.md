@@ -239,7 +239,7 @@ Built and proven on **bugsy** (Mac mini, Apple silicon, macOS 27.0, 8 GB, Colima
 - **Probe fixes for macOS hosts.** The probe now uses curl when present. macOS has no coreutils `timeout`, and its bash 3.2 hangs on `/dev/tcp`, so the old control could never succeed on a Mac.
 - **LAN and metadata for vm.** They are blocked because the VM has **no network device**: the pf filter below is not installed. Same caveat as the first demon run.
 
-**Other live checks** (`src/isolation/vz.e2e.test.ts`, `TEST_VZ_CONFIG_DIR`):
+**Other live checks** (`src/isolation/vz.e2e.test.ts`, `TEST_VM_CONFIG_DIR`):
 - the guest is `aarch64`;
 - a write to `/etc` in VM 0 is not seen by VM 1;
 - the base image's mtime and size are unchanged;

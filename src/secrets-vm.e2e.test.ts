@@ -1,8 +1,8 @@
 // Keys for any service in a real VM: the project's .env holds only harar://
 // references, the VM's programs get placeholders, and unchanged curl, git and
 // Bun reach "Stripe" and "GitHub" with the real keys, which the station adds
-// on the way out and only on each key's own host. Needs a Mac with a vz guest
-// image described in $TEST_VZ_CONFIG_DIR/isolation.json (docs/VM.md). The
+// on the way out and only on each key's own host. Needs a VM guest image
+// described in $TEST_VM_CONFIG_DIR/isolation.json (docs/VM.md). The
 // services are local stand-ins with their own authority; no real key is used.
 import { describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -12,9 +12,9 @@ import { join, resolve } from 'node:path'
 import { startVmChild } from './spawn-vm'
 import { stationAuthority } from './station/ca'
 
-const configDir = process.env.TEST_VZ_CONFIG_DIR
+const configDir = process.env.TEST_VM_CONFIG_DIR
 
-describe.skipIf(!configDir)('keys for any service in a vz VM, live', () => {
+describe.skipIf(!configDir)('keys for any service in a VM, live', () => {
   test('curl, git and Bun use the real keys through the station, and the VM only ever holds placeholders', async () => {
     await mkdir(resolve('.tmp'), { recursive: true })
     const base = await mkdtemp(join(resolve('.tmp'), 'secrets-vm-'))
