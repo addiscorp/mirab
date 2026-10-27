@@ -11,7 +11,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { MANIFEST_LINE } from './agent/guest'
 import { bridgeAgent } from './channel/bridge'
-import { projectAgent } from './station/escalations'
+import { projectAgent } from 'rixse'
 import { printable } from './channel/wire'
 import {
   openChannel,
@@ -29,9 +29,10 @@ import type { PtyHandle } from './isolation/session'
 import { finishVmSync, guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
 import type { StationConfig } from './station/config'
-import type { Upstream } from './station/intercept'
-import { vmStation } from './station/vm'
-import { anthropicKeyRoute } from './station/routes'
+import type { Upstream } from 'rixse'
+import { GUEST_PROXY, vmStation } from './station/gateway'
+import { PLACEHOLDER, anthropicKeyRoute, guestRouteURL } from 'rixse'
+import { hararVault } from './station/vault'
 
 /** Where the loop lands in the guest (its tmpfs, never the workspace). */
 export const GUEST_LOOP = '/tmp/mirab/loop.js'
@@ -175,7 +176,11 @@ export async function startDev(o: {
   opened?: (host: string) => Promise<Upstream>
 }): Promise<Dev> {
   const project = resolve(o.project)
-  const anthropic = anthropicKeyRoute(o.station, o.upstream)
+  const anthropic = anthropicKeyRoute(
+    hararVault(o.station.harar.socket),
+    o.station.models.anthropic?.key,
+    o.upstream,
+  )
   if (!anthropic)
     throw new Error(
       'station.json has no models.anthropic.key: the harar secret with the API key',
@@ -257,7 +262,14 @@ export async function startDev(o: {
     closeStation = () => station.close()
     const pty = await iso.pty!({
       // No auto-install: what the agent runs is in its image (its manifest's packages).
-      argv: ['bun', '--no-install', GUEST_LOOP, '/workspace'],
+      argv: [
+        'bun',
+        '--no-install',
+        GUEST_LOOP,
+        '/workspace',
+        `${guestRouteURL(GUEST_PROXY, 'anthropic')}/v1`,
+        PLACEHOLDER,
+      ],
       env: { ...guestEnvironment({}, {}), ...station.env },
       cwd: '/workspace',
       cols: o.cols,

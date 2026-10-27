@@ -310,7 +310,7 @@ const configDirOf = () =>
 
 /** The agent whose ask `host` is: the one given, or the only one that asked. */
 async function askFor(host: string, agent?: string) {
-  const { asks } = await import('./station/escalations')
+  const { asks } = await import('rixse')
   if (agent) return agent
   const askers = asks(configDirOf()).filter((ask) => ask.host === host)
   if (askers.length === 1) return askers[0].agent
@@ -327,7 +327,7 @@ program
     'hosts agents asked for that their whitelist refused, most asked first',
   )
   .action(async () => {
-    const { asks } = await import('./station/escalations')
+    const { asks } = await import('rixse')
     const shown = asks(configDirOf()).map((ask) => ({
       ...ask,
       host: ask.host.length > 80 ? `${ask.host.slice(0, 77)}...` : ask.host,
@@ -348,7 +348,7 @@ program
   )
   .option('--agent <name>', 'whose ask: an agent name, or project:<path>')
   .action(async (host: string, opts: { agent?: string }) => {
-    const { allow, allowPath } = await import('./station/escalations')
+    const { allow, allowPath } = await import('rixse')
     const name = hostArg(host)
     const agent = await askFor(name, opts.agent)
     allow(configDirOf(), agent, name)
@@ -362,7 +362,7 @@ program
   .description('say no to an ask: it is dropped, and the host stays refused')
   .option('--agent <name>', 'whose ask: an agent name, or project:<path>')
   .action(async (host: string, opts: { agent?: string }) => {
-    const { dismiss } = await import('./station/escalations')
+    const { dismiss } = await import('rixse')
     const name = hostArg(host)
     const agent = await askFor(name, opts.agent)
     dismiss(configDirOf(), agent, name)
@@ -379,7 +379,7 @@ program
     'whose grant: an agent name, or project:<path>',
   )
   .action(async (host: string, opts: { agent: string }) => {
-    const { revoke } = await import('./station/escalations')
+    const { revoke } = await import('rixse')
     revoke(configDirOf(), opts.agent, hostArg(host))
     console.log(`${opts.agent} may no longer reach ${hostArg(host)}`)
   })
@@ -397,8 +397,7 @@ secretsCmd
   )
   .option('--agent <name>', 'whose: project:<path> (default: the project here)')
   .action(async (secret: string, opts: { agent?: string }) => {
-    const { allowSecret, projectAgent, secretsPath } =
-      await import('./station/escalations')
+    const { allowSecret, projectAgent, secretsPath } = await import('rixse')
     const agent = opts.agent ?? projectAgent('.')
     try {
       allowSecret(configDirOf(), agent, secret)
@@ -417,7 +416,7 @@ secretsCmd
   .description('take back a secret from an agent, from its next session')
   .option('--agent <name>', 'whose: project:<path> (default: the project here)')
   .action(async (secret: string, opts: { agent?: string }) => {
-    const { projectAgent, revokeSecret } = await import('./station/escalations')
+    const { projectAgent, revokeSecret } = await import('rixse')
     const agent = opts.agent ?? projectAgent('.')
     try {
       revokeSecret(configDirOf(), agent, secret)
@@ -434,7 +433,7 @@ secretsCmd
   .description('the secrets an agent may use')
   .option('--agent <name>', 'whose: project:<path> (default: the project here)')
   .action(async (opts: { agent?: string }) => {
-    const { projectAgent, secretGrants } = await import('./station/escalations')
+    const { projectAgent, secretGrants } = await import('rixse')
     const agent = opts.agent ?? projectAgent('.')
     console.log(
       JSON.stringify(

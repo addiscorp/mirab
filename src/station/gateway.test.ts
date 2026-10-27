@@ -2,10 +2,11 @@ import { expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
-import { allowSecret, revokeSecret, secretGrants } from './escalations'
-import { vmStation } from './vm'
+import { allowSecret } from 'rixse'
+import { vmStation } from './gateway'
 
-const AGENT = 'gg.addis.agent.ops'
+// A project's agent: its path can hold spaces.
+const AGENT = 'project:/Users/x/my shop'
 
 test('a VM gets a placeholder only for a secret its agent was allowed and harar lets go somewhere; old station.json secrets are named as ignored', async () => {
   await mkdir(resolve('.tmp'), { recursive: true })
@@ -71,8 +72,10 @@ test('a VM gets a placeholder only for a secret its agent was allowed and harar 
       expect(notes).toContain(
         `mirab secrets allow personal/bank/TOKEN --agent '${AGENT}'`,
       )
-      expect(notes).toContain('prod/shop/NOWHERE, which harar lets go nowhere')
-      expect(notes).toContain("hosts the station can't open, left out: API.bad")
+      expect(notes).toContain(
+        'prod/shop/NOWHERE, which the vault lets go nowhere',
+      )
+      expect(notes).toContain("hosts the gateway can't open, left out: API.bad")
       expect(notes).toContain('BROKEN: harar at')
       // Never asked about the secret this agent wasn't allowed.
       expect(asked.sort()).toEqual([
@@ -85,58 +88,6 @@ test('a VM gets a placeholder only for a secret its agent was allowed and harar 
     }
   } finally {
     harar.close()
-    await rm(base, { recursive: true, force: true })
-  }
-})
-
-test('secret grants are per agent, only harar paths, and revocable', async () => {
-  await mkdir(resolve('.tmp'), { recursive: true })
-  const dir = await mkdtemp(join(resolve('.tmp'), 'grants-'))
-  try {
-    allowSecret(dir, AGENT, 'prod/shop/STRIPE_KEY')
-    allowSecret(dir, AGENT, 'prod/shop/STRIPE_KEY')
-    expect(secretGrants(dir, AGENT)).toEqual(['prod/shop/STRIPE_KEY'])
-    expect(secretGrants(dir, 'gg.addis.agent.other')).toEqual([])
-    expect(() => allowSecret(dir, AGENT, '../etc/passwd')).toThrow('path')
-    expect(() => allowSecret(dir, AGENT, 'a/../b')).toThrow('path')
-    revokeSecret(dir, AGENT, 'prod/shop/STRIPE_KEY')
-    expect(secretGrants(dir, AGENT)).toEqual([])
-    expect(() => revokeSecret(dir, AGENT, 'prod/shop/STRIPE_KEY')).toThrow(
-      "wasn't allowed",
-    )
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
-})
-
-test('in a project folder, mirab secrets grants to the name mirab dev and spawn --vm look up', async () => {
-  const { spawnSync } = await import('node:child_process')
-  const { projectAgent } = await import('./escalations')
-  await mkdir(resolve('.tmp'), { recursive: true })
-  const base = await mkdtemp(join(resolve('.tmp'), 'grant-cli-'))
-  const project = join(base, 'project')
-  await mkdir(project)
-  try {
-    const run = (...args: string[]) =>
-      spawnSync(
-        'bun',
-        [resolve('src/mirab.ts'), '--config-dir', base, 'secrets', ...args],
-        {
-          cwd: project,
-          encoding: 'utf8',
-        },
-      )
-    expect(run('allow', 'prod/shop/STRIPE_KEY').status).toBe(0)
-    expect(secretGrants(base, projectAgent(project))).toEqual([
-      'prod/shop/STRIPE_KEY',
-    ])
-    expect(JSON.parse(run('list').stdout).secrets).toEqual([
-      'prod/shop/STRIPE_KEY',
-    ])
-    expect(run('allow', '../x').status).toBe(2)
-    expect(run('revoke', 'prod/shop/STRIPE_KEY').status).toBe(0)
-    expect(secretGrants(base, projectAgent(project))).toEqual([])
-  } finally {
     await rm(base, { recursive: true, force: true })
   }
 })

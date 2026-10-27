@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { projectAgent } from '../station/escalations'
+import { projectAgent } from 'rixse'
 import {
   approvePending,
   approvedReach,
