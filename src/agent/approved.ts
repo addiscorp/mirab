@@ -8,7 +8,7 @@
 // is still the whitelist and the station.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileName, projectAgent, writeJson } from '../station/escalations'
+import { fileName, projectAgent, writeJson } from 'rixse'
 import type { Manifest } from './manifest'
 
 export interface Reach {

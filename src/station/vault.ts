@@ -1,7 +1,9 @@
-// The station asks harar for long-lived keys on its local socket, the
-// protocol harar-client speaks: one JSON request, the write side closed, one
-// JSON response.
+// harar as the gateway's vault, on its local socket: one JSON request, the
+// write side closed, one JSON response. The same client npm `harar` ships as
+// `import { vault } from 'harar'` (addiscorp/harar, js/); mirab uses its own
+// copy until that package is published.
 import { connect } from 'node:net'
+import type { Vault } from 'rixse'
 
 /** harar answers are small; anything longer is refused. */
 const MAX_RESPONSE = 1024 * 1024
@@ -83,4 +85,12 @@ export async function hararSend(
   if (typeof value !== 'string')
     throw new Error(`harar refused ${key} to ${host}: no value`)
   return value
+}
+
+/** harar at `socket`, as the gateway's vault. */
+export function hararVault(socket: string): Vault {
+  return {
+    hosts: (secret) => hararHosts(socket, secret),
+    send: (secret, host) => hararSend(socket, secret, host),
+  }
 }

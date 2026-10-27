@@ -11,8 +11,8 @@ import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { loadHostConfig } from './isolation'
 import { startVmChild } from './spawn-vm'
-import { allowSecret } from './station/escalations'
-import { stationAuthority } from './station/ca'
+import { allowSecret } from 'rixse'
+import { stationAuthority } from 'rixse'
 
 const configDir = process.env.TEST_VM_CONFIG_DIR
 

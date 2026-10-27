@@ -6,12 +6,12 @@
       "name": "mirab",
       "dependencies": {
         "@ai-sdk/anthropic": "4.0.78",
-        "@peculiar/x509": "1.12.3",
         "ai": "7.0.137",
         "chalk": "^5.6.2",
         "commander": "^14.0.1",
         "inquirer": "^12.9.4",
         "node-pty": "1.2.0-beta.15",
+        "rixse": "github:addiscorp/rixse#1ab03822704f7e3a5d027de9ab9845a903418699",
         "smol-toml": "^1.9.0",
         "zod": "^4.6.5",
       },
@@ -184,6 +184,8 @@
 
     "reflect-metadata": ["reflect-metadata@0.2.2", "", {}, "sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q=="],
 
+    "rixse": ["rixse@github:addiscorp/rixse#1ab0382", { "dependencies": { "@peculiar/x509": "1.12.3", "zod": "4.6.7" }, "bin": { "rixse": "./src/cli.ts" } }, "addiscorp-rixse-1ab0382", "sha512-bqYQvK3eLIc27i8n5jWVOgd49Fwv8UnWl5ioB0jx16sIo9aFtLn2RFRt2yAO3h7Ll5abbRhCpJ3Pk4oqT0JMgg=="],
+
     "run-async": ["run-async@4.0.6", "", {}, "sha512-IoDlSLTs3Yq593mb3ZoKWKXMNu3UpObxhgA/Xuid5p4bbfi2jdY1Hj0m1K+0/tEuQTxIGMhQDqGjKb7RuxGpAQ=="],
 
     "rxjs": ["rxjs@7.8.2", "", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-dhKf903U/PQZY6boNNtAGdWbG85WAbjT/1xYoZIC7FAY0yWapOBQVsVrDl58W86//e1VpMNBtRV4MaXfdMySFA=="],
@@ -213,6 +215,8 @@
     "yoctocolors-cjs": ["yoctocolors-cjs@2.1.3", "", {}, "sha512-U/PBtDf35ff0D8X8D0jfdzHYEPFxAI7jJlxZXwCSez5M3190m+QobIfh+sWDWSHMCWWJN2AWamkegn6vr6YBTw=="],
 
     "zod": ["zod@4.6.5", "", {}, "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="],
+
+    "rixse/zod": ["zod@4.6.7", "", {}, "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg=="],
 
     "tsyringe/tslib": ["tslib@1.14.1", "", {}, "sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg=="],
   }

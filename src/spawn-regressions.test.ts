@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { spawnWorkerSource } from './spawn-bundle'
 
 for (const scenario of [
   'native-env',
@@ -13,16 +14,8 @@ for (const scenario of [
   test(`spawn regression: ${scenario}`, async () => {
     await mkdir('.tmp', { recursive: true })
     const worker = resolve('.tmp/regression-worker.mjs')
-    const build = Bun.spawnSync([
-      process.execPath,
-      'build',
-      'src/spawn-worker.ts',
-      '--target=node',
-      '--format=esm',
-      '--outfile',
-      worker,
-    ])
-    expect(build.exitCode).toBe(0)
+    // The worker exactly as mirab ships it.
+    await writeFile(worker, await spawnWorkerSource())
     const proc = Bun.spawn(
       ['python3', 'scripts/fixtures/spawn-regressions.py', scenario],
       {

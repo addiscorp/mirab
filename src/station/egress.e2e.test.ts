@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { loadHostConfig, startVm } from '../isolation/index'
 import type { Isolation } from '../isolation/session'
 import { EGRESS_HOST_PORT } from '../isolation/vz'
-import { startEgress } from './egress'
+import { startEgress } from 'rixse'
 
 const configDir = process.env.TEST_VM_CONFIG_DIR
 

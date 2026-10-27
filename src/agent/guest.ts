@@ -13,14 +13,8 @@ import {
   fitted,
   type FromAgent,
 } from '../channel/wire'
-import { PLACEHOLDER, guestRouteURL } from '../station/routes'
 import { loadManifest } from './manifest'
 import { loadAgent, modelFor, runTurn, type ModelEndpoint } from './runtime'
-
-export const GUEST_MODEL: ModelEndpoint = {
-  baseURL: `${guestRouteURL('anthropic')}/v1`,
-  key: PLACEHOLDER,
-}
 
 /** When anything under the agent's folder last changed. */
 export function agentStamp(project: string): string {
@@ -53,7 +47,7 @@ export async function serve(
   project: string,
   input: NodeJS.ReadableStream,
   output: NodeJS.WritableStream,
-  endpoint: ModelEndpoint = GUEST_MODEL,
+  endpoint: ModelEndpoint,
 ) {
   // On the guest pty: no echo, no line editing, the bytes as the host sent them.
   const tty = input as NodeJS.ReadableStream & {
@@ -128,5 +122,17 @@ if (import.meta.main) {
       MANIFEST_LINE +
         JSON.stringify((await loadManifest(second ?? '/workspace')).manifest),
     )
-  else await serve(first ?? '/workspace', process.stdin, process.stdout)
+  // `<project> <model URL> <placeholder key>`: the gateway's route, as the
+  // host (which runs the gateway) says it; the guest holds no key.
+  else {
+    const [, baseURL, key] = process.argv.slice(2)
+    if (!baseURL || !key)
+      throw new Error(
+        'usage: loop.js <project> <model base URL> <placeholder key>',
+      )
+    await serve(first ?? '/workspace', process.stdin, process.stdout, {
+      baseURL,
+      key,
+    })
+  }
 }

@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { loadHostConfig } from './isolation'
 import { startVmChild } from './spawn-vm'
-import { allow, asks } from './station/escalations'
+import { allow, asks } from 'rixse'
 
 const configDir = process.env.TEST_VM_CONFIG_DIR
 

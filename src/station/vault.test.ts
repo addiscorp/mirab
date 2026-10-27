@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { loadStationConfig } from './config'
-import { hararHosts, hararSend } from './harar'
-import { anthropicKeyRoute, claudeRoute } from './routes'
+import { anthropicKeyRoute, claudeRoute } from 'rixse'
+import { hararHosts, hararSend, hararVault } from './vault'
 
 /** A stand-in harar primary: records each request, answers with `reply`. */
 async function fakeHarar(reply: (request: any) => string) {
@@ -40,15 +40,16 @@ test("a model route's key is harar's send for the route's own host, never a read
       : JSON.stringify({ ok: false, error: 'not_allowed' }),
   )
   try {
-    const station = {
-      harar: { socket: harar.socket },
-      models: {
-        anthropic: { key: 'personal/anthropic/API_KEY' },
-        claude: { token: 'personal/claude/OAUTH_TOKEN' },
-      },
-    }
-    expect(await anthropicKeyRoute(station)!.credential()).toBe('sk-real')
-    await expect(claudeRoute(station)!.credential()).rejects.toThrow(
+    const vault = hararVault(harar.socket)
+    expect(
+      await anthropicKeyRoute(
+        vault,
+        'personal/anthropic/API_KEY',
+      )!.credential(),
+    ).toBe('sk-real')
+    await expect(
+      claudeRoute(vault, 'personal/claude/OAUTH_TOKEN')!.credential(),
+    ).rejects.toThrow(
       'harar hosts allow personal/claude/OAUTH_TOKEN api.anthropic.com',
     )
     expect(harar.requests).toEqual([
@@ -155,7 +156,7 @@ test('harar says where a secret may go and sends it for one host; an old station
       }),
     )
     // An old station.json still loads: its secrets are ignored (the station
-    // says so, src/station/vm.test.ts), so model keys keep working.
+    // says so, src/station/gateway.test.ts), so model keys keep working.
     expect((await loadStationConfig(dir)).harar.socket).toBe('/x.sock')
   } finally {
     await harar.stop()

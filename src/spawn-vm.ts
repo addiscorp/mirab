@@ -2,7 +2,7 @@
 // (Firecracker on Linux, Virtualization.framework on macOS); the host keeps the terminal, session socket, hooks, injection queue
 // and everything else (spawn-worker.ts). This file only builds the guest
 // child and the hook relay.
-import { projectAgent } from './station/escalations'
+import { projectAgent } from 'rixse'
 import { createConnection } from 'node:net'
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
@@ -17,9 +17,10 @@ import {
 } from './isolation'
 import { privateSessionsDirectory, socketPath } from './spawn-sessions'
 import type { StationConfig } from './station/config'
-import type { Upstream } from './station/intercept'
-import { vmStation, type VmStation } from './station/vm'
-import { claudeRoute, withClaudeRoute } from './station/routes'
+import type { Upstream } from 'rixse'
+import { GUEST_PROXY, vmStation, type VmStation } from './station/gateway'
+import { claudeRoute, withClaudeRoute } from 'rixse'
+import { hararVault } from './station/vault'
 import {
   describeSync,
   hostManifest,
@@ -289,7 +290,11 @@ export async function startVmChild(opts: {
     const isClaude = basename(opts.binary) === 'claude'
     if (opts.station) {
       const claude = isClaude
-        ? claudeRoute(opts.station.config, opts.station.upstream)
+        ? claudeRoute(
+            hararVault(opts.station.config.harar.socket),
+            opts.station.config.models.claude?.token,
+            opts.station.upstream,
+          )
         : undefined
       station = await vmStation({
         project: opts.cwd,
@@ -306,7 +311,7 @@ export async function startVmChild(opts: {
       for (const note of station.notes) opts.log?.(note)
       await station.attach(iso)
       env = { ...env, ...station.env }
-      if (claude) env = withClaudeRoute(env)
+      if (claude) env = withClaudeRoute(env, GUEST_PROXY)
     }
     if (isClaude && !opts.station?.config.models.claude)
       opts.log?.(

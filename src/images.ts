@@ -24,7 +24,7 @@ import { join } from 'node:path'
 import { startVm, type VmConfig } from './isolation'
 import type { Isolation } from './isolation/session'
 import { EGRESS_GUEST_PORT, EGRESS_HOST_PORT } from './isolation/vz'
-import { startEgress } from './station/egress'
+import { startEgress } from 'rixse'
 
 /** Where apt goes, over HTTPS: the station lets nothing else out. */
 export const UBUNTU_MIRRORS = [
