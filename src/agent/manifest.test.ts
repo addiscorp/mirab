@@ -93,7 +93,16 @@ test.skipIf(!vmConfig)(
         { encoding: 'utf8' },
       )
       expect(run.status).toBe(0)
-      expect(JSON.parse(run.stdout)).toEqual(expected)
+      // Never approved here: looking approves nothing; what it asks for waits.
+      expect(JSON.parse(run.stdout)).toEqual({
+        ...expected,
+        domains: [],
+        packages: [],
+        pending: {
+          domains: [...expected.domains].sort(),
+          packages: [...expected.packages].sort(),
+        },
+      })
     } finally {
       await rm(root, { recursive: true, force: true })
     }

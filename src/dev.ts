@@ -139,11 +139,12 @@ export async function agentManifest(o: {
   try {
     await iso.put(GUEST_LOOP, await guestLoop(), 0o600)
     return {
+      // Looking, or building an image, approves nothing.
       manifest: withinApproval(
         o.configDir,
         resolve(o.project),
         await readManifestIn(iso),
-        o.log,
+        { record: false, log: o.log },
       ),
       vm,
     }
@@ -211,7 +212,7 @@ export async function startDev(o: {
       o.configDir,
       project,
       await readManifestIn(iso),
-      o.log,
+      { record: true, log: o.log },
     )
     if (!manifest.model.startsWith('anthropic/'))
       throw new Error(

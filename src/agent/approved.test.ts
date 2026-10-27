@@ -1,7 +1,20 @@
 import { expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { join, resolve } from 'node:path'
-import { approvePending, pendingReach, withinApproval } from './approved'
+import { projectAgent } from '../station/escalations'
+import {
+  approvePending,
+  approvedReach,
+  pendingReach,
+  withinApproval,
+} from './approved'
 import type { Manifest } from './manifest'
 
 const manifest = (domains: string[], packages: string[]) =>
@@ -15,60 +28,153 @@ const manifest = (domains: string[], packages: string[]) =>
     channels: [],
   }) as unknown as Manifest
 
-test("whatever changed the agent's definition, what it newly asks to reach waits for the person", () => {
+function scratch() {
   mkdirSync(resolve('.tmp'), { recursive: true })
   const configDir = mkdtempSync(join(resolve('.tmp'), 'approved-'))
   const project = join(configDir, 'project')
+  mkdirSync(project)
+  return { configDir, project }
+}
+
+test("whatever changed the agent's definition, what it newly asks to reach waits for the person", () => {
+  const { configDir, project } = scratch()
   const logs: string[] = []
-  const log = (l: string) => void logs.push(l)
+  const dev = { record: true, log: (l: string) => void logs.push(l) }
   try {
-    // The person starting it the first time: what it asks for is approved.
-    const first = withinApproval(
+    // Looking first approves nothing: what it asks for is left out, and waits.
+    const looked = withinApproval(
       configDir,
       project,
       manifest(['api.example.com'], ['jq']),
-      log,
+      { record: false },
     )
-    expect(first.domains).toEqual(['api.example.com'])
+    expect(looked.domains).toEqual([])
+    expect(approvedReach(configDir, project)).toBeUndefined()
+    // The person starting it with mirab dev: approved, and said.
+    expect(
+      withinApproval(
+        configDir,
+        project,
+        manifest(['api.example.com'], ['jq']),
+        dev,
+      ).domains,
+    ).toEqual(['api.example.com'])
     expect(logs.join('\n')).toContain('first run here')
-    // Later its code asks for more (in the VM, an import, package.json: it
-    // doesn't matter how): the new reach is left out, and said.
+    expect(pendingReach(configDir, project)).toBeUndefined()
+    // Later its code asks for more, by any route: left out, waiting, said.
     const wider = withinApproval(
       configDir,
       project,
       manifest(['api.example.com', 'evil.example.com'], ['jq', 'nmap']),
-      log,
+      dev,
     )
     expect(wider.domains).toEqual(['api.example.com'])
     expect(wider.packages).toEqual(['jq'])
     expect(logs.at(-1)).toContain('domains evil.example.com and packages nmap')
-    expect(pendingReach(configDir, project)?.domains).toContain(
-      'evil.example.com',
-    )
-    // Narrowing needs nothing.
-    expect(
-      withinApproval(configDir, project, manifest([], []), log).domains,
-    ).toEqual([])
-    // The person's yes, outside the VM: then it's in effect.
-    expect(approvePending(configDir, project)?.packages).toEqual(['jq', 'nmap'])
-    expect(pendingReach(configDir, project)).toBeUndefined()
-    expect(approvePending(configDir, project)).toBeUndefined()
-    const after = withinApproval(
+    // It stops asking: nothing waits, so an old ask can't be approved later.
+    withinApproval(
       configDir,
       project,
-      manifest(['api.example.com', 'evil.example.com'], ['jq', 'nmap']),
-      log,
+      manifest(['api.example.com'], ['jq']),
+      dev,
     )
-    expect(after.domains).toEqual(['api.example.com', 'evil.example.com'])
-    // Another project's approval is its own.
+    expect(pendingReach(configDir, project)).toBeUndefined()
+    // Dropped, then added back: asks again.
+    withinApproval(configDir, project, manifest([], ['jq']), dev)
     expect(
       withinApproval(
         configDir,
-        join(configDir, 'other'),
-        manifest(['x.example.com'], []),
-        log,
+        project,
+        manifest(['api.example.com'], ['jq']),
+        dev,
       ).domains,
-    ).toEqual(['x.example.com'])
+    ).toEqual([])
+    // The person approves exactly what they were shown, or nothing.
+    const shown = pendingReach(configDir, project)!
+    withinApproval(
+      configDir,
+      project,
+      manifest(['api.example.com', 'other.example.com'], ['jq']),
+      dev,
+    )
+    expect(() => approvePending(configDir, project, shown)).toThrow(
+      'changed since it was shown',
+    )
+    const now = pendingReach(configDir, project)!
+    expect(approvePending(configDir, project, now)?.domains).toEqual([
+      'api.example.com',
+      'other.example.com',
+    ])
+    expect(
+      withinApproval(
+        configDir,
+        project,
+        manifest(['api.example.com', 'other.example.com'], ['jq']),
+        dev,
+      ).domains,
+    ).toEqual(['api.example.com', 'other.example.com'])
+  } finally {
+    rmSync(configDir, { recursive: true, force: true })
+  }
+})
+
+test('a damaged approval is refused, never a first run; a project is its real folder', () => {
+  const { configDir, project } = scratch()
+  try {
+    withinApproval(configDir, project, manifest(['api.example.com'], []), {
+      record: true,
+    })
+    const link = join(configDir, 'link')
+    symlinkSync(project, link)
+    expect(projectAgent(link)).toBe(projectAgent(project))
+    expect(approvedReach(configDir, link)?.domains).toEqual(['api.example.com'])
+    const file = join(
+      configDir,
+      'manifests',
+      `${encodeURIComponent(projectAgent(project))}.approved.json`,
+    )
+    for (const bad of ['{}', 'not json', '{"domains":"x","packages":[]}']) {
+      writeFileSync(file, bad)
+      expect(() =>
+        withinApproval(configDir, project, manifest(['evil.example.com'], []), {
+          record: true,
+        }),
+      ).toThrow("doesn't read as an approval")
+    }
+  } finally {
+    rmSync(configDir, { recursive: true, force: true })
+  }
+})
+
+test('mirab manifest approve shows what it would approve, and without a terminal needs --yes', () => {
+  const { configDir, project } = scratch()
+  try {
+    withinApproval(configDir, project, manifest([], []), { record: true })
+    withinApproval(configDir, project, manifest(['api.example.com'], []), {
+      record: true,
+    })
+    const run = (...args: string[]) =>
+      spawnSync(
+        'bun',
+        [
+          resolve('src/mirab.ts'),
+          '--config-dir',
+          configDir,
+          'manifest',
+          'approve',
+          project,
+          ...args,
+        ],
+        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
+      )
+    const asked = run()
+    expect(asked.status).toBe(2)
+    expect(asked.stderr).toContain('asks for domains api.example.com')
+    expect(approvedReach(configDir, project)?.domains).toEqual([])
+    expect(run('--yes').status).toBe(0)
+    expect(approvedReach(configDir, project)?.domains).toEqual([
+      'api.example.com',
+    ])
   } finally {
     rmSync(configDir, { recursive: true, force: true })
   }

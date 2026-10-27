@@ -10,6 +10,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -236,7 +237,15 @@ export function revoke(configDir: string, agent: string, host: string) {
 /** Whose grants a session in `project` uses: the folder on this machine,
  *  never a name the agent's own code gives. One function for mirab dev,
  *  spawn --vm and the commands that grant. */
-export const projectAgent = (project: string) => `project:${resolve(project)}`
+export const projectAgent = (project: string) => {
+  // The folder itself, however it's spelled (a link, a relative path): its
+  // real path when it exists.
+  let path = resolve(project)
+  try {
+    path = realpathSync(path)
+  } catch {}
+  return `project:${path}`
+}
 
 const SECRET_PATH = /^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$/
 

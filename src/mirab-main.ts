@@ -125,18 +125,42 @@ manifestCmd
   .description(
     "approve what the agent's definition asks for beyond what you approved (run it here, never in the agent's VM)",
   )
-  .action(async (project: string | undefined) => {
+  .option('--yes', 'approve without asking (no terminal to ask on)')
+  .action(async (project: string | undefined, opts: { yes?: boolean }) => {
     const configDir =
       program.opts().configDir ?? join(homedir(), '.config', 'mirab')
-    const { approvePending } = await import('./agent/approved')
-    const approved = approvePending(configDir, resolve(project ?? '.'))
-    if (!approved) {
+    const { approvedReach, approvePending, beyond, describe, pendingReach } =
+      await import('./agent/approved')
+    const root = resolve(project ?? '.')
+    const shown = pendingReach(configDir, root)
+    if (!shown) {
       console.error(
         'mirab manifest approve: nothing is waiting (mirab dev or mirab manifest shows what the agent asks for)',
       )
       process.exitCode = 1
       return
     }
+    const now = approvedReach(configDir, root) ?? { domains: [], packages: [] }
+    console.error(`The agent here asks for ${describe(beyond(now, shown))}.`)
+    if (!opts.yes) {
+      if (!process.stdin.isTTY) {
+        console.error('mirab manifest approve: no terminal to ask on; --yes')
+        process.exitCode = 2
+        return
+      }
+      const { createInterface } = await import('node:readline/promises')
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stderr,
+      })
+      const answer = await rl.question('Approve? [y/N] ')
+      rl.close()
+      if (!/^y(es)?$/i.test(answer.trim())) {
+        console.error('Not approved; it stays left out.')
+        return
+      }
+    }
+    const approved = approvePending(configDir, root, shown)
     console.log(JSON.stringify({ approved }, null, 2))
   })
 
