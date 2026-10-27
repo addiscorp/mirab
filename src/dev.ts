@@ -250,6 +250,8 @@ export async function startDev(o: {
       auditLog: o.auditLog,
       routes: { anthropic },
       allow: manifest.domains,
+      // Its rules and keys as the person approved them (withinApproval).
+      config: manifest.gateway,
       // Whose grants (secrets, hosts asked for): the project folder on this
       // machine, as spawn --vm has it. Never the manifest's name, which the
       // agent's own code says in the VM: a cloned repo could claim a name the

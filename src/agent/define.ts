@@ -151,6 +151,38 @@ const channel = z.string().superRefine((name, ctx) => {
   if (problem) ctx.addIssue({ code: 'custom', message: `channel ${problem}` })
 })
 
+/** Characters that can make a terminal show something other than the text:
+ *  controls, C1 controls, line separators and bidirectional overrides. A
+ *  person approves rules by reading them, so none may appear in one. */
+export const UNSHOWABLE =
+  /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/
+
+const showable = (what: string) =>
+  z
+    .string()
+    .refine(
+      (s) => !UNSHOWABLE.test(s),
+      `${what} has a character a terminal can't show as itself`,
+    )
+
+/** A harar secret path: `/`-separated segments, none empty, `.` or `..`. */
+const secretPath = showable('a secret').refine(
+  (p) => p.split('/').every((s) => s !== '' && s !== '.' && s !== '..'),
+  'a secret is a harar path, like prod/shop/STRIPE_KEY',
+)
+
+/** One of rixse's gateway rules. Its shape is checked here, in the VM; the
+ *  gateway checks its meaning when a session starts, on the host. */
+const gatewayRule = z.strictObject({
+  host: domain,
+  method: z
+    .string()
+    .regex(/^(\*|[A-Za-z]+)$/, 'method is a method name or *')
+    .optional(),
+  path: showable('a path').startsWith('/', 'path starts with /').optional(),
+  effect: z.enum(['apply', 'request', 'forbidden']),
+})
+
 /** What agent/agent.ts declares. TypeScript tools are files in agent/tools/;
  *  `tools` here holds command tools. */
 export const agentSchema = z.strictObject({
@@ -164,6 +196,24 @@ export const agentSchema = z.strictObject({
   domains: z.array(domain).optional(),
   /** The channels it joins. */
   channels: z.array(channel).optional(),
+  /** What rixse's gateway lets its calls do: rules per host, method and path
+   *  (`apply`, `request` held for a person, `forbidden`), and per host the
+   *  secret its calls use, with an optional separate one for approved sends.
+   *  In force only as the person approved it (mirab manifest approve). */
+  gateway: z
+    .strictObject({
+      rules: z.array(gatewayRule).optional(),
+      secrets: z
+        .record(
+          domain,
+          z.strictObject({
+            agent: secretPath,
+            approved: secretPath.optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
 })
 export type Agent = z.infer<typeof agentSchema>
 

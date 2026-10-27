@@ -64,6 +64,7 @@ const expected = {
   packages: ['ripgrep', 'git'],
   domains: ['api.github.com', '*.npmjs.org'],
   channels: ['gg.addis.channel.ops'],
+  gateway: {},
 }
 
 test('an agent folder becomes one manifest: plain JSON that checks again as it is', async () => {
@@ -282,4 +283,42 @@ test("a project's own node_modules/mirab never stands in for mirab", async () =>
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test("an agent's gateway section: rixse's rules and keys, checked for shape", () => {
+  const base = {
+    name: 'gg.addis.agent.ops',
+    model: 'anthropic/claude-sonnet-5-5',
+  }
+  const gateway = {
+    rules: [
+      {
+        host: 'github.com',
+        method: 'POST',
+        path: '/acme/repo.git/git-receive-pack',
+        effect: 'apply' as const,
+      },
+      { host: '*.stripe.com', effect: 'request' as const },
+    ],
+    secrets: {
+      'api.stripe.com': {
+        agent: 'prod/shop/READ',
+        approved: 'prod/shop/WRITE',
+      },
+    },
+  }
+  expect(defineAgent({ ...base, gateway }).gateway).toEqual(gateway)
+  for (const bad of [
+    { rules: [{ host: 'github.com', effect: 'allow' }] },
+    { rules: [{ host: '127.0.0.1', effect: 'apply' }] },
+    { rules: [{ host: 'github.com', path: 'repo', effect: 'apply' }] },
+    { rules: [{ host: 'github.com', effect: 'apply', why: 'x' }] },
+    { secrets: { 'api.stripe.com': { agent: 'prod/../admin' } } },
+    // What a terminal can't show as itself: it could hide a rule being approved.
+    { rules: [{ host: 'github.com', path: '/x\r       ', effect: 'apply' }] },
+    { rules: [{ host: 'github.com', path: '/x\u202e', effect: 'apply' }] },
+    { secrets: { 'api.stripe.com': { agent: 'prod/shop/READ\u001b[2K' } } },
+    { routes: {} },
+  ])
+    expect(() => defineAgent({ ...base, gateway: bad } as never)).toThrow()
 })

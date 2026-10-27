@@ -89,6 +89,31 @@ mirab manifest           # what the agent asks for (read in its VM), and what's 
 mirab manifest approve   # yes to what's waiting
 ```
 
+What the agent's calls may do is rixse's to decide. A host a key goes to lets
+reads (GET, HEAD) through and holds everything else for you, unless the
+agent's `gateway` section says otherwise:
+
+```ts
+export default defineAgent({
+  name: 'gg.addis.agent.ops',
+  model: 'anthropic/claude-sonnet-5-5',
+  gateway: {
+    rules: [
+      // apply: goes through; request: held for you; forbidden: never.
+      { host: 'github.com', method: 'POST', path: '/acme/repo.git/git-receive-pack', effect: 'apply' },
+      { host: 'api.stripe.com', method: 'DELETE', effect: 'forbidden' },
+    ],
+    // Optional: a separate key used only for sends you approve, so a read key can't write.
+    secrets: { 'api.stripe.com': { agent: 'prod/shop/READ', approved: 'prod/shop/WRITE' } },
+  },
+})
+```
+
+The section is approved as a whole, like the rest: the first `mirab dev`
+records it, and any change after that, even one that looks narrower, waits
+for `mirab manifest approve`, which shows every rule. Until then the approved
+one stays in force.
+
 The chat is a channel the station hosts, between you and the agent, and it
 stays on this machine (`~/.mirab/sessions/channels`, readable only by
 you). `mirab dev` prints its id when it starts. In it you are `station.json`'s

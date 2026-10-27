@@ -4,16 +4,23 @@
 // through a file it imports from outside agent/, through package.json. So
 // whatever the manifest asks for now is checked against what the person
 // approved; anything new waits (`mirab manifest approve`), never quietly in
-// effect. Tools need no approval: they run in the VM, and what they can reach
+// effect. Its gateway section (rixse's rules and secrets) is approved as a
+// whole: the one in force is the one the person approved, and any change,
+// even one that looks narrower, waits. Tools need no approval: they run in the VM, and what they can reach
 // is still the whitelist and the station.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileName, projectAgent, writeJson } from 'rixse'
-import type { Manifest } from './manifest'
+import { fileName, projectAgent, ruleProblem, writeJson } from 'rixse'
+import { UNSHOWABLE } from './define'
+import { manifestSchema, type Manifest } from './manifest'
+
+export type Gateway = Manifest['gateway']
 
 export interface Reach {
   domains: string[]
   packages: string[]
+  /** As approved; `{}` is no rules (rixse's defaults). */
+  gateway: Gateway
 }
 
 const reachPath = (configDir: string, project: string, kind: string) =>
@@ -23,9 +30,57 @@ const reachPath = (configDir: string, project: string, kind: string) =>
     `${fileName(projectAgent(project))}.${kind}.json`,
   )
 
-const reachOf = (m: Pick<Manifest, 'domains' | 'packages'>): Reach => ({
+/** One spelling for one gateway section: rules in a fixed order (rixse
+ *  decides by specificity, never by order), secrets by host. */
+function canonical(g: Gateway): Gateway {
+  const out: Gateway = {}
+  if (g.rules?.length)
+    out.rules = [
+      ...new Map(
+        g.rules.map((r) => {
+          const rule = {
+            host: r.host,
+            ...(r.method !== undefined && { method: r.method }),
+            ...(r.path !== undefined && { path: r.path }),
+            effect: r.effect,
+          }
+          return [JSON.stringify(rule), rule] as const
+        }),
+      ).entries(),
+    ]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([, r]) => r)
+  const hosts = Object.keys(g.secrets ?? {}).sort()
+  if (hosts.length)
+    out.secrets = Object.fromEntries(
+      hosts.map((h) => {
+        const { agent, approved } = g.secrets![h]
+        return [h, { agent, ...(approved !== undefined && { approved }) }]
+      }),
+    )
+  return out
+}
+
+/** Why rixse would refuse `g` when a session starts, or null: checked before
+ *  a section is recorded or waits, so one can never be approved and then stop
+ *  every session. */
+export function gatewayProblem(g: Gateway): string | null {
+  for (const r of g.rules ?? []) {
+    const problem = ruleProblem(r)
+    if (problem) return problem
+  }
+  return null
+}
+
+const same = (a: Gateway, b: Gateway) =>
+  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b))
+
+const reachOf = (
+  m: Pick<Manifest, 'domains' | 'packages' | 'gateway'>,
+): Reach => ({
   domains: [...new Set(m.domains)].sort(),
   packages: [...new Set(m.packages)].sort(),
+  gateway: canonical(m.gateway),
 })
 
 /** A reach file: missing (nothing yet), or what it holds; a file that is
@@ -51,7 +106,16 @@ function read(path: string): Reach | undefined {
   const reach = r as Partial<Reach> | undefined
   if (!reach || !ok(reach.domains) || !ok(reach.packages))
     throw new Error(`${path} doesn't read as an approval; fix or remove it`)
-  return { domains: reach.domains, packages: reach.packages }
+  // An approval from before gateway sections approved none.
+  const gateway = reach.gateway ?? {}
+  const parsed = manifestSchema.shape.gateway.safeParse(gateway)
+  if (!parsed.success || gatewayProblem(parsed.data))
+    throw new Error(`${path} doesn't read as an approval; fix or remove it`)
+  return {
+    domains: reach.domains,
+    packages: reach.packages,
+    gateway: canonical(parsed.data),
+  }
 }
 
 /** What the person approved for `project`'s agent, if anything yet. */
@@ -62,13 +126,22 @@ export const approvedReach = (configDir: string, project: string) =>
 export const pendingReach = (configDir: string, project: string) =>
   read(reachPath(configDir, project, 'pending'))
 
+export interface Beyond {
+  domains: string[]
+  packages: string[]
+  /** The gateway section asked for, when it isn't the approved one. */
+  gateway?: Gateway
+}
+
 /** What `asked` adds to `approved`. */
-export const beyond = (approved: Reach, asked: Reach): Reach => ({
+export const beyond = (approved: Reach, asked: Reach): Beyond => ({
   domains: asked.domains.filter((d) => !approved.domains.includes(d)),
   packages: asked.packages.filter((p) => !approved.packages.includes(p)),
+  ...(!same(approved.gateway, asked.gateway) && { gateway: asked.gateway }),
 })
 
-const isEmpty = (r: Reach) => !r.domains.length && !r.packages.length
+const isEmpty = (r: Beyond) =>
+  !r.domains.length && !r.packages.length && !r.gateway
 
 /**
  * The manifest as it may run: its domains and packages narrowed to what the
@@ -86,12 +159,19 @@ export function withinApproval(
   o: { record: boolean; log?: (line: string) => void },
 ): Manifest {
   const asked = reachOf(manifest)
+  // A section rixse would refuse is never recorded nor waits: the one
+  // approved before, if any, stays, and the person is told why.
+  const problem = gatewayProblem(asked.gateway)
+  if (problem) {
+    asked.gateway = approvedReach(configDir, project)?.gateway ?? {}
+    o.log?.(`the agent's gateway section can't be used (${problem}): left out`)
+  }
   const approvedPath = reachPath(configDir, project, 'approved')
   const pendingPath = reachPath(configDir, project, 'pending')
   let approved = approvedReach(configDir, project)
   if (!approved) {
     if (!o.record) {
-      approved = { domains: [], packages: [] }
+      approved = { domains: [], packages: [], gateway: {} }
     } else {
       writeJson(approvedPath, asked)
       writeJson(pendingPath, null)
@@ -99,13 +179,15 @@ export function withinApproval(
         o.log?.(
           `first run here: approved ${describe(asked)} (later changes wait for mirab manifest approve)`,
         )
-      return manifest
+      return { ...manifest, gateway: asked.gateway }
     }
   } else {
     // What it stopped asking for stops being approved.
     const kept: Reach = {
       domains: approved.domains.filter((d) => asked.domains.includes(d)),
       packages: approved.packages.filter((p) => asked.packages.includes(p)),
+      // The approved section stays in force until a new one is approved.
+      gateway: approved.gateway,
     }
     if (
       kept.domains.length !== approved.domains.length ||
@@ -129,6 +211,7 @@ export function withinApproval(
     ...manifest,
     domains: manifest.domains.filter((d) => approved.domains.includes(d)),
     packages: manifest.packages.filter((p) => approved.packages.includes(p)),
+    gateway: approved.gateway,
   }
 }
 
@@ -148,10 +231,31 @@ export function approvePending(
   return pending
 }
 
-export function describe(r: Reach) {
+export function describe(r: Beyond) {
   const parts = [
     r.domains.length && `domains ${r.domains.join(', ')}`,
     r.packages.length && `packages ${r.packages.join(', ')}`,
+    r.gateway && `the gateway section ${describeGateway(r.gateway)}`,
   ].filter(Boolean)
   return parts.join(' and ')
+}
+
+/** A gateway section in full, as a person approves it: every rule and key. */
+export function describeGateway(g: Gateway) {
+  // The schema refuses these; an approval file is still escaped, never trusted.
+  const shown = (s: string) =>
+    s.replace(
+      new RegExp(UNSHOWABLE.source, 'g'),
+      (c) => `\\u{${c.codePointAt(0)!.toString(16)}}`,
+    )
+  const c = canonical(g)
+  const rules = (c.rules ?? []).map(
+    (r) => `${r.effect} ${r.method ?? '*'} ${r.host}${shown(r.path ?? '/*')}`,
+  )
+  const secrets = Object.entries(c.secrets ?? {}).map(
+    ([h, k]) =>
+      `${h} uses ${shown(k.agent)}${k.approved ? ` (approved sends: ${shown(k.approved)})` : ''}`,
+  )
+  const all = [...rules, ...secrets]
+  return all.length ? `(${all.join('; ')})` : '(no rules: rixse defaults)'
 }
