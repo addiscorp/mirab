@@ -494,7 +494,13 @@ o=$(git remote get-url origin 2>/dev/null | sed -E 's#^(https?://[^/]+).*#\\1#')
       '-c',
       `kill -HUP "$(cat ${quote(dir + '/pid')} 2>/dev/null)" 2>/dev/null; exit 0`,
     ])
-  const none = { written: [], deleted: [], conflicts: [], rejected: [] }
+  const none = {
+    written: [],
+    deleted: [],
+    conflicts: [],
+    held: [],
+    rejected: [],
+  }
   return {
     pid: p.pid ?? -1,
     write: (data) => void p.stdin.write(data),

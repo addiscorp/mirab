@@ -80,14 +80,53 @@ test('an agent folder becomes one manifest: plain JSON that checks again as it i
   }
 })
 
-test('mirab manifest prints the manifest as JSON', async () => {
+// The agent's code runs in its own VM, never on this machine: a live test.
+const vmConfig = process.env.TEST_VM_CONFIG_DIR
+test.skipIf(!vmConfig)(
+  'mirab manifest prints the manifest as JSON, read in a VM',
+  async () => {
+    const root = await project()
+    try {
+      const run = spawnSync(
+        'bun',
+        [resolve('src/mirab.ts'), '--config-dir', vmConfig!, 'manifest', root],
+        { encoding: 'utf8' },
+      )
+      expect(run.status).toBe(0)
+      // Never approved here: looking approves nothing; what it asks for waits.
+      expect(JSON.parse(run.stdout)).toEqual({
+        ...expected,
+        domains: [],
+        packages: [],
+        pending: {
+          domains: [...expected.domains].sort(),
+          packages: [...expected.packages].sort(),
+        },
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  },
+  120_000,
+)
+
+test('mirab manifest approve with nothing waiting says so', async () => {
   const root = await project()
   try {
-    const run = spawnSync('bun', [resolve('src/mirab.ts'), 'manifest', root], {
-      encoding: 'utf8',
-    })
-    expect(run.status).toBe(0)
-    expect(JSON.parse(run.stdout)).toEqual(expected)
+    const run = spawnSync(
+      'bun',
+      [
+        resolve('src/mirab.ts'),
+        '--config-dir',
+        root,
+        'manifest',
+        'approve',
+        root,
+      ],
+      { encoding: 'utf8' },
+    )
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain('nothing is waiting')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -10,6 +10,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -30,7 +31,7 @@ export interface Ask {
 }
 
 /** A file name for an agent, short enough for any filesystem. */
-function fileName(agent: string) {
+export function fileName(agent: string) {
   const name = encodeURIComponent(agent)
   if (name.length <= 120) return name
   const hash = new Bun.CryptoHasher('sha256')
@@ -48,7 +49,7 @@ const dismissedPath = (configDir: string, agent: string) =>
 export const allowPath = (configDir: string, agent: string) =>
   join(configDir, 'allow', `${fileName(agent)}.json`)
 
-function readJson<T>(path: string, empty: T): T {
+export function readJson<T>(path: string, empty: T): T {
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as T
   } catch {
@@ -57,7 +58,7 @@ function readJson<T>(path: string, empty: T): T {
 }
 
 /** Written aside and renamed into place, so a reader never sees half a file. */
-function writeJson(path: string, value: unknown) {
+export function writeJson(path: string, value: unknown) {
   mkdirSync(join(path, '..'), { recursive: true, mode: 0o700 })
   const part = `${path}.${process.pid}.part`
   writeFileSync(part, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 })
@@ -236,7 +237,15 @@ export function revoke(configDir: string, agent: string, host: string) {
 /** Whose grants a session in `project` uses: the folder on this machine,
  *  never a name the agent's own code gives. One function for mirab dev,
  *  spawn --vm and the commands that grant. */
-export const projectAgent = (project: string) => `project:${resolve(project)}`
+export const projectAgent = (project: string) => {
+  // The folder itself, however it's spelled (a link, a relative path): its
+  // real path when it exists.
+  let path = resolve(project)
+  try {
+    path = realpathSync(path)
+  } catch {}
+  return `project:${path}`
+}
 
 const SECRET_PATH = /^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,255}$/
 

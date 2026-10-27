@@ -73,7 +73,21 @@ While `mirab dev` runs, what you save reaches the agent's VM, and the agent
 picks up edits to `agent/` before its next turn, keeping the conversation.
 When the session ends, what the agent changed comes back to your project. If
 you both changed the same file, yours stays and the agent's is saved aside,
-never merged and never silently dropped. Your `.git` is never touched.
+never merged and never silently dropped. Your `.git` is never touched. What
+the agent changes about itself (anything under `agent/` and every `.env*`)
+never lands on its own: it's held aside and named when the session ends, for
+you to look at and copy over if you want it.
+
+That alone can't stop an agent widening itself (its code may import from
+elsewhere), so what it may reach is approved per project, not taken from its
+code: the first `mirab dev` records the manifest's `domains` and `packages`,
+and if its code later asks for more, by any route, the new ones are left out
+of the session and named. If the change was yours, approve it here:
+
+```sh
+mirab manifest           # what the agent asks for (read in its VM), and what's waiting
+mirab manifest approve   # yes to what's waiting
+```
 
 The chat is a channel the station hosts, between you and the agent, and it
 stays on this machine (`~/.mirab/sessions/channels`, readable only by
