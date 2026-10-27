@@ -105,8 +105,10 @@ function validEntry(e: Entry) {
  *  lands on its own: it would be the agent widening itself for its next
  *  session. Held aside for the person instead. */
 export function selfDefinition(path: string) {
-  const first = path.split('/')[0]
-  return first === 'agent' || path === '.env'
+  // Case-folded: on a Mac's disk Agent/ and .ENV are agent/ and .env. Every
+  // .env file, since tools read .env.local and the like too.
+  const first = path.split('/')[0].normalize('NFC').toLowerCase()
+  return first === 'agent' || first.startsWith('.env')
 }
 
 /** Guest Git state is never adopted as trusted host repository metadata. */

@@ -19,6 +19,7 @@ import {
   type Member,
   type Message,
 } from './channel/local'
+import { withinApproval } from './agent/approved'
 import { parseManifest, type Manifest } from './agent/manifest'
 import { startVm, type Isolation, type VmConfig } from './isolation'
 import { agentImage } from './images'
@@ -137,7 +138,15 @@ export async function agentManifest(o: {
   )
   try {
     await iso.put(GUEST_LOOP, await guestLoop(), 0o600)
-    return { manifest: await readManifestIn(iso), vm }
+    return {
+      manifest: withinApproval(
+        o.configDir,
+        resolve(o.project),
+        await readManifestIn(iso),
+        o.log,
+      ),
+      vm,
+    }
   } finally {
     await iso.close()
   }
@@ -197,7 +206,13 @@ export async function startDev(o: {
   let closeStation = async () => {}
   try {
     // The agent's own files run in the VM, never here.
-    const manifest = await readManifestIn(iso)
+    // As the agent's code says it now, within what the person approved.
+    const manifest = withinApproval(
+      o.configDir,
+      project,
+      await readManifestIn(iso),
+      o.log,
+    )
     if (!manifest.model.startsWith('anthropic/'))
       throw new Error(
         `mirab dev talks to anthropic models for now; ${manifest.model} isn't one`,

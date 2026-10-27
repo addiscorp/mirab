@@ -378,11 +378,15 @@ export function spawnCommands(
         10 * 60_000,
       )
       console.log(
-        `${id}: ${r.written} written, ${r.deleted} deleted, ${r.conflicts.length} conflicts${r.rejected ? `, ${r.rejected} rejected` : ''}`,
+        `${id}: ${r.written} written, ${r.deleted} deleted, ${r.conflicts.length} conflicts${r.held.length ? `, ${r.held.length} held` : ''}${r.rejected ? `, ${r.rejected} rejected` : ''}`,
       )
       for (const c of r.conflicts)
         console.log(
           `  kept host copy of ${c.path} (${c.reason})${c.saved ? `; guest copy: ${c.saved}` : ''}`,
+        )
+      for (const h of r.held)
+        console.log(
+          `  held ${h.path}: the agent changed its own definition${h.saved ? `; its version: ${h.saved}` : ''}`,
         )
     })
   program

@@ -381,6 +381,10 @@ test('what the agent changes about itself is held for the person, never applied;
     await writeFile(join(root, '.env'), 'KEY=harar://prod/shop/KEY\n')
   }
   const baseline = await hostManifest(t.host)
+  // A case variant is the same folder on a Mac's disk: held too.
+  expect((await import('./sync')).selfDefinition('Agent/tools/x.ts')).toBe(true)
+  expect((await import('./sync')).selfDefinition('.ENV.local')).toBe(true)
+  expect((await import('./sync')).selfDefinition('src/agent.ts')).toBe(false)
   // In the VM, the agent widens itself, and does some ordinary work.
   await writeFile(
     join(t.guest, 'agent/agent.ts'),

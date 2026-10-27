@@ -1,11 +1,10 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Command } from 'commander'
 import pkg from '../package.json'
 import { profileCommands } from './agent-profiles'
 import { DEFAULT_MODEL, initAgent, initProblem } from './agent/init'
 import { agentNameProblem } from './agent/define'
-import { loadManifest } from './agent/manifest'
 import { MULTIPASS_UNAVAILABLE, usesMultipass } from './isolation/multipass'
 import { localEvents, spawnCommands } from './spawn'
 
@@ -93,12 +92,52 @@ program
     },
   )
 
-program
-  .command('manifest [project]')
-  .description("the agent's manifest, as JSON: what mirab dev and up read")
+const manifestCmd = program
+  .command('manifest')
+  .description(
+    "the agent's manifest: what it asks to reach, and what you approved",
+  )
+
+manifestCmd
+  .command('show [project]', { isDefault: true })
+  .description(
+    "the manifest, read from the agent's code in its own VM (never run on this machine), within what you approved",
+  )
   .action(async (project: string | undefined) => {
-    const { manifest } = await loadManifest(project ?? '.')
-    console.log(JSON.stringify(manifest, null, 2))
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { agentManifest } = await import('./dev')
+    const { pendingReach } = await import('./agent/approved')
+    const log = (line: string) => console.error(line)
+    const { manifest } = await agentManifest({
+      project: project ?? '.',
+      configDir,
+      log,
+    })
+    const pending = pendingReach(configDir, resolve(project ?? '.'))
+    console.log(
+      JSON.stringify(pending ? { ...manifest, pending } : manifest, null, 2),
+    )
+  })
+
+manifestCmd
+  .command('approve [project]')
+  .description(
+    "approve what the agent's definition asks for beyond what you approved (run it here, never in the agent's VM)",
+  )
+  .action(async (project: string | undefined) => {
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { approvePending } = await import('./agent/approved')
+    const approved = approvePending(configDir, resolve(project ?? '.'))
+    if (!approved) {
+      console.error(
+        'mirab manifest approve: nothing is waiting (mirab dev or mirab manifest shows what the agent asks for)',
+      )
+      process.exitCode = 1
+      return
+    }
+    console.log(JSON.stringify({ approved }, null, 2))
   })
 
 program
