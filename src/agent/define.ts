@@ -151,13 +151,25 @@ const channel = z.string().superRefine((name, ctx) => {
   if (problem) ctx.addIssue({ code: 'custom', message: `channel ${problem}` })
 })
 
+/** Characters that can make a terminal show something other than the text:
+ *  controls, C1 controls, line separators and bidirectional overrides. A
+ *  person approves rules by reading them, so none may appear in one. */
+export const UNSHOWABLE =
+  /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/
+
+const showable = (what: string) =>
+  z
+    .string()
+    .refine(
+      (s) => !UNSHOWABLE.test(s),
+      `${what} has a character a terminal can't show as itself`,
+    )
+
 /** A harar secret path: `/`-separated segments, none empty, `.` or `..`. */
-const secretPath = z
-  .string()
-  .refine(
-    (p) => p.split('/').every((s) => s !== '' && s !== '.' && s !== '..'),
-    'a secret is a harar path, like prod/shop/STRIPE_KEY',
-  )
+const secretPath = showable('a secret').refine(
+  (p) => p.split('/').every((s) => s !== '' && s !== '.' && s !== '..'),
+  'a secret is a harar path, like prod/shop/STRIPE_KEY',
+)
 
 /** One of rixse's gateway rules. Its shape is checked here, in the VM; the
  *  gateway checks its meaning when a session starts, on the host. */
@@ -167,7 +179,7 @@ const gatewayRule = z.strictObject({
     .string()
     .regex(/^(\*|[A-Za-z]+)$/, 'method is a method name or *')
     .optional(),
-  path: z.string().startsWith('/', 'path starts with /').optional(),
+  path: showable('a path').startsWith('/', 'path starts with /').optional(),
   effect: z.enum(['apply', 'request', 'forbidden']),
 })
 

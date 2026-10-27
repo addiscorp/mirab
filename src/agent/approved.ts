@@ -10,7 +10,8 @@
 // is still the whitelist and the station.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileName, projectAgent, writeJson } from 'rixse'
+import { fileName, projectAgent, ruleProblem, writeJson } from 'rixse'
+import { UNSHOWABLE } from './define'
 import { manifestSchema, type Manifest } from './manifest'
 
 export type Gateway = Manifest['gateway']
@@ -60,6 +61,17 @@ function canonical(g: Gateway): Gateway {
   return out
 }
 
+/** Why rixse would refuse `g` when a session starts, or null: checked before
+ *  a section is recorded or waits, so one can never be approved and then stop
+ *  every session. */
+export function gatewayProblem(g: Gateway): string | null {
+  for (const r of g.rules ?? []) {
+    const problem = ruleProblem(r)
+    if (problem) return problem
+  }
+  return null
+}
+
 const same = (a: Gateway, b: Gateway) =>
   JSON.stringify(canonical(a)) === JSON.stringify(canonical(b))
 
@@ -97,7 +109,7 @@ function read(path: string): Reach | undefined {
   // An approval from before gateway sections approved none.
   const gateway = reach.gateway ?? {}
   const parsed = manifestSchema.shape.gateway.safeParse(gateway)
-  if (!parsed.success)
+  if (!parsed.success || gatewayProblem(parsed.data))
     throw new Error(`${path} doesn't read as an approval; fix or remove it`)
   return {
     domains: reach.domains,
@@ -147,6 +159,13 @@ export function withinApproval(
   o: { record: boolean; log?: (line: string) => void },
 ): Manifest {
   const asked = reachOf(manifest)
+  // A section rixse would refuse is never recorded nor waits: the one
+  // approved before, if any, stays, and the person is told why.
+  const problem = gatewayProblem(asked.gateway)
+  if (problem) {
+    asked.gateway = approvedReach(configDir, project)?.gateway ?? {}
+    o.log?.(`the agent's gateway section can't be used (${problem}): left out`)
+  }
   const approvedPath = reachPath(configDir, project, 'approved')
   const pendingPath = reachPath(configDir, project, 'pending')
   let approved = approvedReach(configDir, project)
@@ -160,7 +179,7 @@ export function withinApproval(
         o.log?.(
           `first run here: approved ${describe(asked)} (later changes wait for mirab manifest approve)`,
         )
-      return manifest
+      return { ...manifest, gateway: asked.gateway }
     }
   } else {
     // What it stopped asking for stops being approved.
@@ -223,13 +242,19 @@ export function describe(r: Beyond) {
 
 /** A gateway section in full, as a person approves it: every rule and key. */
 export function describeGateway(g: Gateway) {
+  // The schema refuses these; an approval file is still escaped, never trusted.
+  const shown = (s: string) =>
+    s.replace(
+      new RegExp(UNSHOWABLE.source, 'g'),
+      (c) => `\\u{${c.codePointAt(0)!.toString(16)}}`,
+    )
   const c = canonical(g)
   const rules = (c.rules ?? []).map(
-    (r) => `${r.effect} ${r.method ?? '*'} ${r.host}${r.path ?? '/*'}`,
+    (r) => `${r.effect} ${r.method ?? '*'} ${r.host}${shown(r.path ?? '/*')}`,
   )
   const secrets = Object.entries(c.secrets ?? {}).map(
     ([h, k]) =>
-      `${h} uses ${k.agent}${k.approved ? ` (approved sends: ${k.approved})` : ''}`,
+      `${h} uses ${shown(k.agent)}${k.approved ? ` (approved sends: ${shown(k.approved)})` : ''}`,
   )
   const all = [...rules, ...secrets]
   return all.length ? `(${all.join('; ')})` : '(no rules: rixse defaults)'

@@ -314,6 +314,10 @@ test("an agent's gateway section: rixse's rules and keys, checked for shape", ()
     { rules: [{ host: 'github.com', path: 'repo', effect: 'apply' }] },
     { rules: [{ host: 'github.com', effect: 'apply', why: 'x' }] },
     { secrets: { 'api.stripe.com': { agent: 'prod/../admin' } } },
+    // What a terminal can't show as itself: it could hide a rule being approved.
+    { rules: [{ host: 'github.com', path: '/x\r       ', effect: 'apply' }] },
+    { rules: [{ host: 'github.com', path: '/x\u202e', effect: 'apply' }] },
+    { secrets: { 'api.stripe.com': { agent: 'prod/shop/READ\u001b[2K' } } },
     { routes: {} },
   ])
     expect(() => defineAgent({ ...base, gateway: bad } as never)).toThrow()

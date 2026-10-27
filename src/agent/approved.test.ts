@@ -306,3 +306,32 @@ test('an approval from before gateway sections approves none; a damaged section 
     rmSync(configDir, { recursive: true, force: true })
   }
 })
+
+test('a gateway section rixse would refuse is never recorded nor waits; the approved one stays', () => {
+  const { configDir, project } = scratch()
+  const logs: string[] = []
+  const dev = { record: true, log: (l: string) => void logs.push(l) }
+  const bad = {
+    rules: [{ host: 'github.com', path: '/a;b', effect: 'apply' as const }],
+  }
+  const good = { rules: [{ host: 'github.com', effect: 'request' as const }] }
+  try {
+    // A first run with a bad section approves none.
+    expect(
+      withinApproval(configDir, project, manifest([], [], bad), dev).gateway,
+    ).toEqual({})
+    expect(approvedReach(configDir, project)?.gateway).toEqual({})
+    expect(logs.join('\n')).toContain(
+      "gateway section can't be used (path /a;b",
+    )
+    // A good one, approved; then the agent's code breaks it: the good one stays, nothing waits.
+    withinApproval(configDir, project, manifest([], [], good), dev)
+    approvePending(configDir, project, pendingReach(configDir, project)!)
+    expect(
+      withinApproval(configDir, project, manifest([], [], bad), dev).gateway,
+    ).toEqual(good)
+    expect(pendingReach(configDir, project)).toBeUndefined()
+  } finally {
+    rmSync(configDir, { recursive: true, force: true })
+  }
+})
