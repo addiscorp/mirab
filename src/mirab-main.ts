@@ -140,7 +140,11 @@ manifestCmd
       process.exitCode = 1
       return
     }
-    const now = approvedReach(configDir, root) ?? { domains: [], packages: [] }
+    const now = approvedReach(configDir, root) ?? {
+      domains: [],
+      packages: [],
+      gateway: {},
+    }
     console.error(`The agent here asks for ${describe(beyond(now, shown))}.`)
     if (!opts.yes) {
       if (!process.stdin.isTTY) {

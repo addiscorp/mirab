@@ -34,6 +34,7 @@ export const manifestSchema = z.strictObject({
   packages: z.array(agentSchema.shape.packages.unwrap().element),
   domains: z.array(agentSchema.shape.domains.unwrap().element),
   channels: z.array(agentSchema.shape.channels.unwrap().element),
+  gateway: agentSchema.shape.gateway.unwrap().default({}),
 })
 export type Manifest = z.infer<typeof manifestSchema>
 
@@ -132,6 +133,7 @@ export async function loadManifest(project: string): Promise<LoadedManifest> {
       packages: agent.packages ?? [],
       domains: agent.domains ?? [],
       channels: agent.channels ?? [],
+      gateway: agent.gateway ?? {},
     },
     definition,
   )

@@ -14,6 +14,7 @@ const manifest = {
   packages: [],
   domains: ['api.github.com'],
   channels: [],
+  gateway: {},
 }
 
 test("the host reads the VM's manifest only through the schema", () => {

@@ -91,3 +91,36 @@ test('a VM gets a placeholder only for a secret its agent was allowed and harar 
     await rm(base, { recursive: true, force: true })
   }
 })
+
+test("the agent's approved gateway section reaches rixse, which checks it before the VM starts", async () => {
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const base = await mkdtemp(join(resolve('.tmp'), 'vmstation-'))
+  const project = join(base, 'project')
+  await mkdir(project)
+  const start = (config: Parameters<typeof vmStation>[0]['config']) =>
+    vmStation({
+      project,
+      station: { harar: { socket: join(base, 'none.sock') }, models: {} },
+      configDir: base,
+      zone: 'gg.addis.zone.vm-test',
+      auditLog: join(base, 'egress.log'),
+      routes: {},
+      allow: [],
+      agent: AGENT,
+      config,
+    })
+  try {
+    // rixse refuses a rule it can't read: so the section got there.
+    await expect(
+      start({
+        rules: [{ host: 'github.com', method: 'GE T', effect: 'apply' }],
+      }),
+    ).rejects.toThrow('gateway rule: method GE T')
+    const station = await start({
+      rules: [{ host: 'github.com', method: 'POST', effect: 'apply' }],
+    })
+    await station.close()
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})

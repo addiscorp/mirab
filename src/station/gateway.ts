@@ -3,7 +3,7 @@
 // knows nothing about VMs; this maps the guest's egress port to it, puts its
 // certificate authority where the guest's programs trust it, and passes its
 // environment on. Shared by `mirab spawn --vm` and `mirab dev`.
-import { gateway, type Route, type Upstream } from 'rixse'
+import { gateway, type GatewayConfig, type Route, type Upstream } from 'rixse'
 import type { Isolation } from '../isolation/session'
 import { EGRESS_GUEST_PORT, EGRESS_HOST_PORT } from '../isolation/vz'
 import type { StationConfig } from './config'
@@ -39,6 +39,8 @@ export async function vmStation(o: {
   agent: string
   /** Tests point the hosts the gateway opens at a local stand-in. */
   upstream?: (host: string) => Promise<Upstream>
+  /** The agent's gateway section, as the person approved it. */
+  config?: GatewayConfig
 }): Promise<VmStation> {
   const session = await gateway({
     project: o.project,
@@ -51,6 +53,7 @@ export async function vmStation(o: {
     agent: o.agent,
     guest: { proxy: GUEST_PROXY, caPath: GUEST_CA },
     upstream: o.upstream,
+    config: o.config,
   })
   // The gateway says what's missing; mirab says how to give it, here.
   const notes = session.notes.map((note) => {
