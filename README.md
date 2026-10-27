@@ -48,7 +48,7 @@ mirab manifest       # what mirab reads about the agent, as JSON
 
 The VM has no network of its own. Its only way out is the station on this
 machine, which lets it reach the domains in `agent.ts` (`domains`) and adds
-the model key, read from harar, on the way out. Nothing in the VM holds the
+the model key, sent by harar for that host only, on the way out. Nothing in the VM holds the
 key. `~/.config/mirab/station.json` says where harar is and which secret is
 the key:
 
@@ -60,6 +60,13 @@ the key:
     "claude": { "token": "personal/claude/OAUTH_TOKEN" }
   }
 }
+```
+
+Like any key, harar decides where these go, and records each time:
+
+```sh
+harar hosts allow personal/anthropic/API_KEY api.anthropic.com
+harar hosts allow personal/claude/OAUTH_TOKEN api.anthropic.com
 ```
 
 While `mirab dev` runs, what you save reaches the agent's VM, and the agent

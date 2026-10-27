@@ -1,10 +1,12 @@
 // The station's model routes. The VM sends a placeholder; the station adds
-// the person's long-lived credential, read from harar, on the way out, so
-// nothing in the VM ever holds it (docs/architecture.md section 5).
+// the person's long-lived credential on the way out, so nothing in the VM
+// ever holds it (docs/architecture.md section 5). The credential comes from
+// harar's send for the route's own host, like any other key: harar decides,
+// and records each time.
 import { EGRESS_GUEST_PORT } from '../isolation/vz'
 import type { StationConfig } from './config'
 import type { Route } from './egress'
-import { hararGet } from './harar'
+import { hararSend } from './harar'
 
 export const ANTHROPIC = 'https://api.anthropic.com'
 /** What the VM sends where a key or token would be. */
@@ -13,6 +15,18 @@ export const PLACEHOLDER = 'mirab-placeholder'
 /** The base URL a route has in the guest: the station's loopback port. */
 export const guestRouteURL = (name: string) =>
   `http://127.0.0.1:${EGRESS_GUEST_PORT}/${name}`
+
+/** `secret` for `upstream`'s host, from harar's send; a refusal says how to
+ *  let it go there. */
+function sent(socket: string, secret: string, upstream: string) {
+  const host = new URL(upstream).hostname
+  return () =>
+    hararSend(socket, secret, host).catch((e: Error) => {
+      throw new Error(
+        `${e.message} (to let it: harar hosts allow ${secret} ${host}, or a role's send at a primary)`,
+      )
+    })
+}
 
 /** An API key (mirab's own agent loop): `x-api-key`. */
 export function anthropicKeyRoute(
@@ -25,7 +39,7 @@ export function anthropicKeyRoute(
     upstream,
     header: 'x-api-key',
     paths: ['/v1/messages'],
-    credential: () => hararGet(station.harar.socket, key),
+    credential: sent(station.harar.socket, key, upstream),
   }
 }
 
@@ -42,7 +56,7 @@ export function claudeRoute(
     header: 'authorization',
     format: (credential) => `Bearer ${credential}`,
     paths: ['/v1/messages'],
-    credential: () => hararGet(station.harar.socket, token),
+    credential: sent(station.harar.socket, token, upstream),
   }
 }
 
