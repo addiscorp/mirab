@@ -5,7 +5,8 @@ import { join, resolve } from 'node:path'
 import { allowSecret } from 'rixse'
 import { vmStation } from './gateway'
 
-const AGENT = 'gg.addis.agent.ops'
+// A project's agent: its path can hold spaces.
+const AGENT = 'project:/Users/x/my shop'
 
 test('a VM gets a placeholder only for a secret its agent was allowed and harar lets go somewhere; old station.json secrets are named as ignored', async () => {
   await mkdir(resolve('.tmp'), { recursive: true })

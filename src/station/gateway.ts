@@ -8,6 +8,7 @@ import type { Isolation } from '../isolation/session'
 import { EGRESS_GUEST_PORT, EGRESS_HOST_PORT } from '../isolation/vz'
 import type { StationConfig } from './config'
 import { hararVault } from './vault'
+import { shellQuote } from '../spawn-adapters/types'
 
 /** Where the gateway's authority lands in the guest. */
 export const GUEST_CA = '/usr/local/share/ca-certificates/mirab-station.crt'
@@ -53,11 +54,10 @@ export async function vmStation(o: {
   })
   // The gateway says what's missing; mirab says how to give it, here.
   const notes = session.notes.map((note) => {
-    const m = /names harar:\/\/(\S+), which (\S+) hasn't been allowed/.exec(
-      note,
-    )
-    return m
-      ? `${note}. Allow it: mirab secrets allow ${m[1]} --agent '${m[2]}'`
+    // The agent is the one mirab named; a project path can hold spaces.
+    const m = /names harar:\/\/(\S+), which /.exec(note)
+    return m && note.includes(`, which ${o.agent} hasn't been allowed`)
+      ? `${note}. Allow it: mirab secrets allow ${m[1]} --agent ${shellQuote(o.agent)}`
       : note
   })
   if (o.station.secrets !== undefined)
