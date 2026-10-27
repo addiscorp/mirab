@@ -88,6 +88,8 @@ describe.skipIf(!configDir)('keys for any service in a VM, live', () => {
       'curl -sS https://api.stripe.test/v1/charges -H "Authorization: Bearer $STRIPE_KEY"; echo',
       'git ls-remote "https://x-access-token:$GH@github.test/acme/repo.git" >/dev/null 2>&1; echo git=done',
       `bun -e "const r = await fetch('https://api.stripe.test/v1/bun', { headers: { authorization: 'Bearer ' + process.env.STRIPE_KEY } }); console.log('bun ' + r.status)"`,
+      // A write with a key, and no rule for its host: held (rixse's default).
+      'echo write=$(curl -sS -o /dev/null -w "%{http_code}" -X POST -d amount=1 https://api.stripe.test/v1/charges -H "Authorization: Bearer $STRIPE_KEY")',
       'echo wrong=$(curl -sS -o /dev/null -w "%{http_code}" https://github.test/x -H "Authorization: Bearer $STRIPE_KEY")',
       'echo real-in-vm=$( (env; cat .env) | grep -c REAL)',
     ].join('; ')
@@ -130,9 +132,11 @@ describe.skipIf(!configDir)('keys for any service in a VM, live', () => {
       expect(screen).toContain('ok api.stripe.test')
       expect(screen).toContain('bun 200')
       expect(screen).toContain('wrong=403')
+      expect(screen).toContain('write=403')
       expect(screen).toContain('real-in-vm=0')
       expect(screen).not.toContain('REAL123')
-      // What the services got: the real keys, each on its own host only.
+      // What the services got: the real keys, each on its own host only; the
+      // held write never reached the service.
       const stripeAuth = seen
         .filter((s) => s.host === 'api.stripe.test')
         .map((s) => s.auth)

@@ -24,7 +24,7 @@
     "node-pty": "1.2.0-beta.15",
     "smol-toml": "^1.9.0",
     "zod": "^4.6.5",
-    "rixse": "github:addiscorp/rixse#1ab03822704f7e3a5d027de9ab9845a903418699"
+    "rixse": "github:addiscorp/rixse#03982baae18437fab5cb2ee9a372f253c4de7b2b"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
