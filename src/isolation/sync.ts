@@ -24,6 +24,9 @@ export interface SyncResult {
   written: string[]
   deleted: string[]
   conflicts: { path: string; reason: string; saved?: string }[]
+  /** What the agent changed about itself (its definition, `.env`): saved
+   *  aside, never applied, for the person to review. */
+  held: { path: string; reason: string; saved?: string }[]
   rejected: { path: string; reason: string }[]
   /** Final VM sync only: private retained workspace and recovery note. */
   recovery?: RecoveryLocation
@@ -96,6 +99,16 @@ function validEntry(e: Entry) {
   return e.k === 'd'
 }
 
+/** What an agent is, and what it may reach: its definition (`agent/`: the
+ *  manifest's domains, packages and tools, its instructions) and the
+ *  project's `.env` (which secrets it names). A VM's change to these never
+ *  lands on its own: it would be the agent widening itself for its next
+ *  session. Held aside for the person instead. */
+export function selfDefinition(path: string) {
+  const first = path.split('/')[0]
+  return first === 'agent' || path === '.env'
+}
+
 /** Guest Git state is never adopted as trusted host repository metadata. */
 export function protectedMetadata(path: string) {
   return path.split('/').some((part) => part.toLowerCase() === '.git')
@@ -120,6 +133,7 @@ export async function syncBack(o: SyncOptions): Promise<SyncResult> {
     written: [],
     deleted: [],
     conflicts: [],
+    held: [],
     rejected: [],
   }
   const guest: Manifest = new Map()
@@ -181,6 +195,7 @@ export async function syncBack(o: SyncOptions): Promise<SyncResult> {
     reason: string,
     after?: Entry,
     data?: Buffer,
+    into: SyncResult['conflicts'] = result.conflicts,
   ) => {
     let saved: string | undefined
     if (after?.k === 'f' && data) {
@@ -216,7 +231,7 @@ export async function syncBack(o: SyncOptions): Promise<SyncResult> {
     } finally {
       metadata.close()
     }
-    result.conflicts.push({ path: rel, reason, ...(saved ? { saved } : {}) })
+    into.push({ path: rel, reason, ...(saved ? { saved } : {}) })
   }
   try {
     for (const rel of [...deletions, ...updates]) {
@@ -228,6 +243,18 @@ export async function syncBack(o: SyncOptions): Promise<SyncResult> {
         // destination. All host validation and mutation below are synchronous
         // and relative to directory descriptors, including temp and rename.
         const data = after?.k === 'f' ? await fetch(rel, after) : undefined
+        // The agent's change to itself: saved aside, never applied; the
+        // baseline stays, so it is still pending next time.
+        if (selfDefinition(rel)) {
+          conflict(
+            rel,
+            'the agent changed its own definition; held for you to review',
+            after,
+            data,
+            result.held,
+          )
+          continue
+        }
         try {
           parent = root.parent(rel)
         } catch {
@@ -291,6 +318,10 @@ export function describeSync(r: SyncResult) {
     `${r.deleted.length} deleted`,
     `${r.conflicts.length} conflicts`,
   ]
+  if (r.held.length)
+    parts.push(
+      `${r.held.length} held (the agent changed its own definition: ${r.held.map((h) => h.saved ?? h.path).join(', ')})`,
+    )
   if (r.rejected.length) parts.push(`${r.rejected.length} rejected`)
   return parts.join(', ')
 }

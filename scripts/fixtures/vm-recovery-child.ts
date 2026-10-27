@@ -33,6 +33,7 @@ export async function startVmChild(opts: {
     return {
       written: [],
       deleted: [],
+      held: [],
       rejected: [],
       conflicts:
         opts.args[0] === 'partial'

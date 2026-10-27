@@ -16,7 +16,13 @@ import { existsSync, lstatSync, readlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { createServer } from 'node:net'
 import { finishVmSync } from '../spawn-vm'
-import { hostManifest, syncBack, validPath, type Manifest } from './sync'
+import {
+  describeSync,
+  hostManifest,
+  syncBack,
+  validPath,
+  type Manifest,
+} from './sync'
 import type { Entry, GuestFiles } from './session'
 
 /** A "guest" that is just another directory, listed with the host walker. */
@@ -170,7 +176,13 @@ test('host manifest skips existing FIFO/socket entries but guest mutations to th
 test('an unchanged guest syncs nothing', async () => {
   const t = await setup()
   const r = await t.sync()
-  expect(r).toEqual({ written: [], deleted: [], conflicts: [], rejected: [] })
+  expect(r).toEqual({
+    written: [],
+    deleted: [],
+    conflicts: [],
+    held: [],
+    rejected: [],
+  })
   await rm(t.base, { recursive: true })
 })
 
@@ -354,4 +366,59 @@ test('host changes during asynchronous guest retrieval are checked after retriev
   } finally {
     await rm(t.base, { recursive: true })
   }
+})
+
+test('what the agent changes about itself is held for the person, never applied; its other work comes back', async () => {
+  const t = await setup()
+  // The agent's definition and the project's .env, on both sides at the start.
+  for (const root of [t.host, t.guest]) {
+    await mkdir(join(root, 'agent/tools'), { recursive: true })
+    await writeFile(
+      join(root, 'agent/agent.ts'),
+      "domains: ['api.example.com']\n",
+    )
+    await writeFile(join(root, 'agent/instructions.md'), 'Be careful.\n')
+    await writeFile(join(root, '.env'), 'KEY=harar://prod/shop/KEY\n')
+  }
+  const baseline = await hostManifest(t.host)
+  // In the VM, the agent widens itself, and does some ordinary work.
+  await writeFile(
+    join(t.guest, 'agent/agent.ts'),
+    "domains: ['api.example.com', 'evil.example.com']\n",
+  )
+  await writeFile(join(t.guest, 'agent/tools/exfil.ts'), 'export default 1\n')
+  await rm(join(t.guest, 'agent/instructions.md'))
+  await writeFile(
+    join(t.guest, '.env'),
+    'KEY=harar://prod/shop/KEY\nBANK=harar://personal/bank/TOKEN\n',
+  )
+  await writeFile(join(t.guest, 'src/a.ts'), 'a, edited\n')
+  const r = await t.sync(baseline)
+  expect(r.written).toEqual(['src/a.ts'])
+  expect(r.held.map((h) => h.path).sort()).toEqual([
+    '.env',
+    'agent/agent.ts',
+    'agent/instructions.md',
+    'agent/tools/exfil.ts',
+  ])
+  // The host is untouched; the agent's versions are saved aside to review.
+  expect(await readFile(join(t.host, 'agent/agent.ts'), 'utf8')).toBe(
+    "domains: ['api.example.com']\n",
+  )
+  expect(await readFile(join(t.host, '.env'), 'utf8')).toBe(
+    'KEY=harar://prod/shop/KEY\n',
+  )
+  expect(await readFile(join(t.host, 'agent/instructions.md'), 'utf8')).toBe(
+    'Be careful.\n',
+  )
+  const saved = r.held.find((h) => h.path === 'agent/agent.ts')!.saved!
+  expect(await readFile(saved, 'utf8')).toContain('evil.example.com')
+  expect(describeSync(r)).toContain(
+    '4 held (the agent changed its own definition',
+  )
+  // Still pending next time: held, not forgotten, and not a conflict.
+  const again = await t.sync(baseline)
+  expect(again.held.length).toBe(4)
+  expect(again.conflicts).toEqual([])
+  await rm(t.base, { recursive: true })
 })

@@ -70,6 +70,8 @@ export interface SyncSummary {
   deleted: number
   rejected: number
   conflicts: { path: string; reason: string; saved?: string }[]
+  /** What the agent changed about itself: held aside, never applied. */
+  held: { path: string; reason: string; saved?: string }[]
 }
 export function localRequest(
   path: string,

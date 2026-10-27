@@ -73,7 +73,11 @@ While `mirab dev` runs, what you save reaches the agent's VM, and the agent
 picks up edits to `agent/` before its next turn, keeping the conversation.
 When the session ends, what the agent changed comes back to your project. If
 you both changed the same file, yours stays and the agent's is saved aside,
-never merged and never silently dropped. Your `.git` is never touched.
+never merged and never silently dropped. Your `.git` is never touched. What
+the agent changes about itself (anything under `agent/`, which says what it
+may reach, and `.env`) never lands on its own: it's held aside and named when
+the session ends, for you to look at and copy over if you want it. An agent
+can't widen its own next session.
 
 The chat is a channel the station hosts, between you and the agent, and it
 stays on this machine (`~/.mirab/sessions/channels`, readable only by

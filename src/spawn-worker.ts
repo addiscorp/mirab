@@ -743,6 +743,7 @@ function summary(r: SyncResult): SyncSummary {
     deleted: r.deleted.length,
     rejected: r.rejected.length,
     conflicts: r.conflicts.slice(0, 100),
+    held: r.held.slice(0, 100),
   }
 }
 /** `mirab stop`: the agent gets the same hangup a closed terminal gives it,

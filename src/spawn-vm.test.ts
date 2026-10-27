@@ -243,6 +243,7 @@ test('partial final sync retains work; complete final sync cleans up', async () 
       written: ['src/a.ts'],
       deleted: [],
       conflicts: [],
+      held: [],
       rejected: partial ? [{ path: '.git/HEAD', reason: 'protected' }] : [],
     }
     let preserve: boolean | undefined
