@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { loadStationConfig } from './config'
-import { hararGet, hararHosts, hararSend } from './harar'
+import { hararHosts, hararSend } from './harar'
+import { anthropicKeyRoute, claudeRoute } from './routes'
 
 /** A stand-in harar primary: records each request, answers with `reply`. */
 async function fakeHarar(reply: (request: any) => string) {
@@ -32,16 +33,35 @@ async function fakeHarar(reply: (request: any) => string) {
   }
 }
 
-test('the station gets one secret from harar, asking exactly for it', async () => {
-  const harar = await fakeHarar(() =>
-    JSON.stringify({ ok: true, value: 'sk-real' }),
+test("a model route's key is harar's send for the route's own host, never a read; a refusal says how to allow it", async () => {
+  const harar = await fakeHarar((r) =>
+    r.key === 'personal/anthropic/API_KEY'
+      ? JSON.stringify({ ok: true, value: 'sk-real' })
+      : JSON.stringify({ ok: false, error: 'not_allowed' }),
   )
   try {
-    expect(await hararGet(harar.socket, 'personal/anthropic/API_KEY')).toBe(
-      'sk-real',
+    const station = {
+      harar: { socket: harar.socket },
+      models: {
+        anthropic: { key: 'personal/anthropic/API_KEY' },
+        claude: { token: 'personal/claude/OAUTH_TOKEN' },
+      },
+    }
+    expect(await anthropicKeyRoute(station)!.credential()).toBe('sk-real')
+    await expect(claudeRoute(station)!.credential()).rejects.toThrow(
+      'harar hosts allow personal/claude/OAUTH_TOKEN api.anthropic.com',
     )
     expect(harar.requests).toEqual([
-      { op: 'get', key: 'personal/anthropic/API_KEY' },
+      {
+        op: 'send',
+        key: 'personal/anthropic/API_KEY',
+        host: 'api.anthropic.com',
+      },
+      {
+        op: 'send',
+        key: 'personal/claude/OAUTH_TOKEN',
+        host: 'api.anthropic.com',
+      },
     ])
   } finally {
     await harar.stop()
@@ -55,15 +75,17 @@ test("harar's refusal, a garbled answer or no harar at all is an error naming wh
   const garbled = await fakeHarar(() => 'not json')
   const empty = await fakeHarar(() => JSON.stringify({ ok: true }))
   try {
-    await expect(hararGet(refused.socket, 'a/b')).rejects.toThrow(
-      'harar refused a/b: no_binding',
+    await expect(hararSend(refused.socket, 'a/b', 'x.example')).rejects.toThrow(
+      'harar refused a/b to x.example: no_binding',
     )
-    await expect(hararGet(garbled.socket, 'a/b')).rejects.toThrow(
+    await expect(hararSend(garbled.socket, 'a/b', 'x.example')).rejects.toThrow(
       'did not answer with JSON',
     )
-    await expect(hararGet(empty.socket, 'a/b')).rejects.toThrow('no value')
+    await expect(hararSend(empty.socket, 'a/b', 'x.example')).rejects.toThrow(
+      'no value',
+    )
     await expect(
-      hararGet(join(resolve('.tmp'), 'no-such.sock'), 'a/b'),
+      hararSend(join(resolve('.tmp'), 'no-such.sock'), 'a/b', 'x.example'),
     ).rejects.toThrow('harar at')
   } finally {
     await refused.stop()

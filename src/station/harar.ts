@@ -58,14 +58,6 @@ function ask(
   })
 }
 
-/** One secret, as the station's OS user may read it. */
-export async function hararGet(socket: string, key: string): Promise<string> {
-  const { value } = await ask(socket, { op: 'get', key }, key)
-  if (typeof value !== 'string')
-    throw new Error(`harar refused ${key}: no value`)
-  return value
-}
-
 /** The hosts harar lets `key` go to (`*.` for any name under one). */
 export async function hararHosts(
   socket: string,
