@@ -80,6 +80,9 @@ export declare function prepareVm(configDir: string, o: {
     want: boolean;
     log?: (line: string) => void;
     base?: string;
+    /** The mirab release whose image to use (default: this copy's own). A
+     *  package that embeds mirab from git names the canary of that commit. */
+    version?: string;
     platform?: VmPlatform;
     /** The backend's own prerequisites (Firecracker, /dev/kvm) are present. */
     backendReady?: (host: HostConfig) => boolean;
@@ -122,4 +125,4 @@ export declare function statusLines(host: HostConfig, requested?: Request, p?: P
 /** Called once before a session starts: one that cannot isolate does not start. */
 export declare function assertCanIsolate(host: HostConfig, flag?: Level, p?: Probes, vmUnavailable?: string): Resolved;
 /** The VM this machine runs (the published image, fetched on first use), or why not. */
-export declare function requireVm(configDir: string, log?: (line: string) => void): Promise<VmConfig>;
+export declare function requireVm(configDir: string, log?: (line: string) => void, version?: string): Promise<VmConfig>;

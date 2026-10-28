@@ -174,6 +174,9 @@ export async function prepareVm(
     want: boolean
     log?: (line: string) => void
     base?: string
+    /** The mirab release whose image to use (default: this copy's own). A
+     *  package that embeds mirab from git names the canary of that commit. */
+    version?: string
     platform?: VmPlatform
     /** The backend's own prerequisites (Firecracker, /dev/kvm) are present. */
     backendReady?: (host: HostConfig) => boolean
@@ -198,7 +201,13 @@ export async function prepareVm(
   // No Firecracker, /dev/kvm or hypervisor: an image would not help; vmAvailable says what is missing.
   if (platform && !ready(host)) return { host }
   try {
-    await ensureVmImage({ configDir, log: o.log, base: o.base, platform })
+    await ensureVmImage({
+      configDir,
+      log: o.log,
+      base: o.base,
+      version: o.version,
+      platform,
+    })
   } catch (e) {
     if (!(e instanceof VmImageError)) throw e
     return { host, vmUnavailable: e.message }
@@ -449,11 +458,13 @@ export function assertCanIsolate(
 export async function requireVm(
   configDir: string,
   log?: (line: string) => void,
+  version?: string,
 ): Promise<VmConfig> {
   // Fetched on first use; later runs find it installed.
   const { host, vmUnavailable } = await prepareVm(configDir, {
     want: true,
     log,
+    version,
   })
   if (vmUnavailable) throw new Error(vmUnavailable)
   if (!host.vm || !vmAvailable(host.vm))
