@@ -254,6 +254,31 @@ describe('no image can be fetched', () => {
     )
   })
 
+  test('an embedding package can name the release whose image to use', async () => {
+    const dir = await configDir()
+    const asked: string[] = []
+    const server = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        asked.push(new URL(req.url).pathname)
+        return new Response('no', { status: 404 })
+      },
+    })
+    try {
+      const { vmUnavailable } = await prepareVm(dir, {
+        want: true,
+        base: `http://localhost:${server.port}`,
+        version: '9.9.9-canary-abc1234',
+        platform,
+        backendReady: () => true,
+      })
+      expect(asked).toEqual(['/9.9.9-canary-abc1234/vm/manifest.json'])
+      expect(vmUnavailable).toContain('mirab 9.9.9-canary-abc1234')
+    } finally {
+      server.stop(true)
+    }
+  })
+
   test('--isolation vm falls to the next tier, and says so', async () => {
     const dir = await configDir()
     const { vmUnavailable } = await prepareVm(dir, {
