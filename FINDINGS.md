@@ -267,7 +267,7 @@ Built and proven on **bugsy** (Mac mini, Apple silicon, macOS 27.0, 8 GB, Colima
   - `block`: no NIC;
   - `auto` (the default): NAT only when the pf filter is installed, otherwise no NIC, and the log says why;
   - `allow`: refused with "Needs Sami" unless the filter is installed.
-- **`scripts/vz-network-setup.sh`** (root, once) is the host-tier pf approach:
+- **`scripts/vz-network-setup.sh`** (root, once; since #57 `sudo mirab vm network setup`, from the binary) is the host-tier pf approach:
   - an anchor `com.apple/gild-vz`, loaded by a LaunchDaemon. It allows the vmnet DNS forwarder on the gateway and DHCP, and drops everything from the vmnet subnet (read from `com.apple.vmnet.plist`) to 10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, 127/8 and multicast;
   - a root-owned marker `/etc/gild/vz-network.json`, which gild reads; it never runs pfctl.
   - `--dry-run` prints everything. The anchor parses: `pfctl -n -a com.apple/gild-vz -f` returns 0 without root on bugsy.
@@ -289,7 +289,7 @@ Rebuild the guest with `scripts/build-vm-guest.sh <dir>` (docker or Colima) and 
 
 - Egress allowed with LAN/metadata denied needs a tap device per VM (or a docker bridge) plus nftables rules, which need root. Rules to base on `deploy/nftables/gild.rules` (old) with the destination set `10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16` rejected on the guest bridge. Exact commands to be written with the tap manager (next steps 1). Until then `egress: allow` is refused with a clear error.
 - macOS Colima is installed and running on the iMac; nothing needed for `container` there. For filtered egress (instead of no network) inside Colima: `colima ssh -- sudo sh -s up < scripts/vm-network-setup.sh` (from this checkout). For job directories outside `$HOME`, add them under `mounts:` in `~/.colima/default/colima.yaml` and `colima restart` (this restarts the other containers on it).
-- vz filtered egress (macOS VMs get no network until then): `sudo scripts/vz-network-setup.sh` on the Mac (review with `--dry-run`), then prove it with `TEST_VZ_NAT_PROBE` expecting `lan=blocked`.
+- vz filtered egress (macOS VMs get no network until then): `sudo ~/.mirab/bin/mirab vm network setup` on the Mac (review with `--dry-run`), then prove it with `TEST_VZ_NAT_PROBE` expecting `lan=blocked`.
 - host tier, per machine and per dedicated user: `sudo scripts/host-user-setup.sh gild-runner <owner> --agent <gild-guest-agent built for that OS>`, then log out and in once. Review first with `--dry-run`. Then add `"host": {"user": "gild-runner"}` to `isolation.json`.
 
 ## Real agent login inside a VM (spawn --vm, design only)

@@ -54,7 +54,9 @@ export const EGRESS_GUEST_PORT = 8790
 export const EGRESS_HOST_PORT = 9101
 
 export const VZ_NETWORK_MARKER = '/etc/mirab/vz-network.json'
-export const VZ_SETUP_COMMAND = 'sudo scripts/vz-network-setup.sh'
+export const VZ_SETUP_COMMAND = 'sudo ~/.mirab/bin/mirab vm network setup'
+/** What the marker says once the pf anchor denies guests the LAN. */
+export const VZ_LAN_DENIED = 'lan-denied'
 
 /** This Mac can run Virtualization.framework guests (hosted CI Macs cannot). */
 export function vzHostReady() {
@@ -90,7 +92,7 @@ export interface VzNetworkState {
   reason?: string
 }
 
-/** Reads the root-owned marker scripts/vz-network-setup.sh writes; never runs sudo or pfctl. */
+/** Reads the root-owned marker `mirab vm network setup` writes; never runs sudo or pfctl. */
 export function vzNetworkState(marker = VZ_NETWORK_MARKER): VzNetworkState {
   try {
     const st = statSync(marker)
@@ -100,9 +102,9 @@ export function vzNetworkState(marker = VZ_NETWORK_MARKER): VzNetworkState {
         reason: `${marker} is not root-owned and read-only`,
       }
     const m = JSON.parse(readFileSync(marker, 'utf8'))
-    return m?.network === 'lan-denied'
+    return m?.network === VZ_LAN_DENIED
       ? { filtered: true }
-      : { filtered: false, reason: `${marker} does not say lan-denied` }
+      : { filtered: false, reason: `${marker} does not say ${VZ_LAN_DENIED}` }
   } catch {
     return { filtered: false, reason: 'the vz pf anchor is not installed' }
   }
