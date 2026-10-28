@@ -31,4 +31,7 @@ export { resolveTools, TOOL_CACHE } from './toolsets'
 /** The VM this host runs runners on: the published guest image (fetched on
  *  first use) and the backend's settings from <config dir>/isolation.json. */
 export { requireVm as runnerHostVm } from '../isolation'
+/** This copy's package version: with the commit a package pins mirab at, it
+ *  names that commit's canary (`<version>-canary-<sha7>`) for runnerHostVm. */
+export { MIRAB_VERSION } from '../isolation/image'
 export type { ResolvedTool } from './toolsets'
