@@ -7,3 +7,4 @@ src/import/source.ts
 src/public-address.ts
 src/actions/support.ts
 src/channel/state.ts
+types/

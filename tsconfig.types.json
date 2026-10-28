@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationDir": "types",
+    "rootDir": "src",
+    "stripInternal": true
+  },
+  "include": ["src/index.ts", "src/runner/index.ts", "src/tools.ts"]
+}

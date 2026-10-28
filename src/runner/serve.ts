@@ -218,7 +218,7 @@ export async function serveRunners(
   const deps: ServeDeps = {
     startVm: startRunnerVm,
     recipe: (def) => runnerRecipe(def),
-    image: (def, recipe) =>
+    image: (_def, recipe) =>
       runnerImage({ configDir: o.configDir, vm: o.vm, recipe, log }),
     sleep,
     now: () => new Date(),

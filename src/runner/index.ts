@@ -30,5 +30,5 @@ export type {
 export { resolveTools, TOOL_CACHE } from './toolsets'
 /** The VM this host runs runners on: the published guest image (fetched on
  *  first use) and the backend's settings from <config dir>/isolation.json. */
-export { requireVm as runnerHostVm } from '../spawn-vm'
+export { requireVm as runnerHostVm } from '../isolation'
 export type { ResolvedTool } from './toolsets'
