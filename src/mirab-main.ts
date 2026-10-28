@@ -484,6 +484,41 @@ vmCmd
     )
   })
 
+const vmNetwork = vmCmd
+  .command('network')
+  .description(
+    'filtered egress for vz VMs on this Mac: internet yes, the Mac, LAN and tailnet no',
+  )
+
+vmNetwork
+  .command('setup')
+  .description(
+    'install the pf filter and its LaunchDaemon (root, once; safe to rerun)',
+  )
+  .option('--dry-run', 'print what would be written and run, change nothing')
+  .action(async (o: { dryRun?: boolean }) => {
+    const { setupVzNetwork } = await import('./isolation/vz-network-setup')
+    setupVzNetwork({ dryRun: o.dryRun })
+  })
+
+vmNetwork
+  .command('remove')
+  .description('undo setup: vz VMs get no network afterwards')
+  .option('--dry-run', 'print what would be removed, change nothing')
+  .action(async (o: { dryRun?: boolean }) => {
+    const { removeVzNetwork } = await import('./isolation/vz-network-setup')
+    removeVzNetwork({ dryRun: o.dryRun })
+  })
+
+vmNetwork
+  .command('status')
+  .description('the network mirab spawn --vm gives a vz VM here')
+  .action(async () => {
+    const { vzNetworkState, vzNetworkStatusLine } =
+      await import('./isolation/vz')
+    console.log(vzNetworkStatusLine('auto', vzNetworkState()))
+  })
+
 // ---------- events ----------
 
 program

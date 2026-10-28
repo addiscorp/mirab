@@ -34,6 +34,21 @@ that allow the internet and deny the host, the LAN and metadata addresses);
 mirab: vm network: none, egress blocked (no mirabbr0 bridge; enable with: sudo scripts/vm-network-setup.sh)
 ```
 
+A `vz` guest on a Mac is the same: no network device until the owner runs,
+once, from the installed binary:
+
+```sh
+sudo ~/.mirab/bin/mirab vm network setup --dry-run   # what it writes and runs
+sudo ~/.mirab/bin/mirab vm network setup
+mirab vm network status
+```
+
+It writes a pf anchor (the internet passes; the Mac, its LAN, the tailnet,
+link-local and multicast don't), checks it with `pfctl -n`, loads it from a
+LaunchDaemon that runs only `/sbin/pfctl`, and writes the root-owned marker
+`/etc/mirab/vz-network.json` that mirab reads. `sudo ~/.mirab/bin/mirab vm
+network remove` undoes all of it.
+
 So on Linux the agent **edits in the VM and the host commits and pushes**:
 
 - The working directory, `.git` included, is copied into the guest at
