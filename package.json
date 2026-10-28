@@ -12,6 +12,7 @@
     "test": "bun test",
     "vm:image": "bun run scripts/build-vm-image.ts",
     "typecheck": "tsc --noEmit",
+    "types": "rm -rf types && tsc -p tsconfig.types.json",
     "format": "prettier --write src scripts",
     "format:check": "prettier --check src scripts"
   },
@@ -39,7 +40,17 @@
     "url": "git+https://github.com/addiscorp/mirab.git"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./tools": "./src/tools.ts"
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./tools": {
+      "types": "./types/tools.d.ts",
+      "default": "./src/tools.ts"
+    },
+    "./runner": {
+      "types": "./types/runner/index.d.ts",
+      "default": "./src/runner/index.ts"
+    }
   }
 }

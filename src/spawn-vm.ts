@@ -7,14 +7,7 @@ import { createConnection } from 'node:net'
 import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import {
-  prepareVm,
-  startVm,
-  vmAvailable,
-  vmBackend,
-  type Isolation,
-  type VmConfig,
-} from './isolation'
+import { requireVm, startVm, type Isolation, type VmConfig } from './isolation'
 import { privateSessionsDirectory, socketPath } from './spawn-sessions'
 import type { StationConfig } from './station/config'
 import type { Upstream } from 'rixse'
@@ -168,25 +161,8 @@ export function guestEnvironment(
   return out
 }
 
-/** The VM this machine runs (the published image, fetched on first use), or why not. */
-export async function requireVm(
-  configDir: string,
-  log?: (line: string) => void,
-): Promise<VmConfig> {
-  // Fetched on first use; later runs find it installed.
-  const { host, vmUnavailable } = await prepareVm(configDir, {
-    want: true,
-    log,
-  })
-  if (vmUnavailable) throw new Error(vmUnavailable)
-  if (!host.vm || !vmAvailable(host.vm))
-    throw new Error(
-      vmBackend() === 'vz'
-        ? 'A VM needs a working vz setup: the published guest image and mirab-vz helper (fetched on first use), or `vm` (kernel, rootfs, vz helper) in <config dir>/isolation.json (docs/VM.md)'
-        : 'A VM needs a working Firecracker setup: Firecracker (shipped next to mirab in the npm package; else on PATH or `vm.firecracker` in <config dir>/isolation.json), mke2fs, and an accessible /dev/kvm (docs/VM.md)',
-    )
-  return host.vm
-}
+/** Moved to isolation (the runner side needs it without the agent session code). */
+export { requireVm }
 
 export async function startVmChild(opts: {
   configDir: string
