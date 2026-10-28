@@ -22,7 +22,13 @@ import { mkdir, mkdtemp, readFile, rename, rm } from 'node:fs/promises'
 import type { Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { vsockChannel, vsockMembers, type BootTimings } from './firecracker'
+import {
+  growDisk,
+  vsockChannel,
+  vsockMembers,
+  type BootTimings,
+  type VmStartOptions,
+} from './firecracker'
 import {
   checkGuestProtocol,
   guestPing,
@@ -171,12 +177,47 @@ function cloneTree(helper: string, src: string, dst: string) {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** The helper's `run` arguments; `share` null = no virtio-fs device at all. */
+export function vzRunArgs(o: {
+  cfg: Pick<VzConfig, 'kernel' | 'vcpus' | 'memoryMiB'>
+  root: string
+  uds: string
+  vmDir: string
+  share: string | null
+  net: VzNetworkPlan['net']
+  listen: number[]
+  now?: Date
+}): string[] {
+  return [
+    'run',
+    '--kernel',
+    o.cfg.kernel,
+    '--rootfs',
+    o.root,
+    '--cmdline',
+    kernelCommandLine(o.net, o.now ?? new Date()),
+    '--cpus',
+    String(o.cfg.vcpus),
+    '--memory',
+    String(o.cfg.memoryMiB),
+    '--vsock',
+    o.uds,
+    '--serial',
+    join(o.vmDir, 'serial.log'),
+    ...(o.share === null ? [] : ['--share', `workspace=${o.share}`]),
+    '--net',
+    o.net,
+    ...o.listen.flatMap((p) => ['--listen', String(p)]),
+  ]
+}
+
 export async function startVz(
   cfg: VzConfig,
-  work: string,
+  work: string | null,
   vmDir: string,
   log: (line: string) => void = () => {},
   network: VzNetworkState = vzNetworkState(),
+  opts: VmStartOptions = {},
 ): Promise<Isolation & { timings: BootTimings; pid: number }> {
   const plan = planVzNetwork(cfg.egress, network)
   log(plan.note)
@@ -209,30 +250,19 @@ export async function startVz(
   try {
     cloneTree(cfg.helper, cfg.rootfs, root)
     chmodSync(root, 0o600) // the base is usually read-only; its clone is this VM's disk
-    cloneTree(cfg.helper, work, share)
+    if (opts.rootGiB) await growDisk(root, opts.rootGiB)
+    // No work directory (a CI runner): no share, so nothing of the host's is inside.
+    if (work !== null) cloneTree(cfg.helper, work, share)
     const timings: BootTimings = { imageMs: Date.now() - t0, bootToAgentMs: 0 }
-    const args = [
-      'run',
-      '--kernel',
-      cfg.kernel,
-      '--rootfs',
+    const args = vzRunArgs({
+      cfg,
       root,
-      '--cmdline',
-      kernelCommandLine(plan.net, new Date()),
-      '--cpus',
-      String(cfg.vcpus),
-      '--memory',
-      String(cfg.memoryMiB),
-      '--vsock',
       uds,
-      '--serial',
-      join(vmDir, 'serial.log'),
-      '--share',
-      `workspace=${share}`,
-      '--net',
-      plan.net,
-      ...GUEST_TO_HOST_PORTS.flatMap((p) => ['--listen', String(p)]),
-    ]
+      vmDir,
+      share: work === null ? null : share,
+      net: plan.net,
+      listen: opts.listen ?? GUEST_TO_HOST_PORTS,
+    })
     const t1 = Date.now()
     const h = spawn(cfg.helper, args, { stdio: ['pipe', 'pipe', 'pipe'] })
     helper = h

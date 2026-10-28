@@ -19,6 +19,7 @@ import {
   imagesDir,
   listImages,
   pruneImages,
+  recipeKey,
   upgradesIn,
 } from './images'
 
@@ -28,6 +29,30 @@ test("an image's key is its base and its package list, order and repeats aside",
   expect(imageKey('base-2', ['git', 'jq'])).not.toBe(a)
   expect(imageKey('base-1', ['git'])).not.toBe(a)
   expect(a).toMatch(/^[0-9a-f]{32}$/)
+})
+
+test('a recipe key ignores object key order and changes with any value', () => {
+  const a = recipeKey('base', {
+    tools: { rust: '1.91.0', node: '24.21.0' },
+    diskGiB: 30,
+  })
+  const b = recipeKey('base', {
+    diskGiB: 30,
+    tools: { node: '24.21.0', rust: '1.91.0' },
+  })
+  expect(a).toBe(b)
+  expect(
+    recipeKey('base', {
+      diskGiB: 30,
+      tools: { node: '24.21.1', rust: '1.91.0' },
+    }),
+  ).not.toBe(a)
+  expect(
+    recipeKey('other', {
+      diskGiB: 30,
+      tools: { node: '24.21.0', rust: '1.91.0' },
+    }),
+  ).not.toBe(a)
 })
 
 test("a dry-run upgrade's Inst lines are the packages it would upgrade", () => {
@@ -103,6 +128,20 @@ test('keeping a disk replaces the image in one step and keeps the one before', a
       'previous.rootfs.ext4',
       'rootfs.ext4',
     ])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a rebuildable image keeps no previous copy', async () => {
+  await mkdir(resolve('.tmp'), { recursive: true })
+  const dir = await mkdtemp(join(resolve('.tmp'), 'keep-'))
+  try {
+    await writeFile(join(dir, 'rootfs.ext4'), 'old')
+    await keep(fakeVm('new') as any, dir, { key: 'k' }, { previous: false })
+    expect(await readFile(join(dir, 'rootfs.ext4'), 'utf8')).toBe('new')
+    const { readdirSync } = await import('node:fs')
+    expect(readdirSync(dir).sort()).toEqual(['meta.json', 'rootfs.ext4'])
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
