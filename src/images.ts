@@ -75,6 +75,25 @@ export async function baseId(rootfs: string): Promise<string> {
   }
 }
 
+/** A cache key for any build recipe: the base plus the recipe as canonical
+ *  JSON (object keys sorted at every level), so equal recipes share a key. */
+export function recipeKey(base: string, recipe: unknown): string {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(canon)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(
+            Object.keys(v as object)
+              .sort()
+              .map((k) => [k, canon((v as Record<string, unknown>)[k])]),
+          )
+        : v
+  return createHash('sha256')
+    .update(JSON.stringify({ base, recipe: canon(recipe) }))
+    .digest('hex')
+    .slice(0, 32)
+}
+
 /** The cache key: the base and the package list, order and repeats aside. */
 export function imageKey(base: string, packages: string[]): string {
   const list = [...new Set(packages)].sort()
@@ -109,16 +128,27 @@ export async function cachedImage(
   }
 }
 
+/** In a build VM: tools other than apt (curl, rustup) reach the station too. */
+export const BUILD_ENV = {
+  ...ROOT_ENV,
+  HTTP_PROXY: `http://127.0.0.1:${EGRESS_GUEST_PORT}`,
+  HTTPS_PROXY: `http://127.0.0.1:${EGRESS_GUEST_PORT}`,
+  http_proxy: `http://127.0.0.1:${EGRESS_GUEST_PORT}`,
+  https_proxy: `http://127.0.0.1:${EGRESS_GUEST_PORT}`,
+  NO_PROXY: 'localhost,127.0.0.1',
+}
+
 /** Runs one command as root in the VM; a failure carries the end of its output. */
-async function run(
+export async function run(
   iso: Pick<Isolation, 'exec'>,
   argv: string[],
   log?: (l: string) => void,
+  env: Record<string, string> = BUILD_ENV,
 ) {
   const lines: string[] = []
   const code = await iso.exec(argv, {
     cwd: '/',
-    env: ROOT_ENV,
+    env,
     timeoutMs: APT_TIMEOUT_MS,
     signal: new AbortController().signal,
     onLine: async (line) => {
@@ -134,12 +164,16 @@ async function run(
   return lines
 }
 
-/** A VM on `rootfs` whose apt can reach Ubuntu's mirrors through the station. */
-async function bootForApt(o: {
+/** A build VM on `rootfs` whose only way out is the station, to the hosts in
+ *  `allow` (default: Ubuntu's mirrors, for apt). `rootGiB` grows its root
+ *  disk first; the build then grows the filesystem (resize2fs). */
+export async function bootForBuild(o: {
   configDir: string
   vm: VmConfig
   rootfs: string
   key: string
+  allow?: string[]
+  rootGiB?: number
   log?: (line: string) => void
 }): Promise<{ iso: Isolation; cleanup: () => Promise<void> }> {
   await mkdir(imagesDir(o.configDir), { recursive: true, mode: 0o700 })
@@ -151,6 +185,8 @@ async function bootForApt(o: {
     work,
     join(scratch, 'vm'),
     o.log,
+    undefined,
+    { rootGiB: o.rootGiB },
   )
   const cleanup = () => rm(scratch, { recursive: true, force: true })
   try {
@@ -158,7 +194,7 @@ async function bootForApt(o: {
       startEgress({
         socketPath,
         zone: `image-${o.key.slice(0, 12)}`,
-        allow: UBUNTU_MIRRORS,
+        allow: o.allow ?? UBUNTU_MIRRORS,
         routes: {},
         auditLog: join(o.configDir, 'egress.log'),
       }),
@@ -172,12 +208,22 @@ async function bootForApt(o: {
   }
 }
 
+/** Grows the running guest's root filesystem to fill its (grown) disk, while
+ *  mounted. resize2fs can't: the kernel mounts the root as /dev/root, so it
+ *  doesn't see /dev/vda as mounted and refuses an exclusive open. This is the
+ *  ioctl resize2fs itself uses online (EXT4_IOC_RESIZE_FS). */
+export const GROW_ROOT_FS =
+  "python3 -c \"import fcntl,os,struct; f=os.open('/',os.O_RDONLY); " +
+  "n=int(open('/sys/block/vda/size').read())*512//os.statvfs('/').f_bsize; " +
+  "fcntl.ioctl(f,0x40086610,struct.pack('Q',n))\""
+
 /** Stops the VM and keeps its root disk as the image in `dir`, moving any
  *  image there now aside as the previous one. */
 export async function keep(
   iso: Pick<Isolation, 'exec' | 'close'>,
   dir: string,
-  meta: ImageMeta,
+  meta: object,
+  opts: { previous?: boolean } = {},
 ): Promise<string> {
   // The station's proxy is only for building; sessions use their own station.
   await run(iso, [
@@ -200,7 +246,8 @@ export async function keep(
   const metaPart = join(dir, `meta.json.${tag}`)
   await writeFile(metaPart, JSON.stringify(meta, null, 2) + '\n')
   await rm(previous, { force: true })
-  await link(rootfs, previous).catch(() => {})
+  // Agent images keep the one before; rebuildable images (runners) don't.
+  if (opts.previous !== false) await link(rootfs, previous).catch(() => {})
   await rename(part, rootfs)
   await rename(metaPart, join(dir, 'meta.json'))
   return rootfs
@@ -230,7 +277,11 @@ export async function agentImage(o: {
   o.log?.(`building the agent's image: ${packages.join(' ')}`)
   const dir = join(imagesDir(o.configDir), key)
   await mkdir(dir, { recursive: true, mode: 0o700 })
-  const { iso, cleanup } = await bootForApt({ ...o, rootfs: o.vm.rootfs, key })
+  const { iso, cleanup } = await bootForBuild({
+    ...o,
+    rootfs: o.vm.rootfs,
+    key,
+  })
   try {
     await run(iso, ['apt-get', 'update'])
     // Names only (the manifest's schema): apt takes them as arguments, no shell.
@@ -277,7 +328,7 @@ export async function updateImage(o: {
   const hit = await cachedImage(o.configDir, key, base)
   if (!hit) return { rootfs: await agentImage(o), upgraded: [] }
   const dir = join(imagesDir(o.configDir), key)
-  const { iso, cleanup } = await bootForApt({ ...o, rootfs: hit.rootfs, key })
+  const { iso, cleanup } = await bootForBuild({ ...o, rootfs: hit.rootfs, key })
   try {
     await run(iso, ['apt-get', 'update'])
     const upgraded = upgradesIn(await run(iso, ['apt-get', '-s', 'upgrade']))

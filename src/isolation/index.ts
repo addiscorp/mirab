@@ -8,6 +8,7 @@ import {
   firecrackerHostReady,
   startFirecracker,
   type FirecrackerConfig,
+  type VmStartOptions,
 } from './firecracker'
 import { networkState, networkStatusLine } from './network'
 import {
@@ -114,18 +115,29 @@ export function vmAvailable(
     : firecrackerAvailable(vm)
 }
 
-/** Boot one microVM with `work` at /workspace, on this platform's backend. */
+export type { VmStartOptions } from './firecracker'
+
+/** Boot one microVM with `work` at /workspace (null: no work directory and
+ *  nothing of the host's inside), on this platform's backend. */
 export function startVm(
   vm: VmConfig,
-  work: string,
+  work: string | null,
   vmDir: string,
   log?: (line: string) => void,
   platform: NodeJS.Platform = process.platform,
+  opts: VmStartOptions = {},
 ): Promise<Isolation> {
   if (vmBackend(platform) === 'vz')
-    return startVz({ ...vm, helper: vm.vz, port: 9002 }, work, vmDir, log)
+    return startVz(
+      { ...vm, helper: vm.vz, port: 9002 },
+      work,
+      vmDir,
+      log,
+      undefined,
+      opts,
+    )
   const cfg: FirecrackerConfig = { ...vm, port: 9002 }
-  return startFirecracker(cfg, work, vmDir, log)
+  return startFirecracker(cfg, work, vmDir, log, opts)
 }
 
 export async function loadHostConfig(configDir: string): Promise<HostConfig> {

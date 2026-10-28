@@ -19,6 +19,7 @@ import {
   truncate,
   readFile,
   rename,
+  stat,
 } from 'node:fs/promises'
 import { existsSync, accessSync, constants } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -161,14 +162,14 @@ export function vsockChannel(uds: string, port: number): Promise<Channel> {
 
 /**
  * The Isolation members every vsock backend shares (Firecracker, vz): the
- * work directory appears at /workspace, and guest connections to host port N
+ * work directory (when there is one) appears at /workspace, and guest connections to host port N
  * arrive on the unix socket `<uds>_N` (Firecracker's convention, which the vz
  * helper follows too).
  */
 export function vsockMembers(
   open: Opener,
   uds: string,
-  work: string,
+  work: string | null,
   listeners: Server[],
 ): Pick<
   Isolation,
@@ -181,11 +182,13 @@ export function vsockMembers(
   | 'onGuestConnect'
 > {
   const toGuest = (p: string) =>
-    p === work
-      ? GUEST_WORK
-      : p.startsWith(work + '/')
-        ? GUEST_WORK + p.slice(work.length)
-        : p
+    work === null
+      ? p
+      : p === work
+        ? GUEST_WORK
+        : p.startsWith(work + '/')
+          ? GUEST_WORK + p.slice(work.length)
+          : p
   return {
     guestPath: toGuest,
     put: (p, content, mode) => guestPut(open, toGuest(p), content, mode),
@@ -211,6 +214,29 @@ export function vsockMembers(
   }
 }
 
+/** What a VM start may add to the backend's config. */
+export interface VmStartOptions {
+  /** Grow this VM's root disk clone to this size before boot (sparse; never
+   *  shrinks). The guest sees a bigger /dev/vda; growing the filesystem on it
+   *  (resize2fs) is the guest's job. */
+  rootGiB?: number
+  /** vz: guest-to-host vsock ports to forward (default GUEST_TO_HOST_PORTS);
+   *  [] for a VM that must not reach the host at all. Firecracker forwards a
+   *  port only when someone serves it (onGuestConnect), so it needs no list. */
+  listen?: number[]
+}
+
+/** Sparse-grows a disk image file to `gib` GiB; refuses to shrink one. */
+export async function growDisk(path: string, gib: number) {
+  const want = gib * 1024 ** 3
+  const have = (await stat(path)).size
+  if (want < have)
+    throw new Error(
+      `rootGiB ${gib} is smaller than the image (${(have / 1024 ** 3).toFixed(1)} GiB); a disk never shrinks`,
+    )
+  if (want > have) await truncate(path, want)
+}
+
 /** Checked bytes, not a signed 32-bit shift: large work images stay positive. */
 export function workImageBytes(usedKiB: number) {
   if (!Number.isSafeInteger(usedKiB) || usedKiB < 0)
@@ -229,9 +255,10 @@ export interface BootTimings {
 
 export async function startFirecracker(
   cfg: FirecrackerConfig,
-  work: string,
+  work: string | null,
   vmDir: string,
   log: (line: string) => void = () => {},
+  opts: VmStartOptions = {},
 ): Promise<Isolation & { timings: BootTimings; pid: number }> {
   await mkdir(vmDir, { recursive: true, mode: 0o700 })
   // Unix socket paths are limited to ~108 bytes, so they live in a short dir.
@@ -240,22 +267,26 @@ export async function startFirecracker(
     uds = join(sockDir, 'v'),
     image = join(vmDir, 'work.ext4'),
     root = join(vmDir, 'rootfs.ext4')
-  // Pack the checkout into a fresh ext4 image (no root needed).
   const t0 = Date.now()
-  const used = Number(
-    execFileSync('du', ['-sk', work], { encoding: 'utf8' }).split(/\s+/)[0],
-  )
-  const sizeBytes = workImageBytes(used)
-  await (await openFile(image, 'w', 0o600)).close()
-  await truncate(image, sizeBytes)
-  execFileSync('mke2fs', ['-q', '-t', 'ext4', '-d', work, '-F', image], {
-    stdio: 'ignore',
-  })
+  // Pack the checkout into a fresh ext4 image (no root needed). No work
+  // directory (a CI runner): no second drive, nothing of the host's inside.
+  if (work !== null) {
+    const used = Number(
+      execFileSync('du', ['-sk', work], { encoding: 'utf8' }).split(/\s+/)[0],
+    )
+    const sizeBytes = workImageBytes(used)
+    await (await openFile(image, 'w', 0o600)).close()
+    await truncate(image, sizeBytes)
+    execFileSync('mke2fs', ['-q', '-t', 'ext4', '-d', work, '-F', image], {
+      stdio: 'ignore',
+    })
+  }
   // This VM's own writable copy of the root disk, as on vz: copy-on-write
   // where the filesystem can (reflink), a sparse copy where it can't.
   execFileSync('cp', ['--reflink=auto', '--sparse=always', cfg.rootfs, root], {
     stdio: 'ignore',
   })
+  if (opts.rootGiB) await growDisk(root, opts.rootGiB)
   const timings: BootTimings = { imageMs: Date.now() - t0, bootToAgentMs: 0 }
 
   const plan = planNetwork(
@@ -308,12 +339,13 @@ export async function startFirecracker(
       is_root_device: true,
       is_read_only: false,
     })
-    await api(apiSock, 'PUT', '/drives/work', {
-      drive_id: 'work',
-      path_on_host: image,
-      is_root_device: false,
-      is_read_only: false,
-    })
+    if (work !== null)
+      await api(apiSock, 'PUT', '/drives/work', {
+        drive_id: 'work',
+        path_on_host: image,
+        is_root_device: false,
+        is_read_only: false,
+      })
     await api(apiSock, 'PUT', '/vsock', {
       vsock_id: 'vsock0',
       guest_cid: 3,
