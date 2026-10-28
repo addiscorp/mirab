@@ -375,8 +375,16 @@ async function serveOne(
           state.jobs++
         },
       )
-      log(`${vmName}: ${outcome}`)
-      failures = 0
+      log(`${vmName}: ${outcome.why}`)
+      if (outcome.tookJob || outcome.expected) failures = 0
+      else {
+        // The runner gave up before any job (a refused or spent registration,
+        // a broken image): without this, a new VM would boot every few seconds.
+        fail(
+          `${vmName}: the runner exited before taking a job (${outcome.why})`,
+        )
+        if (!signal.aborted) await backoff()
+      }
     } catch (e) {
       fail(`${vmName}: ${(e as Error).message}`)
       if (!signal.aborted) await backoff()
@@ -406,15 +414,18 @@ async function runJob(
   log: (line: string) => void,
   minuteMs: number,
   onStarted: () => void,
-): Promise<string> {
+): Promise<{ why: string; tookJob: boolean; expected: boolean }> {
   const ctl = new AbortController()
   let started = false
   let why = 'finished'
+  /** Ended on purpose (idle lifetime, shutdown), not by the runner giving up. */
+  let expected = false
   const idleMs = def.pool.idleHours * 60 * minuteMs
   const jobMs = def.timeoutMinutes * minuteMs
   const idleTimer = setTimeout(() => {
     if (!started) {
       why = `no job in ${def.pool.idleHours} h, ended`
+      expected = true
       ctl.abort()
     }
   }, idleMs)
@@ -423,6 +434,7 @@ async function runJob(
   const onStop = () => {
     if (!started) {
       why = 'stopped while waiting'
+      expected = true
       ctl.abort()
     } else
       graceTimer = setTimeout(
@@ -458,9 +470,14 @@ async function runJob(
         },
       })
       if (ctl.signal.aborted) break
-      if (code !== 0) return `step ${step.argv[0]} exited ${code}`
+      if (code !== 0)
+        return {
+          why: `step ${step.argv[0]} exited ${code}`,
+          tookJob: started,
+          expected,
+        }
     }
-    return why
+    return { why, tookJob: started, expected }
   } finally {
     clearTimeout(idleTimer)
     clearTimeout(jobTimer)

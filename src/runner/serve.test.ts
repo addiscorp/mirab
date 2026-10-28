@@ -51,7 +51,7 @@ function fakeForge(o: { ticketFails?: number } = {}) {
   return { forge, events }
 }
 
-type Behaviour = 'job' | 'idle' | 'hang'
+type Behaviour = 'job' | 'idle' | 'hang' | 'quit'
 
 /** A VM that pretends: exec prints like a runner and behaves as told. */
 function fakeVm(events: string[], behaviours: Behaviour[]) {
@@ -74,6 +74,7 @@ function fakeVm(events: string[], behaviours: Behaviour[]) {
           await o.onLine('Running job: build')
           return 0
         }
+        if (behaviour === 'quit') return 0 // gave up before any job, exit 0
         if (behaviour === 'hang') await o.onLine('Running job: build')
         await new Promise<void>((r) =>
           o.signal.addEventListener('abort', () => r()),
@@ -223,6 +224,14 @@ describe('serveRunners with a fake forge', () => {
       r.logs.some((l) => l.includes('job killed at its 2 min limit')),
     ).toBe(true)
     expect(r.events).toContain('close 1')
+  })
+
+  test('a runner that exits before taking any job backs off instead of booting VMs in a loop', async () => {
+    const r = await serve({}, ['quit', 'quit', 'job'], (e) =>
+      e.includes('close 3'),
+    )
+    expect(r.sleeps.slice(0, 2)).toEqual([10_000, 30_000])
+    expect(r.state).toContain('the runner exited before taking a job')
   })
 
   test('a forge outage backs off, and every booted VM is closed', async () => {
