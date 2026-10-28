@@ -26,6 +26,13 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - run: bun run typecheck
       - run: bun run format:check
+      # mirab is forge-neutral: forge words live in the adapters (woreda), never here.
+      - name: No forge words in mirab
+        run: |
+          if grep -rnE 'jitconfig|ACTIONS_RUNNER' src --include='*.ts' --exclude='*.test.ts'; then
+            echo 'forge-specific code belongs in a forge adapter (woreda), not mirab' >&2
+            exit 1
+          fi
       - run: bun test --timeout 30000
 
   macos:

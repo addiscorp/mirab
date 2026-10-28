@@ -40,6 +40,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./tools": "./src/tools.ts"
+    "./tools": "./src/tools.ts",
+    "./runner": "./src/runner/index.ts"
   }
 }

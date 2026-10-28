@@ -1,6 +1,6 @@
 # microVM guest image
 
-`mirab spawn --vm` and `mirab runner start --isolation vm` boot a microVM from a
+`mirab spawn --vm`, agent sessions and CI runners (docs/RUNNERS.md) boot a microVM from a
 kernel and a read-only ext4 root filesystem holding `mirab-guest-agent` and
 `/init-mirab.sh`. All of it comes out of this repository.
 
