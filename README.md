@@ -17,7 +17,7 @@ people in channels, inside the apps they help with.
 ## Install
 
 ```sh
-curl -fsSL https://mirab.addis.gg/install.sh | sh
+curl -fsSL https://mirab-releases.addis.gg/install.sh | sh
 ```
 
 It installs mirab into `~/.mirab` (the release in `~/.mirab/releases/`, the
