@@ -1,0 +1,74 @@
+# Publishes the mirab library (`import { defineRunner } from 'mirab'`,
+# `mirab/runner`) to npm. Runs when a merge to main changes package.json: a new
+# version is published, one already on npm is skipped. Actions → publish → Run
+# workflow retries by hand. The mirab CLI ships as a binary from
+# mirab-releases, never npm, so the package has no `bin`.
+#
+# npm trusted publishing (OIDC): npm trusts this workflow by its filename
+# (`publish.yml`) in the `release` environment. There is no NPM_TOKEN anywhere.
+# Renaming this file breaks that trust.
+name: publish
+
+on:
+  push:
+    branches: [main]
+    paths: ['package.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - run: bun run typecheck
+      - name: Type declarations are current (they ship in the package)
+        run: |
+          bun run types
+          git diff --exit-code -- types
+          test -z "$(git status --porcelain -- types)"
+      - run: bun test --timeout 30000
+
+  publish:
+    needs: test
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # OIDC: trusted publishing, no NPM_TOKEN
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@12 && npm --version
+      - name: Publish mirab
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "$(npm view "mirab@${VERSION}" version 2>/dev/null || true)" = "$VERSION" ]; then
+            echo "mirab@${VERSION} already on the registry, skipping"
+          else
+            npm publish --access public
+          fi
+      # Read back: the run fails if the version didn't land.
+      - name: Verify
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          for i in 1 2 3 4 5 6; do
+            [ "$(npm view "mirab@${VERSION}" version 2>/dev/null || true)" = "$VERSION" ] && { echo "mirab@${VERSION} is on npm"; exit 0; }
+            sleep 10
+          done
+          echo "::error::mirab@${VERSION} is not on npm" >&2
+          exit 1
