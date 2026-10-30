@@ -15,6 +15,7 @@ import {
   vmImagePaths,
   vmPlatform,
   type VmPlatform,
+  type VmRole,
 } from './image'
 import {
   assertCanIsolate,
@@ -107,9 +108,7 @@ describe('published VM image', () => {
     const paths = vmImagePaths(dir)
     for (const role of Object.keys(roles))
       expect(
-        (await readFile(paths[role as 'kernel' | 'rootfs' | 'vz'])).equals(
-          contents[role]!,
-        ),
+        (await readFile(paths[role as VmRole])).equals(contents[role]!),
       ).toBe(true)
     expect(requests[0]).toBe(`${MIRAB_RELEASE}/vm/manifest.json`)
     expect(lines.join('\n')).toMatch(/downloading the VM image .*%/s)

@@ -79,6 +79,28 @@ out is the station, to the hosts the recipe needs, and cached under
 `/opt/rust` (rustup). The forge's runner release is looked up again daily, and
 a new one is a new image, built between jobs.
 
+## macOS runners (Apple silicon)
+
+A `platform: 'darwin-arm64'` runner boots macOS guests on a Mac with Apple
+silicon. Each job gets an APFS clone of a provisioned macOS base, so it starts
+from a fresh disk like the Linux ones. Set the base up once per Mac:
+
+    mirab image pull macos
+
+This fetches the newest macOS this Mac can run from Apple (`--ipsw <file>` to
+use one you have), installs it into a VM disk, and provisions it, all under
+`<config dir>/macos/<version>/`. Provisioning asks for an administrator once,
+in the terminal (`sudo`) or with macOS's password dialog, because a fresh macOS
+boots into Setup Assistant with nobody logged in: before its first boot the
+base gets `/private/var/db/.AppleSetupDone` and mirab's guest agent as a
+LaunchDaemon, and launchd only runs a LaunchDaemon owned by root. Both files go
+into the VM's disk, never onto the Mac. The helper and agent that run as root
+come from mirab's release and are checked against its record first.
+
+`mirab image list` shows the bases (`"kind": "macos"`). A runner uses the
+newest one unless `vm.macos` in `<config dir>/isolation.json` names another.
+macOS allows two macOS VMs per Mac at a time.
+
 ## Not in phase 1
 
 More than one VM at a time per host (until VM-to-VM isolation is proven on

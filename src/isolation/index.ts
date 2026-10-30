@@ -79,8 +79,8 @@ export const hostConfigSchema = (configDir: string) =>
         memoryMiB: z.number().int().min(128).default(1024),
         vcpus: z.number().int().min(1).default(2),
         egress: z.enum(['auto', 'block', 'allow']).default('auto'),
-        /** macOS guests (Apple silicon): a provisioned base directory
-         *  (`mirab-vz macos-install`, then `sudo mirab-vz macos-provision`). */
+        /** macOS guests (Apple silicon): a provisioned base directory;
+         *  by default the newest one `mirab image pull macos` made. */
         macos: z.string().optional(),
       })
       .optional(),

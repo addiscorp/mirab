@@ -6,7 +6,7 @@ export declare const MIRAB_VERSION: string;
  *  the release workflow stamps release.json into what it ships. From a
  *  checkout there is none, and the package version stands in. */
 export declare const MIRAB_RELEASE: string;
-/** Where the guest kernel, rootfs and (macOS) vz helper live, published or
+/** Where the guest kernel, rootfs, (macOS) vz helper and macOS guest agent live, published or
  *  built by `bun run vm:image`; `vm` uses them when isolation.json names no
  *  other files. */
 export declare function vmImagePaths(configDir: string): {
@@ -14,6 +14,8 @@ export declare function vmImagePaths(configDir: string): {
     kernel: string;
     rootfs: string;
     vz: string;
+    /** The guest agent macOS guests run (mirab image pull macos installs it). */
+    agent: string;
     record: string;
 };
 /** The VM platforms a release publishes, and the file each role is built as. */
@@ -31,10 +33,11 @@ export declare const VM_PLATFORMS: {
         readonly kernel: 'Image';
         readonly rootfs: 'rootfs.ext4';
         readonly vz: 'mirab-vz';
+        readonly agent: 'mirab-guest-agent';
     };
 };
 export type VmPlatform = keyof typeof VM_PLATFORMS;
-export type VmRole = 'kernel' | 'rootfs' | 'vz';
+export type VmRole = 'kernel' | 'rootfs' | 'vz' | 'agent';
 export declare const vmPlatform: (platform?: string, arch?: string) => VmPlatform | undefined;
 declare const entry: z.ZodObject<{
     file: z.ZodString;
@@ -120,6 +123,15 @@ export declare const vmManifestSchema: z.ZodObject<{
                 }, z.core.$strip>;
             }, z.core.$strip>;
             vz: z.ZodObject<{
+                file: z.ZodString;
+                sha256: z.ZodString;
+                size: z.ZodNumber;
+                unpacked: z.ZodObject<{
+                    sha256: z.ZodString;
+                    size: z.ZodNumber;
+                }, z.core.$strip>;
+            }, z.core.$strip>;
+            agent: z.ZodObject<{
                 file: z.ZodString;
                 sha256: z.ZodString;
                 size: z.ZodNumber;

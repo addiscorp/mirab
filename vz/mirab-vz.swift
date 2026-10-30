@@ -16,7 +16,9 @@
 //   mirab-vz run --macos DIR --rootfs R --vsock SOCK --serial LOG [same options]
 //               boots a macOS guest (Apple silicon only): DIR holds its
 //               hardware-model, machine-id and aux.img (NVRAM), R its disk
-//   mirab-vz macos-restore-url     the newest macOS restore image (.ipsw) this Mac can run
+//   mirab-vz macos-restore-image [--ipsw P]
+//               one JSON line {url, version, build, supported}: the newest
+//               macOS restore image this Mac can run, or the local .ipsw P
 //   mirab-vz macos-install --ipsw P --dir DIR [--disk-gib N]
 //               installs macOS from P into DIR/disk.img (sparse) and writes
 //               DIR/hardware-model, DIR/machine-id and DIR/aux.img; prints
@@ -518,13 +520,31 @@ case "clone":
     die("clone \(args[1]): \(String(cString: strerror(errno)))", 1)
   }
   exit(0)
-case "macos-restore-url":
+case "macos-restore-image":
   #if arch(arm64)
-    VZMacOSRestoreImage.fetchLatestSupported { result in
+    let done: (Result<VZMacOSRestoreImage, Error>) -> Void = { result in
       switch result {
-      case .success(let image): print(image.url.absoluteString); exit(0)
+      case .success(let image):
+        let v = image.operatingSystemVersion
+        let version = v.patchVersion == 0 ? "\(v.majorVersion).\(v.minorVersion)" : "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+        let info: [String: Any] = [
+          "url": image.url.isFileURL ? image.url.path : image.url.absoluteString,
+          "version": version,
+          "build": image.buildVersion,
+          "supported": image.mostFeaturefulSupportedConfiguration?.hardwareModel.isSupported ?? false,
+        ]
+        let json = try! JSONSerialization.data(withJSONObject: info, options: [.sortedKeys])
+        print(String(data: json, encoding: .utf8)!)
+        exit(0)
       case .failure(let e): die("restore image: \(e.localizedDescription)", 1)
       }
+    }
+    if args.count == 3 && args[1] == "--ipsw" {
+      VZMacOSRestoreImage.load(from: URL(fileURLWithPath: args[2]), completionHandler: done)
+    } else if args.count == 1 {
+      VZMacOSRestoreImage.fetchLatestSupported(completionHandler: done)
+    } else {
+      die("usage: mirab-vz macos-restore-image [--ipsw P]")
     }
     dispatchMain()
   #else
@@ -585,5 +605,5 @@ case "run":
   DispatchQueue.main.async { machine.start() }
   withExtendedLifetime(sources) { dispatchMain() }
 default:
-  die("usage: mirab-vz check | clone <src> <dst> | run (--kernel K --cmdline C | --macos DIR) --rootfs R --vsock SOCK --serial LOG [...] | macos-restore-url | macos-install --ipsw P --dir DIR [--disk-gib N]")
+  die("usage: mirab-vz check | clone <src> <dst> | run (--kernel K --cmdline C | --macos DIR) --rootfs R --vsock SOCK --serial LOG [...] | macos-restore-image [--ipsw P] | macos-install --ipsw P --dir DIR [--disk-gib N] | macos-provision --dir DIR --agent PATH")
 }

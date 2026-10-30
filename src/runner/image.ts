@@ -22,6 +22,7 @@ import {
   run,
 } from '../images'
 import { startVm, type VmConfig } from '../isolation'
+import { newestMacosBase } from '../isolation/macos'
 import {
   RUNNER_USER,
   hostRunnerPlatform,
@@ -325,10 +326,10 @@ async function darwinRunnerImage(o: {
   log?: (line: string) => void
 }): Promise<RunnerImage> {
   const r = o.recipe
-  const macos = o.vm.macos
+  const macos = o.vm.macos ?? newestMacosBase(o.configDir)
   if (!macos)
     throw new Error(
-      'a darwin-arm64 runner needs a provisioned macOS base: vm.macos in <config dir>/isolation.json (mirab-vz macos-install, then sudo mirab-vz macos-provision)',
+      'a darwin-arm64 runner needs a macOS base: run `mirab image pull macos` on this Mac (or name one as vm.macos in <config dir>/isolation.json)',
     )
   const base = await baseId(join(macos, 'disk.img'))
   const key = runnerImageKey(base, r)

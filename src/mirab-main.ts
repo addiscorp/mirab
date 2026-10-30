@@ -222,16 +222,74 @@ imageCmd
       program.opts().configDir ?? join(homedir(), '.config', 'mirab')
     const { requireVm } = await import('./spawn-vm')
     const { baseId, listImages } = await import('./images')
+    const { baseBytes, listMacosBases } = await import('./isolation/macos')
     const vm = await requireVm(configDir, (line) => console.error(line))
     const images = await listImages(configDir, await baseId(vm.rootfs))
+    const macos = await Promise.all(
+      listMacosBases(configDir).map(async (b) => ({
+        kind: 'macos',
+        ...b,
+        bytes: await baseBytes(b.dir),
+      })),
+    )
     console.log(
       JSON.stringify(
-        images.map((i) => ({ ...i, usedAt: i.usedAt.toISOString() })),
+        [
+          ...images.map((i) => ({
+            kind: 'agent',
+            ...i,
+            usedAt: i.usedAt.toISOString(),
+          })),
+          ...macos,
+        ],
         null,
         2,
       ),
     )
   })
+
+imageCmd
+  .command('pull <os>')
+  .description(
+    'macOS guests (Apple silicon): fetch, install and provision the newest macOS this Mac runs; asks for an administrator once',
+  )
+  .option('--ipsw <path>', 'install from this restore image instead')
+  .option('--disk-gib <n>', "the VM disk's size", '64')
+  .option(
+    '--keep-ipsw',
+    'keep the restore image (25 GB or so) after installing',
+  )
+  .action(
+    async (
+      os: string,
+      opts: { ipsw?: string; diskGib: string; keepIpsw?: boolean },
+    ) => {
+      if (os !== 'macos')
+        throw Error(
+          `mirab image pull ${os}: only macos (Linux images come with mirab's release)`,
+        )
+      const gib = Number(opts.diskGib)
+      if (!Number.isInteger(gib) || gib < 32)
+        throw Error(
+          'mirab image pull macos: --disk-gib is a whole number, at least 32',
+        )
+      const configDir =
+        program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+      const log = (line: string) => console.error(line)
+      const { requireVm } = await import('./spawn-vm')
+      const { pullMacos } = await import('./isolation/macos')
+      // The helper and the macOS guest agent come with mirab's VM image.
+      await requireVm(configDir, log)
+      const base = await pullMacos({
+        configDir,
+        ipsw: opts.ipsw && resolve(opts.ipsw),
+        diskGiB: gib,
+        keepIpsw: opts.keepIpsw,
+        log,
+      })
+      console.log(JSON.stringify({ kind: 'macos', ...base }, null, 2))
+    },
+  )
 
 imageCmd
   .command('prune')
