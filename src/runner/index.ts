@@ -15,6 +15,7 @@ export {
   hostLabel,
   jobEnv,
   redact,
+  runnerLabels,
   runnersDir,
   serveRunners,
   startRunnerVm,
@@ -27,6 +28,8 @@ export type {
   SlotPhase,
   SlotState,
 } from './serve'
+export { HostBudget } from './budget'
+export type { BudgetSnapshot, Lease, Need } from './budget'
 export { resolveTools, TOOL_CACHE } from './toolsets'
 /** The VM this host runs runners on: the published guest image (fetched on
  *  first use) and the backend's settings from <config dir>/isolation.json. */

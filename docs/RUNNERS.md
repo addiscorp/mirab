@@ -14,7 +14,7 @@ export default defineRunner({
   forge: github({ scope: 'zegadb', app: { … } }),
   image: { tools: { rust: '1.91.0', node: '24', go: '1.25' }, packages: ['build-essential'] },
   vm: { vcpus: 4, memoryMiB: 3072, diskGiB: 30 },
-  pool: { warm: 1, max: 1, idleHours: 12 },
+  pool: { warm: 0 },  // boot a VM when a job is queued
   timeoutMinutes: 90,
 })
 ```
@@ -44,6 +44,29 @@ The host side (`serveRunners`, `runnerImage`) is in `mirab/runner`; woreda's
   credential (as on GitHub-hosted runners); it is good for that one job, which
   dies with the VM. It is never written to the host's disk and is redacted
   from mirab's log.
+
+## The host's budget, and pools on demand
+
+The host's owner sets what runner VMs may use in all: `budgetMiB` and
+`budgetVcpus` (default: the host's RAM minus 3 GiB, and all its CPUs). The rest
+stays with the host. Each definition says how big its VM is (`vm.memoryMiB`,
+`vm.vcpus`); how many run at once follows from the budget. An 8 GB laptop
+lending 4096 MiB runs two 2 GiB VMs, or four 1 GiB VMs, or one 2 GiB and two
+1 GiB.
+
+VMs get the budget strictly first come, first served: a big VM at the front
+waits for room, and smaller ones behind it wait too, so a big job (a large
+Linux pool, later a macOS guest) is never starved by a stream of small ones.
+
+- `pool.warm: 1` keeps one VM booted and registered at all times; it holds its
+  share of the budget for good.
+- `pool.warm: 0` boots a VM only when the forge reports a queued job this pool
+  can take (`Forge.queued`, asked every `pool.pollSeconds`). Pools for many
+  orgs can then share one host. A VM whose job went to another runner ends
+  after `pool.waitMinutes`.
+
+`<config dir>/runners/host.json` shows the budget, the leases held and the
+queue (`HostBudget.snapshot()`).
 
 ## Images
 

@@ -17,7 +17,7 @@ import {
 const SECRET = 'S3CRET-one-job-credential-0123456789'
 
 /** A forge that records what it was asked, and a runner step that says when its job starts. */
-function fakeForge(o: { ticketFails?: number } = {}) {
+function fakeForge(o: { ticketFails?: number; queued?: number[] } = {}) {
   const events: string[] = []
   const tickets: Parameters<Forge['ticket']>[0][] = []
   let ticketFails = o.ticketFails ?? 0
@@ -50,6 +50,13 @@ function fakeForge(o: { ticketFails?: number } = {}) {
       events.push(`reconcile ${prefix} [${live.join(',')}]`)
     },
   }
+  // Answers from a script; the last answer repeats.
+  const queued = o.queued
+  if (queued)
+    forge.queued = async () => {
+      events.push('queued')
+      return queued.length > 1 ? queued.shift()! : queued[0]!
+    }
   return { forge, events, tickets }
 }
 
@@ -110,7 +117,7 @@ async function serve(
   input: Partial<RunnerInput>,
   behaviours: Behaviour[],
   stopWhen: (events: string[]) => boolean,
-  forgeOpts: { ticketFails?: number } = {},
+  forgeOpts: { ticketFails?: number; queued?: number[] } = {},
 ) {
   const configDir = await mkdtemp(join(resolve('.tmp'), 'serve-'))
   const { forge, events, tickets } = fakeForge(forgeOpts)
@@ -123,7 +130,12 @@ async function serve(
     startVm: vm.start,
     recipe: async () => recipe,
     image: async () => image,
-    sleep: async (ms) => void sleeps.push(ms),
+    // Records the wait, then yields to the event loop as a real sleep does:
+    // a loop of instant sleeps would starve the timer that stops the test.
+    sleep: async (ms) => {
+      sleeps.push(ms)
+      await new Promise((r) => setTimeout(r, 0))
+    },
     minuteMs: 5, // a "minute" is 5 ms here
   }
   const watcher = setInterval(() => {
@@ -313,6 +325,7 @@ describe('runner pieces', () => {
     const ok = {
       configDir: '.',
       budgetMiB: 5120,
+      budgetVcpus: 4,
       backend: 'vz' as const,
       filtered: true,
       freeBytes: 400 * 1024 ** 3,
@@ -320,8 +333,21 @@ describe('runner pieces', () => {
     await admission([d('a')], ok)
     await expect(admission([d('a'), d('a')], ok)).rejects.toThrow(/two runners/)
     await expect(admission([d('a', 6144)], ok)).rejects.toThrow(
-      /budget is 5120/,
+      /bigger than this host lends runner VMs \(5120 MiB, 4 vCPUs\)/,
     )
+    // Two warm pools hold 6 GiB for good: more than the host lends.
+    await expect(admission([d('a'), d('b')], ok)).rejects.toThrow(
+      /warm runners hold 6144 MiB/,
+    )
+    // On demand they share it, one VM at a time: fine.
+    const demand = fakeForge({ queued: [0] }).forge
+    const lazy = (name: string) =>
+      defineRunner({ name, forge: demand, pool: { warm: 0 } })
+    await admission([lazy('a'), lazy('b')], ok)
+    // On demand needs a forge that can say what's queued.
+    await expect(
+      admission([defineRunner({ name: 'a', forge, pool: { warm: 0 } })], ok),
+    ).rejects.toThrow(/reports queued jobs/)
     await expect(admission([d('a', 3072, 400)], ok)).rejects.toThrow(/disk/)
     await expect(
       admission([d('a')], { ...ok, filtered: false }),
@@ -344,5 +370,100 @@ describe('runner pieces', () => {
     const d = defineRunner({ name: 'a', forge })
     expect([d.vm.diskGiB, d.pool.max, d.timeoutMinutes]).toEqual([30, 1, 90])
     expect(Object.isFrozen(d)).toBe(true)
+  })
+})
+
+describe('on demand (warm 0) and the host budget', () => {
+  test('no VM until the forge reports a job; asked every pollSeconds; one VM for it', async () => {
+    const r = await serve(
+      { pool: { warm: 0, pollSeconds: 7 } },
+      ['job'],
+      (e) => e.some((x) => x.startsWith('close')),
+      { queued: [0, 0, 1, 0] },
+    )
+    const order = r.events.filter((e) => !e.startsWith('reconcile'))
+    expect(order.slice(0, 4)).toEqual([
+      'queued',
+      'queued',
+      'queued',
+      'boot 1 allow',
+    ])
+    expect(r.sleeps.slice(0, 2)).toEqual([7000, 7000])
+    expect(r.state).toContain('"jobs": 1')
+  })
+
+  test('a VM booted for a job that went elsewhere ends after waitMinutes, not idleHours', async () => {
+    const r = await serve(
+      { pool: { warm: 0, waitMinutes: 2, idleHours: 12 } },
+      ['idle'],
+      (e) => e.some((x) => x.startsWith('close')),
+      { queued: [1, 0] },
+    )
+    expect(r.logs.join('\n')).toMatch(
+      /no job in 2 min \(it went elsewhere\), ended/,
+    )
+  })
+
+  async function twoPools(budgetMiB: number) {
+    const configDir = await mkdtemp(join(resolve('.tmp'), 'budget-'))
+    const events: string[] = []
+    let running = 0
+    let most = 0
+    let closed = 0
+    const ctl = new AbortController()
+    const startVm: ServeDeps['startVm'] = async () => {
+      most = Math.max(most, ++running)
+      return {
+        put: async () => {},
+        exec: async (_argv: string[], o: Parameters<Isolation['exec']>[1]) => {
+          await o.onLine('Running job: build')
+          await new Promise((r) => setTimeout(r, 30))
+          return 0
+        },
+        close: async () => {
+          running--
+          if (++closed >= 4) ctl.abort()
+        },
+      } as unknown as Isolation
+    }
+    const pool = (name: string) =>
+      defineRunner({
+        name,
+        forge: fakeForge({ queued: [1] }).forge,
+        vm: { vcpus: 2, memoryMiB: 3072, diskGiB: 8 },
+        pool: { warm: 0 },
+      })
+    try {
+      await serveRunners([pool('org-a'), pool('org-b')], {
+        configDir,
+        vm: { rootfs: '/base' } as never,
+        host: 'simien',
+        budgetMiB,
+        budgetVcpus: 8,
+        signal: ctl.signal,
+        log: (l) => void events.push(l),
+        deps: {
+          startVm,
+          recipe: async () => recipe,
+          image: async () => image,
+          sleep: () => new Promise((r) => setTimeout(r, 0)),
+          minuteMs: 5,
+        },
+      })
+      const host = JSON.parse(
+        await readFile(join(configDir, 'runners/host.json'), 'utf8'),
+      )
+      return { most, host }
+    } finally {
+      await rm(configDir, { recursive: true, force: true })
+    }
+  }
+
+  test('two orgs share the budget: 5 GiB runs their 3 GiB VMs one at a time, 6 GiB two at once', async () => {
+    const tight = await twoPools(5120)
+    expect(tight.most).toBe(1)
+    expect([tight.host.memoryMiB, tight.host.vcpus]).toEqual([5120, 8])
+    const roomy = await twoPools(6144)
+    expect(roomy.most).toBe(2)
   })
 })
