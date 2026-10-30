@@ -19,11 +19,13 @@ const SECRET = 'S3CRET-one-job-credential-0123456789'
 /** A forge that records what it was asked, and a runner step that says when its job starts. */
 function fakeForge(o: { ticketFails?: number } = {}) {
   const events: string[] = []
+  const tickets: Parameters<Forge['ticket']>[0][] = []
   let ticketFails = o.ticketFails ?? 0
   const forge: Forge = {
     name: 'fake',
     async ticket(req) {
       events.push(`ticket ${req.name}`)
+      tickets.push(req)
       if (ticketFails-- > 0) throw new Error('forge is down')
       return { name: req.name, secret: { TOKEN: SECRET } }
     },
@@ -48,7 +50,7 @@ function fakeForge(o: { ticketFails?: number } = {}) {
       events.push(`reconcile ${prefix} [${live.join(',')}]`)
     },
   }
-  return { forge, events }
+  return { forge, events, tickets }
 }
 
 type Behaviour = 'job' | 'idle' | 'hang' | 'quit'
@@ -111,7 +113,7 @@ async function serve(
   forgeOpts: { ticketFails?: number } = {},
 ) {
   const configDir = await mkdtemp(join(resolve('.tmp'), 'serve-'))
-  const { forge, events } = fakeForge(forgeOpts)
+  const { forge, events, tickets } = fakeForge(forgeOpts)
   const vm = fakeVm(events, behaviours)
   const def = defineRunner({ name: 'zeg', forge, ...input })
   const ctl = new AbortController()
@@ -148,10 +150,20 @@ async function serve(
     'utf8',
   )
   await rm(configDir, { recursive: true, force: true })
-  return { events, sleeps, logs, state, logFile, vm }
+  return { events, tickets, sleeps, logs, state, logFile, vm }
 }
 
 describe('serveRunners with a fake forge', () => {
+  test("every registration carries mirab-<os>-<arch> first, then the definition's labels, once each", async () => {
+    const r = await serve(
+      { labels: ['gpu', 'mirab-linux-arm64'] },
+      ['job'],
+      (e) => e.some((x) => x.startsWith('close')),
+    )
+    expect(r.tickets[0]!.labels).toEqual(['mirab-linux-arm64', 'gpu'])
+    expect(r.tickets[0]!.platform).toBe('linux-arm64')
+  })
+
   test('boots, then mints the ticket, then puts the secret file, then runs; a fresh VM per job', async () => {
     const r = await serve(
       {},

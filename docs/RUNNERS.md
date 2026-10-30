@@ -12,13 +12,17 @@ import { github } from 'woreda'
 export default defineRunner({
   name: 'zegadb-arm64',
   forge: github({ scope: 'zegadb', app: { … } }),
-  labels: ['linux', 'arm64'],
   image: { tools: { rust: '1.91.0', node: '24', go: '1.25' }, packages: ['build-essential'] },
   vm: { vcpus: 4, memoryMiB: 3072, diskGiB: 30 },
   pool: { warm: 1, max: 1, idleHours: 12 },
   timeoutMinutes: 90,
 })
 ```
+
+Every runner is labelled `mirab-<os>-<arch>` (`mirab-linux-arm64`,
+`mirab-linux-x64`), so a workflow asks for a fresh VM with one label:
+`runs-on: mirab-linux-arm64`. `labels` adds more (a forge adapter may add its
+own too: woreda's `github()` keeps GitHub's `self-hosted`, `Linux`, `ARM64`).
 
 The host side (`serveRunners`, `runnerImage`) is in `mirab/runner`; woreda's
 `woreda serve` runs it.
