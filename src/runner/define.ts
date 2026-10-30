@@ -8,6 +8,10 @@ import { z } from 'zod'
 export const RUNNER_PLATFORMS = ['linux-x64', 'linux-arm64'] as const
 export type RunnerPlatform = (typeof RUNNER_PLATFORMS)[number]
 
+/** Every runner carries `mirab-<os>-<arch>` (e.g. `mirab-linux-arm64`), so a
+ *  job asks for a fresh VM of a platform with one label. */
+export const platformLabel = (platform: RunnerPlatform) => `mirab-${platform}`
+
 /** One command in the VM. Steps run as the unprivileged `runner` user unless
  *  `asRoot` (then the step is responsible for dropping to it, with RUNNER_SETPRIV). */
 export interface RunnerStep {
@@ -96,7 +100,7 @@ export const runnerSchema = z.strictObject({
       'name is [a-z0-9-], up to 40 characters, no leading or trailing -',
     ),
   forge: forgeSchema,
-  /** The forge's labels for this runner, passed to the adapter as they are. */
+  /** Extra labels, after `platformLabel`'s, passed to the adapter as they are. */
   labels: z.array(z.string().regex(LABEL)).max(32).default([]),
   image: z
     .strictObject({

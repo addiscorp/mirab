@@ -26,6 +26,7 @@ import {
   RUNNER_SETPRIV,
   RUNNER_USER,
   hostRunnerPlatform,
+  platformLabel,
   type RunnerDefinition,
   type RunnerPlatform,
   type RunnerStep,
@@ -351,7 +352,7 @@ async function serveOne(
       // Booted and answering: only now is a registration worth making.
       const ticket = await def.forge.ticket({
         name: vmName,
-        labels: def.labels,
+        labels: [...new Set([platformLabel(recipe.platform), ...def.labels])],
         platform: recipe.platform,
       })
       ticketed = true

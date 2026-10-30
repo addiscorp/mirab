@@ -2,6 +2,9 @@ import { z } from 'zod';
 /** The guests a runner can run. */
 export declare const RUNNER_PLATFORMS: readonly ['linux-x64', 'linux-arm64'];
 export type RunnerPlatform = (typeof RUNNER_PLATFORMS)[number];
+/** Every runner carries `mirab-<os>-<arch>` (e.g. `mirab-linux-arm64`), so a
+ *  job asks for a fresh VM of a platform with one label. */
+export declare const platformLabel: (platform: RunnerPlatform) => string;
 /** One command in the VM. Steps run as the unprivileged `runner` user unless
  *  `asRoot` (then the step is responsible for dropping to it, with RUNNER_SETPRIV). */
 export interface RunnerStep {
