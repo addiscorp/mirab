@@ -71,7 +71,11 @@ type Behaviour = 'job' | 'idle' | 'hang' | 'quit'
 function fakeVm(events: string[], behaviours: Behaviour[]) {
   let n = 0
   const puts: { path: string; content: string }[] = []
-  const execs: { argv: string[]; env: Record<string, string> }[] = []
+  const execs: {
+    argv: string[]
+    env: Record<string, string>
+    cutLines?: number
+  }[] = []
   const start: ServeDeps['startVm'] = async (vm, vmDir) => {
     const id = ++n
     events.push(`boot ${id} ${vm.egress}`)
@@ -82,7 +86,7 @@ function fakeVm(events: string[], behaviours: Behaviour[]) {
         puts.push({ path, content: String(content) })
       },
       exec: async (argv: string[], o: Parameters<Isolation['exec']>[1]) => {
-        execs.push({ argv, env: o.env })
+        execs.push({ argv, env: o.env, cutLines: o.cutLines })
         await o.onLine(`token in output: ${SECRET}`)
         if (behaviour === 'job') {
           await o.onLine('Running job: build')
@@ -215,18 +219,12 @@ describe('serveRunners with a fake forge', () => {
     expect(r.logFile).toContain('token in output: [redacted]')
   })
 
-  test('steps run with the composed env and through the line cutter', async () => {
+  test('steps run with the composed env, as plain argv, with long lines cut on the host', async () => {
     const r = await serve({}, ['job'], (e) => e.includes('close 1'))
-    const { argv, env } = r.vm.execs[0]!
-    expect(argv.slice(0, 6)).toEqual([
-      'bash',
-      '-o',
-      'pipefail',
-      '-c',
-      `"$@" 2>&1 | awk '{ print substr($0, 1, 4000); fflush() }'`,
-      'mirab-step',
-    ])
-    expect(argv.slice(6)).toEqual(['/opt/fake/run']) // asRoot: no setpriv
+    const { argv, env, cutLines } = r.vm.execs[0]!
+    // No pipeline in the guest to hold output back; asRoot: no setpriv.
+    expect(argv).toEqual(['/opt/fake/run'])
+    expect(cutLines).toBe(4000)
     expect(env.FAKE_RUNNER).toBe('1')
     expect(env.RUNNER_TOOL_CACHE).toBe('/opt/hostedtoolcache')
     expect(env.PATH!.startsWith('/opt/rust/cargo/bin:')).toBe(true)
@@ -292,38 +290,9 @@ describe('runner pieces', () => {
     expect(groups).toBeLessThan(steps.indexOf('useradd'))
   })
 
-  test('the line cutter passes each line on as it comes (a job is seen starting while it runs), cuts at 4000, keeps the exit code', async () => {
-    const script = [
-      'echo "Running job: build"',
-      'sleep 1.5',
-      `printf '%5000s\\n' x | tr ' ' y`,
-      'exit 3',
-    ].join('; ')
-    const argv = stepArgv({ argv: ['sh', '-c', script], asRoot: true })
-    const t0 = Date.now()
-    const p = Bun.spawn(argv, { stdout: 'pipe' })
-    const reader = p.stdout.getReader()
-    const first = await reader.read()
-    const firstAt = Date.now() - t0
-    expect(new TextDecoder().decode(first.value)).toStartWith(
-      'Running job: build',
-    )
-    // Before the 1.5 s sleep is over: not held back until the step ends.
-    expect(firstAt).toBeLessThan(1200)
-    let rest = ''
-    for (;;) {
-      const r = await reader.read()
-      if (r.done) break
-      rest += new TextDecoder().decode(r.value)
-    }
-    const long = rest.split('\n').find((l) => l.startsWith('y'))!
-    expect(long.length).toBe(4000)
-    expect(await p.exited).toBe(3)
-  })
-
   test('steps drop to the runner user unless asRoot', () => {
     const argv = stepArgv({ argv: ['make', 'test'] })
-    expect(argv.slice(6)).toEqual([
+    expect(argv).toEqual([
       'setpriv',
       '--reuid=1001',
       '--regid=1001',
@@ -331,7 +300,7 @@ describe('runner pieces', () => {
       'make',
       'test',
     ])
-    expect(stepArgv({ argv: ['id'], asRoot: true }).slice(6)).toEqual(['id'])
+    expect(stepArgv({ argv: ['id'], asRoot: true })).toEqual(['id'])
   })
 
   test('env: base < image < job < step; PATH puts the toolsets first', () => {

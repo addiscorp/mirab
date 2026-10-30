@@ -58,9 +58,13 @@ export declare function redact(line: string, secrets: Iterable<string>): string;
 export declare function jobEnv(def: RunnerDefinition, image: Pick<RunnerImage['meta'], 'env' | 'path'> & {
     platform?: RunnerPlatform;
 }, job: Record<string, string>, step?: Record<string, string>): Record<string, string>;
-/** The argv mirab really execs for a step: as the runner user unless asRoot,
- *  output lines cut to 4000 characters (the guest channel refuses a line over
- *  32 KiB, which would end the job), the step's exit status kept. */
+/** Lines longer than this are cut (host side, by guestExec's cutLines). */
+export declare const STEP_LINE_CHARS = 4000;
+/** The argv mirab really execs for a step: as the runner user unless asRoot.
+ *  No pipeline in the guest: anything between the step and the agent can hold
+ *  its output back (cut, and mawk without -W interactive, buffer off a
+ *  terminal), and a job's "started" line must arrive while it runs, or an
+ *  on-demand VM's idle timer ends the job. Long lines are cut on the host. */
 export declare function stepArgv(step: RunnerStep, platform?: RunnerPlatform): string[];
 /** Refuses a host that can't run these definitions safely. */
 export declare function admission(defs: RunnerDefinition[], o: {

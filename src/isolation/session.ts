@@ -26,6 +26,10 @@ export interface ExecOptions {
   signal: AbortSignal
   /** One call per output line (stdout and stderr), already de-framed. */
   onLine: (line: string) => Promise<void>
+  /** Cut a line longer than this to its first `cutLines` characters and skip
+   *  the rest of it, instead of ending the step (the default above 32 KiB).
+   *  For CI logs, where one huge line must not fail a job. */
+  cutLines?: number
 }
 
 export interface Isolation {
@@ -248,17 +252,34 @@ export async function guestExec(
 ): Promise<number> {
   if (o.signal.aborted) return 130
   const pending = { out: '', err: '' },
-    decoders = { out: new TextDecoder(), err: new TextDecoder() }
+    decoders = { out: new TextDecoder(), err: new TextDecoder() },
+    // cutLines: the head of an oversized line was emitted; skip to its end.
+    skipping = { out: false, err: false }
   let failure: Error | undefined
+  const cut = o.cutLines
   const feed = async (which: 'out' | 'err', data: Buffer) => {
     pending[which] += decoders[which].decode(data, { stream: true })
     let at: number
     while ((at = pending[which].indexOf('\n')) >= 0) {
-      if (at > MAX_LINE) return tooLong(which)
-      await o.onLine(pending[which].slice(0, at).replace(/\r$/, ''))
+      const line = pending[which].slice(0, at)
       pending[which] = pending[which].slice(at + 1)
+      if (skipping[which]) {
+        skipping[which] = false
+        continue
+      }
+      if (cut !== undefined && line.length > cut) {
+        await o.onLine(line.slice(0, cut))
+        continue
+      }
+      if (at > MAX_LINE) return tooLong(which)
+      await o.onLine(line.replace(/\r$/, ''))
     }
-    if (pending[which].length > MAX_LINE) tooLong(which)
+    if (cut !== undefined && !skipping[which] && pending[which].length > cut) {
+      await o.onLine(pending[which].slice(0, cut))
+      pending[which] = ''
+      skipping[which] = true
+    } else if (skipping[which]) pending[which] = ''
+    else if (pending[which].length > MAX_LINE) tooLong(which)
   }
   // Same rule as host steps: never emit the tail of an oversized line, it could
   // be half of a secret split across chunks.
@@ -285,7 +306,10 @@ export async function guestExec(
         if (r.t === 'exit') {
           for (const w of ['out', 'err'] as const) {
             pending[w] += decoders[w].decode()
-            if (pending[w]) await o.onLine(pending[w])
+            if (pending[w] && !skipping[w])
+              await o.onLine(
+                cut === undefined ? pending[w] : pending[w].slice(0, cut),
+              )
           }
           if (r.timed_out)
             await o.onLine(
