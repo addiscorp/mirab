@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: write
+  actions: write # dispatches publish.yml (npm) once the stable release is on R2
 
 env:
   R2_BUCKET_RELEASES: mirab-releases
@@ -113,6 +114,16 @@ jobs:
           git push origin "v${V}"
           gh release create "v${V}" stable/${V}/release.json stable/${V}/mirab-*.tar.gz --repo "${{ github.repository }}" --title "mirab ${V}" \
             --notes "Promoted from ${{ steps.validate.outputs.canary }}, the same bytes. Install: curl -fsSL https://mirab-releases.addis.gg/install.sh | sh"
+      # The npm library follows: X.Y.Z on dist-tag latest, built from the
+      # promoted canary's commit (publish.yml checks both against R2).
+      - name: Publish the library to npm (latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run publish.yml --repo "${{ github.repository }}" --ref main \
+            -f version="${{ steps.validate.outputs.v }}" \
+            -f ref="${{ steps.validate.outputs.canary }}" \
+            -f dist_tag=latest
       - name: Summary
         run: |
           V="${{ steps.validate.outputs.v }}"
@@ -120,4 +131,5 @@ jobs:
             echo "### mirab ${V} is stable"
             echo "- https://mirab-releases.addis.gg/${V}/release.json (from ${{ steps.validate.outputs.canary }})"
             echo "- latest.json points here"
+            echo "- npm: mirab@${V} on dist-tag latest (publish.yml, dispatched)"
           } >> "$GITHUB_STEP_SUMMARY"

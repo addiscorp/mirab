@@ -192,6 +192,7 @@ jobs:
     environment: release
     permissions:
       contents: write
+      actions: write # dispatches publish.yml (npm) once the release is on R2
     env:
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -304,6 +305,16 @@ jobs:
               --title "mirab ${VERSION} (canary)" --prerelease \
               --notes "Canary build of ${GITHUB_SHA}. Install it: curl -fsSL https://mirab-releases.addis.gg/install.sh | sh -s -- --canary"
           fi
+      # The npm library follows the release: same version, dist-tag canary.
+      # publish.yml checks the release is on R2 and built from this tag.
+      - name: Publish the library to npm (canary)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run publish.yml --repo "${{ github.repository }}" --ref main \
+            -f version="${{ needs.resolve.outputs.version }}" \
+            -f ref="${{ needs.resolve.outputs.tag }}" \
+            -f dist_tag=canary
       - name: Summary
         run: |
           VERSION="${{ needs.resolve.outputs.version }}"
@@ -311,4 +322,5 @@ jobs:
             echo "### mirab ${VERSION} (canary)"
             echo "- https://mirab-releases.addis.gg/${VERSION}/release.json"
             echo "- canary.json now points here; latest.json was not touched (promote.yml)"
+            echo "- npm: mirab@${VERSION} on dist-tag canary (publish.yml, dispatched)"
           } >> "$GITHUB_STEP_SUMMARY"
