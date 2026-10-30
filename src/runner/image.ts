@@ -42,7 +42,7 @@ import {
 } from './toolsets'
 
 /** Bump when the build recipe below changes in a way that needs new images. */
-const RECIPE_VERSION = 1
+const RECIPE_VERSION = 2
 
 export const runnerImagesDir = (configDir: string) =>
   join(configDir, 'runner-images')
@@ -188,6 +188,10 @@ export function buildSteps(r: RunnerRecipe): RunnerStep[] {
         'sh',
         '-euc',
         [
+          // The base's own /etc/group lacks Ubuntu's standard system groups;
+          // package scripts expect them (fontconfig's chowns to root:staff,
+          // and its failure took Playwright's browser dependencies with it).
+          `while IFS=: read -r g _ gid _; do getent group "$g" >/dev/null || groupadd -g "$gid" "$g" 2>/dev/null || groupadd "$g"; done < /usr/share/base-passwd/group.master`,
           `useradd -m -d ${u.home} -u ${u.uid} -U -s /bin/bash ${u.name}`,
           `printf '%s\\n' '${u.name} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/${u.name}`,
           `chmod 0440 /etc/sudoers.d/${u.name}`,
