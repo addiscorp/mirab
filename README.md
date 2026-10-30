@@ -25,7 +25,18 @@ It installs mirab into `~/.mirab` (the release in `~/.mirab/releases/`, the
 release's manifest, with no sudo. It brings its own Bun, and on Linux its own
 Firecracker. The VM image is downloaded on first use. Builds: macOS (Apple
 silicon and Intel) and Linux x86_64. `sh -s -- --canary` installs the newest
-build of `main`.
+nightly build of `main`.
+
+### Releases
+
+- **Canary, nightly.** If `main` changed, a nightly build publishes
+  `X.Y.Z-canary-<sha>` to mirab-releases (binaries and VM image), then the
+  library to npm as `mirab@X.Y.Z-canary-<sha>` on the `canary` tag.
+- **Stable, promoted.** Actions → Promote → Run workflow with a canary tag
+  copies the same bytes to `X.Y.Z`, tags `vX.Y.Z`, and publishes
+  `mirab@X.Y.Z` on `latest`. The next canary needs a version bump.
+- An npm version is always the name of a release on mirab-releases, so the
+  library finds its own VM image by its version.
 
 ## Make an agent
 
