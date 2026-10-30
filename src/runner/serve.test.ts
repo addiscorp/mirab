@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Isolation } from '../isolation/session'
 import { defineRunner, type Forge, type RunnerInput } from './define'
@@ -119,6 +119,7 @@ async function serve(
   stopWhen: (events: string[]) => boolean,
   forgeOpts: { ticketFails?: number; queued?: number[] } = {},
 ) {
+  await mkdir(resolve('.tmp'), { recursive: true, mode: 0o700 })
   const configDir = await mkdtemp(join(resolve('.tmp'), 'serve-'))
   const { forge, events, tickets } = fakeForge(forgeOpts)
   const vm = fakeVm(events, behaviours)
@@ -146,6 +147,10 @@ async function serve(
       configDir,
       vm: { rootfs: '/base' } as never,
       host: 'simien.local',
+      // Fixed, not the machine's: a small CI VM would otherwise lend less
+      // than one runner VM and every test would wait for a lease forever.
+      budgetMiB: 65536,
+      budgetVcpus: 64,
       signal: ctl.signal,
       log: (l) => void logs.push(l),
       deps,
