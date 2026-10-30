@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Isolation } from '../isolation/session'
 import { defineRunner, type Forge, type RunnerInput } from './define'
-import type { RunnerImage, RunnerRecipe } from './image'
+import {
+  buildSteps,
+  runnerRecipe,
+  type RunnerImage,
+  type RunnerRecipe,
+} from './image'
 import {
   admission,
   hostLabel,
@@ -465,5 +470,52 @@ describe('on demand (warm 0) and the host budget', () => {
     expect([tight.host.memoryMiB, tight.host.vcpus]).toEqual([5120, 8])
     const roomy = await twoPools(6144)
     expect(roomy.most).toBe(2)
+  })
+})
+
+describe('macOS runners (darwin-arm64)', () => {
+  test('steps drop to the runner user with sudo -E (no setpriv on macOS), with a macOS home', () => {
+    const step = { argv: ['./run.sh'] }
+    expect(stepArgv(step, 'darwin-arm64').join(' ')).toContain(
+      '/usr/bin/sudo -E -H -u runner -- ./run.sh',
+    )
+    expect(stepArgv(step, 'linux-arm64').join(' ')).toContain('setpriv')
+    const def = defineRunner({
+      name: 'mac',
+      forge: fakeForge().forge,
+      platform: 'darwin-arm64',
+    })
+    const env = jobEnv(def, { env: {}, path: [], platform: 'darwin-arm64' }, {})
+    expect([env.HOME, env.TMPDIR, env.LANG]).toEqual([
+      '/Users/runner',
+      '/Users/runner/tmp',
+      'en_US.UTF-8',
+    ])
+  })
+
+  test("the recipe follows the definition's platform; macOS builds with Xcode tools and sysadminctl, never apt", async () => {
+    const { forge } = fakeForge()
+    const mac = defineRunner({ name: 'mac', forge, platform: 'darwin-arm64' })
+    const r = await runnerRecipe(mac, { platform: 'linux-arm64' })
+    expect(r.platform).toBe('darwin-arm64')
+    const steps = buildSteps(r)
+      .map((s) => s.argv.join(' '))
+      .join('\n')
+    expect(steps).toContain('softwareupdate -i')
+    expect(steps).toContain(
+      'sysadminctl -addUser runner -UID 1001 -home /Users/runner',
+    )
+    expect(steps).toContain('pmset -a sleep 0')
+    expect(steps).not.toContain('apt-get')
+    await expect(
+      runnerRecipe(
+        defineRunner({
+          name: 'mac',
+          forge,
+          platform: 'darwin-arm64',
+          image: { packages: ['jq'] },
+        }),
+      ),
+    ).rejects.toThrow(/macOS has no apt/)
   })
 })

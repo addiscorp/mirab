@@ -55,11 +55,13 @@ export declare function hostLabel(name?: string): string;
 export declare function redact(line: string, secrets: Iterable<string>): string;
 /** The env every job step gets: base, then the image's toolsets, then the
  *  forge's job env, then the step's own (later wins). PATH is composed. */
-export declare function jobEnv(def: RunnerDefinition, image: Pick<RunnerImage['meta'], 'env' | 'path'>, job: Record<string, string>, step?: Record<string, string>): Record<string, string>;
+export declare function jobEnv(def: RunnerDefinition, image: Pick<RunnerImage['meta'], 'env' | 'path'> & {
+    platform?: RunnerPlatform;
+}, job: Record<string, string>, step?: Record<string, string>): Record<string, string>;
 /** The argv mirab really execs for a step: as the runner user unless asRoot,
  *  output lines cut to 4000 characters (the guest channel refuses a line over
  *  32 KiB, which would end the job), the step's exit status kept. */
-export declare function stepArgv(step: RunnerStep): string[];
+export declare function stepArgv(step: RunnerStep, platform?: RunnerPlatform): string[];
 /** Refuses a host that can't run these definitions safely. */
 export declare function admission(defs: RunnerDefinition[], o: {
     configDir: string;

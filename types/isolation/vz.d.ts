@@ -6,8 +6,13 @@ export interface VzConfig {
     /** Guest kernel with virtio-pci built in: the uncompressed arm64 `Image` on
      *  Apple silicon, a relocatable x86_64 `bzImage` on Intel Macs. */
     kernel: string;
-    /** Base ext4 image; each VM boots an APFS clone of it. */
+    /** Base ext4 image; each VM boots an APFS clone of it. For a macOS guest,
+     *  the base macOS disk (`<macos>/disk.img`). */
     rootfs: string;
+    /** A macOS guest (Apple silicon): the base directory `mirab-vz
+     *  macos-install` wrote (hardware-model, machine-id, aux.img, disk.img),
+     *  provisioned with the guest agent. `kernel` is unused then. */
+    macos?: string;
     memoryMiB: number;
     vcpus: number;
     /** Guest vsock port the agent listens on. */
@@ -48,7 +53,10 @@ export declare function vzNetworkStatusLine(egress: VzConfig['egress'], state: V
 export declare function kernelCommandLine(net: VzNetworkPlan['net'], now: Date): string;
 /** The helper's `run` arguments; `share` null = no virtio-fs device at all. */
 export declare function vzRunArgs(o: {
-    cfg: Pick<VzConfig, 'kernel' | 'vcpus' | 'memoryMiB'>;
+    cfg: Pick<VzConfig, 'kernel' | 'vcpus' | 'memoryMiB'> & {
+        /** This VM's own copy of the macOS platform files (see startVz). */
+        macos?: string;
+    };
     root: string;
     uds: string;
     vmDir: string;
