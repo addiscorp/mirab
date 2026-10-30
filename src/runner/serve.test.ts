@@ -130,7 +130,12 @@ async function serve(
     startVm: vm.start,
     recipe: async () => recipe,
     image: async () => image,
-    sleep: async (ms) => void sleeps.push(ms),
+    // Records the wait, then yields to the event loop as a real sleep does:
+    // a loop of instant sleeps would starve the timer that stops the test.
+    sleep: async (ms) => {
+      sleeps.push(ms)
+      await new Promise((r) => setTimeout(r, 0))
+    },
     minuteMs: 5, // a "minute" is 5 ms here
   }
   const watcher = setInterval(() => {
@@ -441,7 +446,7 @@ describe('on demand (warm 0) and the host budget', () => {
           startVm,
           recipe: async () => recipe,
           image: async () => image,
-          sleep: async () => {},
+          sleep: () => new Promise((r) => setTimeout(r, 0)),
           minuteMs: 5,
         },
       })
