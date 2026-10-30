@@ -3,7 +3,7 @@
 // first VM use into <config dir>/vm/, so `mirab spawn --vm` works without
 // building anything.
 //
-// Layout of one release on mirab.addis.gg (R2 mirab-releases; directories are
+// Layout of one release on mirab-releases.addis.gg (R2 mirab-releases; directories are
 // the release's full version with no "v", scripts/vm-release.ts writes vm/):
 //   <release>/vm/manifest.json            VmManifest (sha256 of every file)
 //   <release>/vm/<platform>/<name>.gz     one gzip per role
@@ -23,7 +23,7 @@ import pkg from '../../package.json'
 import { GUEST_PROTOCOL } from './session'
 
 /** Where mirab's releases and guest images live. */
-export const RELEASES = 'https://mirab.addis.gg'
+export const RELEASES = 'https://mirab-releases.addis.gg'
 export const MIRAB_VERSION: string = pkg.version
 
 /** The release this copy of mirab was installed from (`0.1.0-canary-abc1234`):

@@ -2,7 +2,7 @@
 # tag-canary.yml names the build and dispatches this against its tag. It never
 # creates a stable vX.Y.Z tag or touches latest.json: that is promote.yml.
 #
-# R2 layout (mirab-releases, served at https://mirab.addis.gg); directories
+# R2 layout (mirab-releases, served at https://mirab-releases.addis.gg); directories
 # are the release's full version with no "v":
 #   <version>/mirab-<platform>.tar.gz   mirab for one platform (scripts/package.sh)
 #   <version>/release.json              version, commit, channel, sha256 per platform
@@ -261,11 +261,11 @@ jobs:
         run: |
           aws s3 cp install.sh "s3://${R2_BUCKET_RELEASES}/install.sh" --endpoint-url="${R2_ENDPOINT}" \
             --content-type "text/x-shellscript; charset=utf-8" --cache-control "no-cache"
-      - name: Read it back from mirab.addis.gg
+      - name: Read it back from mirab-releases.addis.gg
         run: |
           set -euo pipefail
           VERSION="${{ needs.resolve.outputs.version }}"
-          base="https://mirab.addis.gg/${VERSION}"
+          base="https://mirab-releases.addis.gg/${VERSION}"
           curl -fsSL "$base/release.json" -o served.json
           cmp served.json "release/${VERSION}/release.json"
           for platform in linux-x64 darwin-x64 darwin-arm64; do
@@ -302,13 +302,13 @@ jobs:
           else
             gh release create "$TAG" $files --repo "${{ github.repository }}" \
               --title "mirab ${VERSION} (canary)" --prerelease \
-              --notes "Canary build of ${GITHUB_SHA}. Install it: curl -fsSL https://mirab.addis.gg/install.sh | sh -s -- --canary"
+              --notes "Canary build of ${GITHUB_SHA}. Install it: curl -fsSL https://mirab-releases.addis.gg/install.sh | sh -s -- --canary"
           fi
       - name: Summary
         run: |
           VERSION="${{ needs.resolve.outputs.version }}"
           {
             echo "### mirab ${VERSION} (canary)"
-            echo "- https://mirab.addis.gg/${VERSION}/release.json"
+            echo "- https://mirab-releases.addis.gg/${VERSION}/release.json"
             echo "- canary.json now points here; latest.json was not touched (promote.yml)"
           } >> "$GITHUB_STEP_SUMMARY"
