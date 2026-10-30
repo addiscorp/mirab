@@ -1,6 +1,6 @@
 import { z } from 'zod';
 /** Where mirab's releases and guest images live. */
-export declare const RELEASES = "https://mirab.addis.gg";
+export declare const RELEASES = "https://mirab-releases.addis.gg";
 export declare const MIRAB_VERSION: string;
 /** The release this copy of mirab was installed from (`0.1.0-canary-abc1234`):
  *  the release workflow stamps release.json into what it ships. From a

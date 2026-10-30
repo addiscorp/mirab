@@ -8,6 +8,10 @@ import { z } from 'zod'
 export const RUNNER_PLATFORMS = ['linux-x64', 'linux-arm64'] as const
 export type RunnerPlatform = (typeof RUNNER_PLATFORMS)[number]
 
+/** Every runner carries `mirab-<os>-<arch>` (e.g. `mirab-linux-arm64`), so a
+ *  job asks for a fresh VM of a platform with one label. */
+export const platformLabel = (platform: RunnerPlatform) => `mirab-${platform}`
+
 /** One command in the VM. Steps run as the unprivileged `runner` user unless
  *  `asRoot` (then the step is responsible for dropping to it, with RUNNER_SETPRIV). */
 export interface RunnerStep {
@@ -64,6 +68,10 @@ export interface Forge {
   }
   /** Delete this host's registrations named `prefix*` that aren't in `live`. */
   reconcile(prefix: string, live: string[]): Promise<void>
+  /** How many jobs are waiting right now that a runner with these labels
+   *  could take. Optional; without it a pool can only be warm. Called every
+   *  `pool.pollSeconds` while a pool has no VM, so it should be cheap. */
+  queued?(req: { labels: string[]; platform: RunnerPlatform }): Promise<number>
 }
 
 /** The toolsets a runner image can carry. */
@@ -96,7 +104,7 @@ export const runnerSchema = z.strictObject({
       'name is [a-z0-9-], up to 40 characters, no leading or trailing -',
     ),
   forge: forgeSchema,
-  /** The forge's labels for this runner, passed to the adapter as they are. */
+  /** Extra labels, after `platformLabel`'s, passed to the adapter as they are. */
   labels: z.array(z.string().regex(LABEL)).max(32).default([]),
   image: z
     .strictObject({
@@ -133,14 +141,26 @@ export const runnerSchema = z.strictObject({
     .default({ vcpus: 2, memoryMiB: 3072, diskGiB: 30 }),
   pool: z
     .strictObject({
-      /** VMs kept booted and registered, waiting for a job (0 or 1 in phase 1). */
+      /** 1: a VM always booted and registered, holding its memory. 0: a VM
+       *  boots only when the forge reports a job it can take (forge.queued),
+       *  so pools share the host's budget instead of each holding a VM. */
       warm: z.number().int().min(0).max(1).default(1),
       /** VMs at once on this host (1 until VM-to-VM isolation is proven). */
       max: z.number().int().min(1).max(1).default(1),
-      /** A slot nobody gave a job ends after this, and registers again. */
+      /** A warm slot nobody gave a job ends after this, and registers again. */
       idleHours: z.number().positive().max(72).default(12),
+      /** warm 0: how often to ask the forge for queued jobs. */
+      pollSeconds: z.number().int().min(5).max(300).default(15),
+      /** warm 0: a VM booted for a job that went elsewhere ends after this. */
+      waitMinutes: z.number().int().min(1).max(60).default(3),
     })
-    .default({ warm: 1, max: 1, idleHours: 12 }),
+    .default({
+      warm: 1,
+      max: 1,
+      idleHours: 12,
+      pollSeconds: 15,
+      waitMinutes: 3,
+    }),
   /** One job's hard limit, from the moment it starts; the VM is killed after. */
   timeoutMinutes: z
     .number()

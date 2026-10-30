@@ -16,7 +16,7 @@ import {
   statfs,
   writeFile,
 } from 'node:fs/promises'
-import { hostname, totalmem } from 'node:os'
+import { availableParallelism, hostname, totalmem } from 'node:os'
 import { join } from 'node:path'
 import { startVm, vmBackend, type VmConfig } from '../isolation'
 import { networkState } from '../isolation/network'
@@ -26,10 +26,12 @@ import {
   RUNNER_SETPRIV,
   RUNNER_USER,
   hostRunnerPlatform,
+  platformLabel,
   type RunnerDefinition,
   type RunnerPlatform,
   type RunnerStep,
 } from './define'
+import { HostBudget, type Lease } from './budget'
 import {
   runnerImage,
   runnerRecipe,
@@ -39,7 +41,10 @@ import {
 
 export const runnersDir = (configDir: string) => join(configDir, 'runners')
 
-export type SlotPhase = 'image' | 'booting' | 'waiting' | 'busy' | 'stopping'
+/** idle: no VM, watching the forge for a job (warm 0). queued: waiting for
+ *  room in the host's budget. waiting: booted and registered, no job yet. */
+export type SlotPhase =
+  'image' | 'idle' | 'queued' | 'booting' | 'waiting' | 'busy' | 'stopping'
 
 export interface SlotState {
   vmName: string
@@ -77,8 +82,10 @@ export interface ServeOptions {
   vm: VmConfig
   /** Names registrations `<host>-<name>-<random>`. */
   host?: string
-  /** RAM all slots together may use (default: host RAM − 3 GiB). */
+  /** RAM all runner VMs together may use (default: host RAM − 3 GiB). */
   budgetMiB?: number
+  /** vCPUs all runner VMs together may use (default: the host's CPUs). */
+  budgetVcpus?: number
   signal?: AbortSignal
   log?: (line: string) => void
   deps?: Partial<ServeDeps>
@@ -178,6 +185,7 @@ export async function admission(
   o: {
     configDir: string
     budgetMiB: number
+    budgetVcpus: number
     backend: 'vz' | 'firecracker'
     filtered: boolean
     freeBytes: number
@@ -188,10 +196,23 @@ export async function admission(
     if (names.has(d.name)) throw new Error(`two runners are named ${d.name}`)
     names.add(d.name)
   }
-  const mem = defs.reduce((s, d) => s + d.pool.max * d.vm.memoryMiB, 0)
-  if (mem > o.budgetMiB)
+  for (const d of defs) {
+    if (d.vm.memoryMiB > o.budgetMiB || d.vm.vcpus > o.budgetVcpus)
+      throw new Error(
+        `${d.name}'s VM (${d.vm.memoryMiB} MiB, ${d.vm.vcpus} vCPUs) is bigger than this host lends runner VMs (${o.budgetMiB} MiB, ${o.budgetVcpus} vCPUs)`,
+      )
+    if (d.pool.warm === 0 && !d.forge.queued)
+      throw new Error(
+        `${d.name}: pool.warm 0 needs a forge that reports queued jobs; ${d.forge.name} doesn't`,
+      )
+  }
+  // Warm VMs hold their share for good; what's left is shared on demand.
+  const warm = defs.filter((d) => d.pool.warm > 0)
+  const mem = warm.reduce((s, d) => s + d.vm.memoryMiB, 0)
+  const cpu = warm.reduce((s, d) => s + d.vm.vcpus, 0)
+  if (mem > o.budgetMiB || cpu > o.budgetVcpus)
     throw new Error(
-      `runners need ${mem} MiB of VM memory at once; this host's budget is ${o.budgetMiB} MiB (lower vm.memoryMiB or pool.max, or pass budgetMiB)`,
+      `warm runners hold ${mem} MiB and ${cpu} vCPUs; this host lends ${o.budgetMiB} MiB and ${o.budgetVcpus} vCPUs (make some pools warm: 0, or raise the budget)`,
     )
   const disk =
     defs.reduce((s, d) => s + d.pool.max * d.vm.diskGiB, 0) * 1024 ** 3
@@ -225,31 +246,93 @@ export async function serveRunners(
     minuteMs: 60_000,
     ...o.deps,
   }
+  const total = {
+    memoryMiB: o.budgetMiB ?? Math.floor(totalmem() / 1024 ** 2) - 3072,
+    vcpus: o.budgetVcpus ?? availableParallelism(),
+  }
   if (!o.deps?.startVm) {
     const backend = vmBackend()
     const fs = await statfs(o.configDir).catch(() => undefined)
     await admission(defs, {
       configDir: o.configDir,
-      budgetMiB: o.budgetMiB ?? Math.floor(totalmem() / 1024 ** 2) - 3072,
+      budgetMiB: total.memoryMiB,
+      budgetVcpus: total.vcpus,
       backend,
       filtered:
         backend === 'vz' ? vzNetworkState().filtered : networkState().ready,
       freeBytes: fs ? fs.bavail * fs.bsize : 0,
     })
   }
-  await Promise.all(
-    defs.map((def) => serveOne(def, host, deps, o, log, signal)),
-  )
+  const budget = new HostBudget(total)
+  await mkdir(runnersDir(o.configDir), { recursive: true, mode: 0o700 })
+  const saveHost = atomicWriter(join(runnersDir(o.configDir), 'host.json'))
+  const ctx = { host, deps, o, budget, saveHost, hostLog: log, signal }
+  await Promise.all(defs.map((def) => serveOne(def, ctx)))
 }
 
-async function serveOne(
+/** Writes one file whole, one write at a time (temp file + rename): readers
+ *  and a crash never see half a file. */
+function atomicWriter(file: string) {
+  let saving: Promise<void> = Promise.resolve()
+  return (value: unknown) =>
+    (saving = saving.then(async () => {
+      const tmp = `${file}.${process.pid}.tmp`
+      try {
+        await writeFile(tmp, JSON.stringify(value, null, 2) + '\n', {
+          mode: 0o600,
+        })
+        await rename(tmp, file)
+      } catch {}
+    }))
+}
+
+interface ServeContext {
+  host: string
+  deps: ServeDeps
+  o: ServeOptions
+  budget: HostBudget
+  saveHost: (value: unknown) => Promise<void>
+  hostLog: (line: string) => void
+  signal: AbortSignal
+}
+
+/** The labels a registration carries: `mirab-<os>-<arch>`, then the definition's. */
+export const runnerLabels = (
   def: RunnerDefinition,
-  host: string,
+  platform: RunnerPlatform,
+) => [...new Set([platformLabel(platform), ...def.labels])]
+
+/** warm 0: waits until the forge reports a job this pool can take. False if
+ *  stopped first. A forge that fails is asked again, more slowly. */
+async function demand(
+  def: RunnerDefinition,
+  platform: RunnerPlatform,
   deps: ServeDeps,
-  o: ServeOptions,
-  hostLog: (line: string) => void,
   signal: AbortSignal,
-) {
+  fail: (message: string) => void,
+): Promise<boolean> {
+  const every = def.pool.pollSeconds * 1000
+  let errors = 0
+  while (!signal.aborted) {
+    try {
+      const n = await def.forge.queued!({
+        labels: runnerLabels(def, platform),
+        platform,
+      })
+      errors = 0
+      if (n > 0) return true
+      await deps.sleep(every, signal)
+    } catch (e) {
+      // One line per outage, not one per poll.
+      if (errors++ === 0) fail(`queued: ${(e as Error).message}`)
+      await deps.sleep(every * Math.min(2 ** errors, 20), signal)
+    }
+  }
+  return false
+}
+
+async function serveOne(def: RunnerDefinition, ctx: ServeContext) {
+  const { host, deps, o, budget, hostLog, signal } = ctx
   const dir = join(runnersDir(o.configDir), def.name)
   const vmsDir = join(dir, 'vms')
   const prefix = `${host}-${def.name}-`
@@ -270,20 +353,11 @@ async function serveOne(
     slots: [],
     jobs: 0,
   }
-  // One write at a time, each whole (temp file + rename): status readers and
-  // a crash never see half a file.
-  let saving: Promise<void> = Promise.resolve()
-  const save = () =>
-    (saving = saving.then(async () => {
-      const file = join(dir, 'state.json')
-      const tmp = `${file}.${process.pid}.tmp`
-      try {
-        await writeFile(tmp, JSON.stringify(state, null, 2) + '\n', {
-          mode: 0o600,
-        })
-        await rename(tmp, file)
-      } catch {}
-    }))
+  const writeState = atomicWriter(join(dir, 'state.json'))
+  const save = () => {
+    void ctx.saveHost(budget.snapshot())
+    return writeState(state)
+  }
   const fail = (message: string) => {
     state.lastError = {
       at: deps.now().toISOString(),
@@ -324,6 +398,7 @@ async function serveOne(
     }
     state.slots = [slot]
     let iso: Isolation | undefined
+    let lease: Lease | undefined
     let ticketed = false
     try {
       // The recipe names the forge's runner release: look again daily, so a
@@ -336,6 +411,16 @@ async function serveOne(
       const image = await deps.image(def, recipe)
       state.image = image.meta.key
       if (signal.aborted) break
+      if (def.pool.warm === 0) {
+        phase('idle')
+        if (!(await demand(def, recipe.platform, deps, signal, fail))) break
+      }
+      phase('queued')
+      lease = await budget.acquire(
+        { memoryMiB: def.vm.memoryMiB, vcpus: def.vm.vcpus },
+        def.name,
+        signal,
+      )
       phase('booting')
       iso = await deps.startVm(
         {
@@ -351,7 +436,7 @@ async function serveOne(
       // Booted and answering: only now is a registration worth making.
       const ticket = await def.forge.ticket({
         name: vmName,
-        labels: def.labels,
+        labels: runnerLabels(def, recipe.platform),
         platform: recipe.platform,
       })
       ticketed = true
@@ -386,11 +471,13 @@ async function serveOne(
         if (!signal.aborted) await backoff()
       }
     } catch (e) {
+      if (signal.aborted) break
       fail(`${vmName}: ${(e as Error).message}`)
-      if (!signal.aborted) await backoff()
+      await backoff()
     } finally {
       phase('stopping')
       await iso?.close().catch((e) => fail(`close ${vmName}: ${e.message}`))
+      lease?.release()
       if (ticketed)
         // The runner deregisters itself after its job; anything left (an idle
         // slot ended, a killed job) is removed here.
@@ -420,11 +507,18 @@ async function runJob(
   let why = 'finished'
   /** Ended on purpose (idle lifetime, shutdown), not by the runner giving up. */
   let expected = false
-  const idleMs = def.pool.idleHours * 60 * minuteMs
+  // A warm slot waits hours for a job; one booted on demand only minutes,
+  // since its job may have gone to another runner.
+  const idleMinutes =
+    def.pool.warm === 0 ? def.pool.waitMinutes : def.pool.idleHours * 60
+  const idleMs = idleMinutes * minuteMs
   const jobMs = def.timeoutMinutes * minuteMs
   const idleTimer = setTimeout(() => {
     if (!started) {
-      why = `no job in ${def.pool.idleHours} h, ended`
+      why =
+        def.pool.warm === 0
+          ? `no job in ${def.pool.waitMinutes} min (it went elsewhere), ended`
+          : `no job in ${def.pool.idleHours} h, ended`
       expected = true
       ctl.abort()
     }

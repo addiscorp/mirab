@@ -2,6 +2,9 @@ import { z } from 'zod';
 /** The guests a runner can run. */
 export declare const RUNNER_PLATFORMS: readonly ['linux-x64', 'linux-arm64'];
 export type RunnerPlatform = (typeof RUNNER_PLATFORMS)[number];
+/** Every runner carries `mirab-<os>-<arch>` (e.g. `mirab-linux-arm64`), so a
+ *  job asks for a fresh VM of a platform with one label. */
+export declare const platformLabel: (platform: RunnerPlatform) => string;
 /** One command in the VM. Steps run as the unprivileged `runner` user unless
  *  `asRoot` (then the step is responsible for dropping to it, with RUNNER_SETPRIV). */
 export interface RunnerStep {
@@ -56,6 +59,13 @@ export interface Forge {
     };
     /** Delete this host's registrations named `prefix*` that aren't in `live`. */
     reconcile(prefix: string, live: string[]): Promise<void>;
+    /** How many jobs are waiting right now that a runner with these labels
+     *  could take. Optional; without it a pool can only be warm. Called every
+     *  `pool.pollSeconds` while a pool has no VM, so it should be cheap. */
+    queued?(req: {
+        labels: string[];
+        platform: RunnerPlatform;
+    }): Promise<number>;
 }
 /** The toolsets a runner image can carry. */
 export declare const TOOLSETS: readonly ['rust', 'node', 'go'];
@@ -80,6 +90,8 @@ export declare const runnerSchema: z.ZodObject<{
         warm: z.ZodDefault<z.ZodNumber>;
         max: z.ZodDefault<z.ZodNumber>;
         idleHours: z.ZodDefault<z.ZodNumber>;
+        pollSeconds: z.ZodDefault<z.ZodNumber>;
+        waitMinutes: z.ZodDefault<z.ZodNumber>;
     }, z.core.$strict>>;
     timeoutMinutes: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strict>;
