@@ -4,6 +4,7 @@ import {
   GuestProtocolError,
   REBUILD_HINT,
   checkGuestProtocol,
+  guestExec,
   guestPing,
   guestPty,
   type Opener,
@@ -115,4 +116,68 @@ test('a guest pty exit before anyone listens is replayed to onExit', async () =>
   const codes: number[] = []
   pty.onExit((c) => codes.push(c))
   expect(codes).toEqual([3])
+})
+
+/** A guest agent that streams `frames` for an exec, in chunks, then exits 0. */
+function agentStreaming(chunks: string[]): Opener {
+  return async () => {
+    let data: (c: Buffer) => void = () => {}
+    let closed: () => void = () => {}
+    const frame = (r: unknown) => {
+      const body = Buffer.from(JSON.stringify(r))
+      const head = Buffer.alloc(4)
+      head.writeUInt32BE(body.length)
+      return Buffer.concat([head, body])
+    }
+    return {
+      write() {
+        queueMicrotask(() => {
+          for (const c of chunks)
+            data(frame({ t: 'out', d: Buffer.from(c).toString('base64') }))
+          data(frame({ t: 'exit', code: 0, timed_out: false }))
+        })
+      },
+      onData: (cb) => (data = cb),
+      onClose: (cb) => (closed = cb),
+      // Like a real channel: closing it (mirab ending the step) fires onClose.
+      close: () => closed(),
+    }
+  }
+}
+
+const exec = (open: Opener, cutLines?: number) => {
+  const lines: string[] = []
+  return guestExec(open, ['x'], {
+    cwd: '/',
+    env: {},
+    timeoutMs: 1000,
+    signal: new AbortController().signal,
+    onLine: async (l) => void lines.push(l),
+    cutLines,
+  }).then((code) => ({ code, lines }))
+}
+
+test('cutLines: an oversized line is cut to its head and the rest skipped, across chunks, and the step goes on', async () => {
+  const big = 'y'.repeat(50_000)
+  const r = await exec(
+    agentStreaming([
+      'Running job: build\n',
+      big.slice(0, 20_000),
+      big.slice(20_000) + '\nafter\n',
+      'tail-without-newline',
+    ]),
+    4000,
+  )
+  expect(r.code).toBe(0)
+  expect(r.lines).toEqual([
+    'Running job: build',
+    'y'.repeat(4000),
+    'after',
+    'tail-without-newline',
+  ])
+})
+
+test('without cutLines a line over 32 KiB still ends the step (no tail of a possible secret is printed)', async () => {
+  const r = exec(agentStreaming(['z'.repeat(40_000) + '\n']))
+  await expect(r).rejects.toThrow(/exceeds 32 KiB/)
 })

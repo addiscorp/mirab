@@ -16,6 +16,10 @@ export interface ExecOptions {
     signal: AbortSignal;
     /** One call per output line (stdout and stderr), already de-framed. */
     onLine: (line: string) => Promise<void>;
+    /** Cut a line longer than this to its first `cutLines` characters and skip
+     *  the rest of it, instead of ending the step (the default above 32 KiB).
+     *  For CI logs, where one huge line must not fail a job. */
+    cutLines?: number;
 }
 export interface Isolation {
     readonly level: Level;
