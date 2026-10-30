@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Isolation } from '../isolation/session'
 import { defineRunner, type Forge, type RunnerInput } from './define'
-import type { RunnerImage, RunnerRecipe } from './image'
+import {
+  buildSteps,
+  runnerRecipe,
+  type RunnerImage,
+  type RunnerRecipe,
+} from './image'
 import {
   admission,
   hostLabel,
@@ -218,7 +223,7 @@ describe('serveRunners with a fake forge', () => {
       '-o',
       'pipefail',
       '-c',
-      '"$@" 2>&1 | cut -c1-4000',
+      `"$@" 2>&1 | awk '{ print substr($0, 1, 4000); fflush() }'`,
       'mirab-step',
     ])
     expect(argv.slice(6)).toEqual(['/opt/fake/run']) // asRoot: no setpriv
@@ -274,6 +279,48 @@ describe('serveRunners with a fake forge', () => {
 })
 
 describe('runner pieces', () => {
+  test("the Linux image restores Ubuntu's standard system groups before adding the runner (package scripts chown to root:staff)", async () => {
+    const r = await runnerRecipe(
+      defineRunner({ name: 'lx', forge: fakeForge().forge }),
+      { platform: 'linux-arm64' },
+    )
+    const steps = buildSteps(r)
+      .map((s) => s.argv.join(' '))
+      .join('\n')
+    const groups = steps.indexOf('/usr/share/base-passwd/group.master')
+    expect(groups).toBeGreaterThan(-1)
+    expect(groups).toBeLessThan(steps.indexOf('useradd'))
+  })
+
+  test('the line cutter passes each line on as it comes (a job is seen starting while it runs), cuts at 4000, keeps the exit code', async () => {
+    const script = [
+      'echo "Running job: build"',
+      'sleep 1.5',
+      `printf '%5000s\\n' x | tr ' ' y`,
+      'exit 3',
+    ].join('; ')
+    const argv = stepArgv({ argv: ['sh', '-c', script], asRoot: true })
+    const t0 = Date.now()
+    const p = Bun.spawn(argv, { stdout: 'pipe' })
+    const reader = p.stdout.getReader()
+    const first = await reader.read()
+    const firstAt = Date.now() - t0
+    expect(new TextDecoder().decode(first.value)).toStartWith(
+      'Running job: build',
+    )
+    // Before the 1.5 s sleep is over: not held back until the step ends.
+    expect(firstAt).toBeLessThan(1200)
+    let rest = ''
+    for (;;) {
+      const r = await reader.read()
+      if (r.done) break
+      rest += new TextDecoder().decode(r.value)
+    }
+    const long = rest.split('\n').find((l) => l.startsWith('y'))!
+    expect(long.length).toBe(4000)
+    expect(await p.exited).toBe(3)
+  })
+
   test('steps drop to the runner user unless asRoot', () => {
     const argv = stepArgv({ argv: ['make', 'test'] })
     expect(argv.slice(6)).toEqual([

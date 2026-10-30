@@ -173,7 +173,10 @@ export function stepArgv(step: RunnerStep): string[] {
     '-o',
     'pipefail',
     '-c',
-    '"$@" 2>&1 | cut -c1-4000',
+    // awk, flushing every line: `cut` buffers when it isn't writing to a
+    // terminal, so a job's "started" line would only arrive when the job
+    // ended, too late to stop the idle timer (a warm 0 pool's is 3 minutes).
+    `"$@" 2>&1 | awk '{ print substr($0, 1, 4000); fflush() }'`,
     'mirab-step',
     ...argv,
   ]
