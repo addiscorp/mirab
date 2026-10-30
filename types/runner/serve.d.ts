@@ -3,7 +3,9 @@ import type { Isolation } from '../isolation/session';
 import { hostRunnerPlatform, type RunnerDefinition, type RunnerPlatform, type RunnerStep } from './define';
 import { type RunnerImage, type RunnerRecipe } from './image';
 export declare const runnersDir: (configDir: string) => string;
-export type SlotPhase = 'image' | 'booting' | 'waiting' | 'busy' | 'stopping';
+/** idle: no VM, watching the forge for a job (warm 0). queued: waiting for
+ *  room in the host's budget. waiting: booted and registered, no job yet. */
+export type SlotPhase = 'image' | 'idle' | 'queued' | 'booting' | 'waiting' | 'busy' | 'stopping';
 export interface SlotState {
     vmName: string;
     phase: SlotPhase;
@@ -36,8 +38,10 @@ export interface ServeOptions {
     vm: VmConfig;
     /** Names registrations `<host>-<name>-<random>`. */
     host?: string;
-    /** RAM all slots together may use (default: host RAM − 3 GiB). */
+    /** RAM all runner VMs together may use (default: host RAM − 3 GiB). */
     budgetMiB?: number;
+    /** vCPUs all runner VMs together may use (default: the host's CPUs). */
+    budgetVcpus?: number;
     signal?: AbortSignal;
     log?: (line: string) => void;
     deps?: Partial<ServeDeps>;
@@ -60,10 +64,13 @@ export declare function stepArgv(step: RunnerStep): string[];
 export declare function admission(defs: RunnerDefinition[], o: {
     configDir: string;
     budgetMiB: number;
+    budgetVcpus: number;
     backend: 'vz' | 'firecracker';
     filtered: boolean;
     freeBytes: number;
 }): Promise<void>;
 export declare function serveRunners(defs: RunnerDefinition[], o: ServeOptions): Promise<void>;
+/** The labels a registration carries: `mirab-<os>-<arch>`, then the definition's. */
+export declare const runnerLabels: (def: RunnerDefinition, platform: RunnerPlatform) => string[];
 export { hostRunnerPlatform };
 export type { RunnerPlatform };
