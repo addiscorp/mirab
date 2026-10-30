@@ -1,11 +1,7 @@
 {
   "name": "mirab",
   "version": "0.2.0",
-  "private": true,
   "type": "module",
-  "bin": {
-    "mirab": "src/mirab.ts"
-  },
   "scripts": {
     "dev": "bun run src/mirab.ts",
     "build": "bun build --compile --minify src/mirab.ts --outfile dist/mirab",
@@ -52,5 +48,13 @@
       "types": "./types/runner/index.d.ts",
       "default": "./src/runner/index.ts"
     }
-  }
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.e2e.test.ts",
+    "types",
+    "README.md",
+    "LICENSE"
+  ]
 }
