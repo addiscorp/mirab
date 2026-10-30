@@ -11,7 +11,7 @@
         "commander": "^14.0.1",
         "inquirer": "^12.9.4",
         "node-pty": "1.2.0-beta.15",
-        "rixse": "github:addiscorp/rixse#03982baae18437fab5cb2ee9a372f253c4de7b2b",
+        "rixse": "^0.1.0",
         "smol-toml": "^1.9.0",
         "zod": "^4.6.5",
       },
@@ -184,7 +184,7 @@
 
     "reflect-metadata": ["reflect-metadata@0.2.2", "", {}, "sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q=="],
 
-    "rixse": ["rixse@github:addiscorp/rixse#03982ba", { "dependencies": { "@peculiar/x509": "1.12.3", "zod": "4.6.7" }, "bin": { "rixse": "./src/cli.ts" } }, "addiscorp-rixse-03982ba", "sha512-uCrxmoJ+DhM1z6inCTOPB0t/xRnFG8yFq2ZUYSK/3KSxIRR1IDABGpplrjNZ5PPHzcaDDSJQICP7S0O81RsFWA=="],
+    "rixse": ["rixse@0.1.0", "", { "dependencies": { "@peculiar/x509": "1.12.3", "zod": "4.6.7" }, "bin": { "rixse": "src/cli.ts" } }, "sha512-7hqp2CFs3ptCDp8Hn0CUT0TSGW2sKzRVHVGOgfKcQ1EaSwi3AaNwPTfI+qfgTm5bjLsa5wZeD0/suYnD26xunQ=="],
 
     "run-async": ["run-async@4.0.6", "", {}, "sha512-IoDlSLTs3Yq593mb3ZoKWKXMNu3UpObxhgA/Xuid5p4bbfi2jdY1Hj0m1K+0/tEuQTxIGMhQDqGjKb7RuxGpAQ=="],
 
