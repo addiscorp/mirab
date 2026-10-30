@@ -453,7 +453,12 @@ func provision(dir: String, agent: String) {
   let attached = plist(run("/usr/bin/hdiutil", ["attach", "-nomount", "-imagekey", "diskimage-class=CRawDiskImage", "-plist", disk]))
   let entities = attached["system-entities"] as? [[String: Any]] ?? []
   let devs = entities.compactMap { ($0["dev-entry"] as? String)?.replacingOccurrences(of: "/dev/", with: "") }
-  guard let whole = devs.min(by: { $0.count < $1.count }) else { die("hdiutil attached nothing", 1) }
+  // The image's own disk carries the partition map; attaching also creates
+  // synthesized APFS container disks, which detach with it.
+  let partitioned = entities.first { ($0["content-hint"] as? String) == "GUID_partition_scheme" }
+  guard let whole = (partitioned?["dev-entry"] as? String)?.replacingOccurrences(of: "/dev/", with: "")
+    ?? devs.min(by: { $0.count < $1.count })
+  else { die("hdiutil attached nothing", 1) }
   defer { run("/usr/bin/hdiutil", ["detach", "/dev/\(whole)"]) }
   // The Data volume of the APFS container that lives on the attached image.
   let containers = plist(run("/usr/sbin/diskutil", ["apfs", "list", "-plist"]))["Containers"] as? [[String: Any]] ?? []
