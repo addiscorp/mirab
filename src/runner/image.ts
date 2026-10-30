@@ -170,6 +170,16 @@ export function buildSteps(r: RunnerRecipe): RunnerStep[] {
   const u = RUNNER_USER
   return [
     { argv: ['sh', '-c', GROW_ROOT_FS] },
+    // The base's own /etc/group lacks Ubuntu's standard system groups, and
+    // package scripts expect them (fontconfig's postinst chowns to
+    // root:staff): restore them before anything is installed.
+    {
+      argv: [
+        'sh',
+        '-euc',
+        `while IFS=: read -r g _ gid _; do getent group "$g" >/dev/null || groupadd -g "$gid" "$g" 2>/dev/null || groupadd "$g"; done < /usr/share/base-passwd/group.master`,
+      ],
+    },
     { argv: ['apt-get', 'update'] },
     {
       argv: [
@@ -188,10 +198,6 @@ export function buildSteps(r: RunnerRecipe): RunnerStep[] {
         'sh',
         '-euc',
         [
-          // The base's own /etc/group lacks Ubuntu's standard system groups;
-          // package scripts expect them (fontconfig's chowns to root:staff,
-          // and its failure took Playwright's browser dependencies with it).
-          `while IFS=: read -r g _ gid _; do getent group "$g" >/dev/null || groupadd -g "$gid" "$g" 2>/dev/null || groupadd "$g"; done < /usr/share/base-passwd/group.master`,
           `useradd -m -d ${u.home} -u ${u.uid} -U -s /bin/bash ${u.name}`,
           `printf '%s\\n' '${u.name} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/${u.name}`,
           `chmod 0440 /etc/sudoers.d/${u.name}`,

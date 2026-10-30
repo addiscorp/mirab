@@ -287,6 +287,8 @@ describe('runner pieces', () => {
       .join('\n')
     const groups = steps.indexOf('/usr/share/base-passwd/group.master')
     expect(groups).toBeGreaterThan(-1)
+    // Before apt installs anything: package scripts need the groups too.
+    expect(groups).toBeLessThan(steps.indexOf('apt-get install'))
     expect(groups).toBeLessThan(steps.indexOf('useradd'))
   })
 
