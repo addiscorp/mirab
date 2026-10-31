@@ -126,6 +126,17 @@ export interface PullOptions {
   agent?: string
   /** `<os>-<arch>` of this machine (tests pretend). */
   host?: string
+  /** Live progress of the long steps (the CLI draws it as one line on a
+   *  terminal); without it, they log a line every few percent. */
+  progress?: (p: PullProgress | null) => void
+}
+
+/** A long step: `fraction` is 0..1, or absent while it can't say yet (Apple's
+ *  installer prepares for a minute or so first). `null` ends the step. */
+export interface PullProgress {
+  step: string
+  fraction?: number
+  detail?: string
 }
 
 async function sha256(path: string) {
@@ -200,8 +211,16 @@ function restoreImage(helper: string, ipsw?: string): RestoreImage {
 const gb = (n: number) => `${(n / 1e9).toFixed(1)} GB`
 
 /** Download to `to`, resuming a `.part` left by a stopped pull. */
-async function fetchIpsw(url: string, to: string, log: (l: string) => void) {
-  if (existsSync(to)) return
+async function fetchIpsw(
+  url: string,
+  to: string,
+  log: (l: string) => void,
+  progress?: PullOptions['progress'],
+) {
+  if (existsSync(to)) {
+    log(`restore image: already here (${gb(statSync(to).size)})`)
+    return
+  }
   const part = `${to}.part`
   const have = existsSync(part) ? statSync(part).size : 0
   const res = await fetch(url, {
@@ -220,6 +239,14 @@ async function fetchIpsw(url: string, to: string, log: (l: string) => void) {
     new Transform({
       transform(chunk: Buffer, _e, done) {
         got += chunk.length
+        if (progress) {
+          progress({
+            step: 'downloading',
+            fraction: total ? got / total : undefined,
+            detail: `${gb(got)} / ${gb(total)}`,
+          })
+          return done(null, chunk)
+        }
         const pct = total ? Math.floor((got / total) * 20) * 5 : 0
         if (pct > shown) {
           shown = pct
@@ -230,6 +257,7 @@ async function fetchIpsw(url: string, to: string, log: (l: string) => void) {
     }),
     createWriteStream(part, { flags: resumed ? 'a' : 'w', mode: 0o600 }),
   )
+  progress?.(null)
   await rename(part, to)
 }
 
@@ -239,8 +267,25 @@ function install(
   dir: string,
   gib: number,
   log: (l: string) => void,
+  progress?: PullOptions['progress'],
 ) {
   return new Promise<void>((resolve, reject) => {
+    // Until the installer's first "progress" line: no fraction yet.
+    progress?.({ step: 'installing', detail: 'preparing' })
+    let fraction: number | undefined
+    // Redrawn every second, so the elapsed time moves while Apple's
+    // installer is quiet.
+    const tick = progress
+      ? setInterval(
+          () =>
+            progress({
+              step: 'installing',
+              fraction,
+              detail: fraction === undefined ? 'preparing' : undefined,
+            }),
+          1000,
+        )
+      : undefined
     const p = spawn(
       helper,
       [
@@ -259,6 +304,11 @@ function install(
     p.stdout.setEncoding('utf8').on('data', (d: string) => {
       for (const line of d.split('\n')) {
         const m = /^progress (\d+)/.exec(line)
+        if (m && progress) {
+          fraction = Number(m[1]) / 100
+          progress({ step: 'installing', fraction })
+          continue
+        }
         const pct = m ? Math.floor(Number(m[1]) / 10) * 10 : -1
         if (pct > shown) {
           shown = pct
@@ -267,12 +317,19 @@ function install(
       }
     })
     p.stderr.setEncoding('utf8').on('data', (d: string) => (err += d))
-    p.on('error', reject)
-    p.on('exit', (code) =>
-      code === 0
-        ? resolve()
-        : reject(new MacosPullError(`installing macOS failed: ${err.trim()}`)),
-    )
+    const end = () => {
+      if (tick) clearInterval(tick)
+      progress?.(null)
+    }
+    p.on('error', (e) => {
+      end()
+      reject(e)
+    })
+    p.on('exit', (code) => {
+      end()
+      if (code === 0) resolve()
+      else reject(new MacosPullError(`installing macOS failed: ${err.trim()}`))
+    })
   })
 }
 
@@ -283,8 +340,15 @@ export async function pullMacos(o: PullOptions): Promise<MacosBase> {
     throw new MacosPullError('macOS guests need a Mac with Apple silicon')
   const log = o.log ?? (() => {})
   const gib = o.diskGiB ?? 64
+  log("checking mirab's helper and macOS guest agent against its release")
   const { helper, agent } = await releaseTools(o)
+  log(
+    o.ipsw
+      ? `reading ${o.ipsw}`
+      : 'asking Apple for the newest macOS this Mac runs',
+  )
   const image = restoreImage(helper, o.ipsw)
+  log(`macOS ${image.version} (${image.build})`)
   if (!image.supported)
     throw new MacosPullError(
       `macOS ${image.version} (${image.build}) does not run in a VM on this Mac`,
@@ -301,7 +365,7 @@ export async function pullMacos(o: PullOptions): Promise<MacosBase> {
   await mkdir(join(root, 'ipsw'), { recursive: true, mode: 0o700 })
   const ipsw =
     o.ipsw ?? join(root, 'ipsw', basename(new URL(image.url).pathname))
-  if (!o.ipsw) await fetchIpsw(image.url, ipsw, log)
+  if (!o.ipsw) await fetchIpsw(image.url, ipsw, log, o.progress)
 
   const final = join(root, image.version)
   const stage = join(root, `.${image.version}.part`)
@@ -309,9 +373,9 @@ export async function pullMacos(o: PullOptions): Promise<MacosBase> {
   await mkdir(stage, { recursive: true, mode: 0o700 })
   try {
     log(
-      `installing macOS ${image.version} (${image.build}) into a ${gib} GiB disk`,
+      `installing macOS ${image.version} into a ${gib} GiB disk (about 5 minutes; Apple's installer prepares for a minute before it reports progress)`,
     )
-    await install(helper, ipsw, stage, gib, log)
+    await install(helper, ipsw, stage, gib, log, o.progress)
     log(
       'provisioning needs an administrator, once for this base. It writes two files into the VM disk (never onto this Mac):',
     )
