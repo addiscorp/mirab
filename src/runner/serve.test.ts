@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Isolation } from '../isolation/session'
 import { defineRunner, type Forge, type RunnerInput } from './define'
-import type { RunnerImage, RunnerRecipe } from './image'
+import {
+  buildSteps,
+  runnerRecipe,
+  type RunnerImage,
+  type RunnerRecipe,
+} from './image'
 import {
   admission,
   hostLabel,
@@ -66,7 +71,11 @@ type Behaviour = 'job' | 'idle' | 'hang' | 'quit'
 function fakeVm(events: string[], behaviours: Behaviour[]) {
   let n = 0
   const puts: { path: string; content: string }[] = []
-  const execs: { argv: string[]; env: Record<string, string> }[] = []
+  const execs: {
+    argv: string[]
+    env: Record<string, string>
+    cutLines?: number
+  }[] = []
   const start: ServeDeps['startVm'] = async (vm, vmDir) => {
     const id = ++n
     events.push(`boot ${id} ${vm.egress}`)
@@ -77,7 +86,7 @@ function fakeVm(events: string[], behaviours: Behaviour[]) {
         puts.push({ path, content: String(content) })
       },
       exec: async (argv: string[], o: Parameters<Isolation['exec']>[1]) => {
-        execs.push({ argv, env: o.env })
+        execs.push({ argv, env: o.env, cutLines: o.cutLines })
         await o.onLine(`token in output: ${SECRET}`)
         if (behaviour === 'job') {
           await o.onLine('Running job: build')
@@ -210,18 +219,12 @@ describe('serveRunners with a fake forge', () => {
     expect(r.logFile).toContain('token in output: [redacted]')
   })
 
-  test('steps run with the composed env and through the line cutter', async () => {
+  test('steps run with the composed env, as plain argv, with long lines cut on the host', async () => {
     const r = await serve({}, ['job'], (e) => e.includes('close 1'))
-    const { argv, env } = r.vm.execs[0]!
-    expect(argv.slice(0, 6)).toEqual([
-      'bash',
-      '-o',
-      'pipefail',
-      '-c',
-      '"$@" 2>&1 | cut -c1-4000',
-      'mirab-step',
-    ])
-    expect(argv.slice(6)).toEqual(['/opt/fake/run']) // asRoot: no setpriv
+    const { argv, env, cutLines } = r.vm.execs[0]!
+    // No pipeline in the guest to hold output back; asRoot: no setpriv.
+    expect(argv).toEqual(['/opt/fake/run'])
+    expect(cutLines).toBe(4000)
     expect(env.FAKE_RUNNER).toBe('1')
     expect(env.RUNNER_TOOL_CACHE).toBe('/opt/hostedtoolcache')
     expect(env.PATH!.startsWith('/opt/rust/cargo/bin:')).toBe(true)
@@ -274,9 +277,24 @@ describe('serveRunners with a fake forge', () => {
 })
 
 describe('runner pieces', () => {
+  test("the Linux image restores Ubuntu's standard system groups before adding the runner (package scripts chown to root:staff)", async () => {
+    const r = await runnerRecipe(
+      defineRunner({ name: 'lx', forge: fakeForge().forge }),
+      { platform: 'linux-arm64' },
+    )
+    const steps = buildSteps(r)
+      .map((s) => s.argv.join(' '))
+      .join('\n')
+    const groups = steps.indexOf('/usr/share/base-passwd/group.master')
+    expect(groups).toBeGreaterThan(-1)
+    // Before apt installs anything: package scripts need the groups too.
+    expect(groups).toBeLessThan(steps.indexOf('apt-get install'))
+    expect(groups).toBeLessThan(steps.indexOf('useradd'))
+  })
+
   test('steps drop to the runner user unless asRoot', () => {
     const argv = stepArgv({ argv: ['make', 'test'] })
-    expect(argv.slice(6)).toEqual([
+    expect(argv).toEqual([
       'setpriv',
       '--reuid=1001',
       '--regid=1001',
@@ -284,7 +302,7 @@ describe('runner pieces', () => {
       'make',
       'test',
     ])
-    expect(stepArgv({ argv: ['id'], asRoot: true }).slice(6)).toEqual(['id'])
+    expect(stepArgv({ argv: ['id'], asRoot: true })).toEqual(['id'])
   })
 
   test('env: base < image < job < step; PATH puts the toolsets first', () => {

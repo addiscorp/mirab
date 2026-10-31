@@ -33,7 +33,7 @@ import {
 } from './toolsets'
 
 /** Bump when the build recipe below changes in a way that needs new images. */
-const RECIPE_VERSION = 1
+const RECIPE_VERSION = 2
 
 export const runnerImagesDir = (configDir: string) =>
   join(configDir, 'runner-images')
@@ -105,6 +105,16 @@ export function buildSteps(r: RunnerRecipe): RunnerStep[] {
   const u = RUNNER_USER
   return [
     { argv: ['sh', '-c', GROW_ROOT_FS] },
+    // The base's own /etc/group lacks Ubuntu's standard system groups, and
+    // package scripts expect them (fontconfig's postinst chowns to
+    // root:staff): restore them before anything is installed.
+    {
+      argv: [
+        'sh',
+        '-euc',
+        `while IFS=: read -r g _ gid _; do getent group "$g" >/dev/null || groupadd -g "$gid" "$g" 2>/dev/null || groupadd "$g"; done < /usr/share/base-passwd/group.master`,
+      ],
+    },
     { argv: ['apt-get', 'update'] },
     {
       argv: [

@@ -163,20 +163,16 @@ export function jobEnv(
   }
 }
 
-/** The argv mirab really execs for a step: as the runner user unless asRoot,
- *  output lines cut to 4000 characters (the guest channel refuses a line over
- *  32 KiB, which would end the job), the step's exit status kept. */
+/** Lines longer than this are cut (host side, by guestExec's cutLines). */
+export const STEP_LINE_CHARS = 4000
+
+/** The argv mirab really execs for a step: as the runner user unless asRoot.
+ *  No pipeline in the guest: anything between the step and the agent can hold
+ *  its output back (cut, and mawk without -W interactive, buffer off a
+ *  terminal), and a job's "started" line must arrive while it runs, or an
+ *  on-demand VM's idle timer ends the job. Long lines are cut on the host. */
 export function stepArgv(step: RunnerStep): string[] {
-  const argv = step.asRoot ? step.argv : [...RUNNER_SETPRIV, ...step.argv]
-  return [
-    'bash',
-    '-o',
-    'pipefail',
-    '-c',
-    '"$@" 2>&1 | cut -c1-4000',
-    'mirab-step',
-    ...argv,
-  ]
+  return step.asRoot ? step.argv : [...RUNNER_SETPRIV, ...step.argv]
 }
 
 /** Refuses a host that can't run these definitions safely. */
@@ -547,6 +543,7 @@ async function runJob(
       const code = await iso.exec(stepArgv(step), {
         cwd: step.asRoot ? '/' : RUNNER_USER.home,
         env: jobEnv(def, image.meta, job.env, step.env),
+        cutLines: STEP_LINE_CHARS,
         // A backstop: the timers above end it first.
         timeoutMs: idleMs + jobMs + 10 * 60_000,
         signal: ctl.signal,
