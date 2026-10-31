@@ -57,9 +57,10 @@ jobs:
       - run: bun test src/isolation/anchored-fs.test.ts src/isolation/sync.test.ts --timeout 30000
 
   vm-linux:
-    # The live VM tests under Firecracker, the way the Mac runs them under vz:
+    # The live VM tests under Firecracker, the way the Mac runs them under vz
+    # (host runners: only machines with /dev/kvm carry host-kvm):
     # mirab's kernel and the one rootfs recipe, built from this checkout.
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-kvm' || 'ubuntu-24.04' }}
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
