@@ -131,7 +131,7 @@ export declare const vmManifestSchema: z.ZodObject<{
                     size: z.ZodNumber;
                 }, z.core.$strip>;
             }, z.core.$strip>;
-            agent: z.ZodObject<{
+            agent: z.ZodOptional<z.ZodObject<{
                 file: z.ZodString;
                 sha256: z.ZodString;
                 size: z.ZodNumber;
@@ -139,7 +139,7 @@ export declare const vmManifestSchema: z.ZodObject<{
                     sha256: z.ZodString;
                     size: z.ZodNumber;
                 }, z.core.$strip>;
-            }, z.core.$strip>;
+            }, z.core.$strip>>;
         }, z.core.$strip>>;
     }, z.core.$strip>;
 }, z.core.$strip>;

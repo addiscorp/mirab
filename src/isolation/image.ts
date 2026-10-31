@@ -100,7 +100,12 @@ export const vmManifestSchema = z.object({
       .object({ kernel: entry, rootfs: entry, vz: entry })
       .optional(),
     'darwin-arm64': z
-      .object({ kernel: entry, rootfs: entry, vz: entry, agent: entry })
+      .object({
+        kernel: entry,
+        rootfs: entry,
+        vz: entry,
+        agent: entry.optional(),
+      })
       .optional(),
   }),
 })
@@ -138,6 +143,12 @@ function readRecord(configDir: string): ImageRecord | 'local' | undefined {
 
 const rolesOf = (platform: VmPlatform) =>
   Object.keys(VM_PLATFORMS[platform]) as VmRole[]
+/** Roles a release may lack: releases before macOS guests have no agent,
+ *  and their image still runs Linux VMs (`mirab image pull macos` says why it
+ *  can't go on). */
+const OPTIONAL_ROLES: VmRole[] = ['agent']
+const requiredRoles = (platform: VmPlatform) =>
+  rolesOf(platform).filter((r) => !OPTIONAL_ROLES.includes(r))
 
 /** The published image for this CLI version and platform is installed and intact (cheap: sizes). */
 export function releaseImageInstalled(
@@ -154,7 +165,7 @@ export function releaseImageInstalled(
   )
     return false
   const paths = vmImagePaths(configDir)
-  return rolesOf(platform).every((role) => {
+  return requiredRoles(platform).every((role) => {
     try {
       return statSync(paths[role]).size === record.files[role]?.size
     } catch {
@@ -231,12 +242,12 @@ export async function ensureVmImage(
     )
   const files = manifest.platforms[platform] as
     Partial<Record<VmRole, VmFileEntry>> | undefined
-  const roles = rolesOf(platform)
-  if (!files || roles.some((r) => !files[r]))
+  if (!files || requiredRoles(platform).some((r) => !files[r]))
     throw new VmImageError(
       `the VM image manifest ${url} has no complete ${platform} image`,
     )
 
+  const roles = rolesOf(platform).filter((r) => files[r])
   const paths = vmImagePaths(o.configDir)
   await mkdir(paths.dir, { recursive: true, mode: 0o700 })
   const stage = await mkdtemp(join(paths.dir, '.download-'))
