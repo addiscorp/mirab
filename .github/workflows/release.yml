@@ -7,7 +7,7 @@
 #   <version>/mirab-<platform>.tar.gz   mirab for one platform (scripts/package.sh)
 #   <version>/release.json              version, commit, channel, sha256 per platform
 #   <version>/vm/manifest.json          the guest images (src/isolation/image.ts)
-#   <version>/vm/<platform>/<file>.gz   kernel, rootfs, vz helper per VM platform
+#   <version>/vm/<platform>/<file>.gz   kernel, rootfs, vz helper (+ macOS guest agent on darwin-arm64) per VM platform
 #   canary.json                         the newest canary's release.json
 #   latest.json                         the newest stable's (promote.yml)
 #   install.sh                          the installer, from this repo
@@ -113,7 +113,8 @@ jobs:
           retention-days: 1
 
   vz:
-    # The vz helper for each Mac, signed ad hoc with its entitlement.
+    # The vz helper for each Mac, signed ad hoc with its entitlement, and the
+    # macOS guest agent on Apple silicon.
     name: vz helper (${{ matrix.platform }})
     needs: [resolve]
     strategy:
@@ -131,6 +132,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: scripts/build-vz-helper.sh "out/${{ matrix.platform }}/mirab-vz"
       - run: gzip -n -9 "out/${{ matrix.platform }}/mirab-vz"
+      # macOS guests (Apple silicon only) run this guest agent;
+      # `mirab image pull macos` installs it into the base.
+      - name: macOS guest agent
+        if: matrix.platform == 'darwin-arm64'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '13.0'
+        run: |
+          cargo build --locked --release --manifest-path guest-agent/Cargo.toml
+          cp guest-agent/target/release/mirab-guest-agent out/darwin-arm64/mirab-guest-agent
+          gzip -n -9 out/darwin-arm64/mirab-guest-agent
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vz-${{ matrix.platform }}

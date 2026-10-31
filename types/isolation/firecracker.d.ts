@@ -40,6 +40,10 @@ export interface VmStartOptions {
      *  [] for a VM that must not reach the host at all. Firecracker forwards a
      *  port only when someone serves it (onGuestConnect), so it needs no list. */
     listen?: number[];
+    /** vz on Apple silicon: boot this VM as macOS from a provisioned base
+     *  directory (its disk is `<macos>/disk.img`). Only for this VM: a host's
+     *  `vm.macos` never turns its other VMs into macOS. */
+    macos?: string;
 }
 /** Sparse-grows a disk image file to `gib` GiB; refuses to shrink one. */
 export declare function growDisk(path: string, gib: number): Promise<void>;

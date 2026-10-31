@@ -13,6 +13,21 @@
 //   mirab-vz clone <src> <dst>     APFS clonefile (copy-on-write) of a file or a whole directory tree
 //   mirab-vz run --kernel K --rootfs R --cmdline C --vsock SOCK --serial LOG
 //               [--cpus N] [--memory MiB] [--share TAG=DIR] [--net none|nat] [--listen PORT]...
+//   mirab-vz run --macos DIR --rootfs R --vsock SOCK --serial LOG [same options]
+//               boots a macOS guest (Apple silicon only): DIR holds its
+//               hardware-model, machine-id and aux.img (NVRAM), R its disk
+//   mirab-vz macos-restore-image [--ipsw P]
+//               one JSON line {url, version, build, supported}: the newest
+//               macOS restore image this Mac can run, or the local .ipsw P
+//   mirab-vz macos-install --ipsw P --dir DIR [--disk-gib N]
+//               installs macOS from P into DIR/disk.img (sparse) and writes
+//               DIR/hardware-model, DIR/machine-id and DIR/aux.img; prints
+//               "progress N" lines, then "installed"
+//   sudo mirab-vz macos-provision --dir DIR --agent PATH
+//               before a macOS guest's first boot: on DIR/disk.img's Data
+//               volume, marks setup as done (no Setup Assistant) and installs
+//               the guest agent as a root LaunchDaemon on vsock 9002. Needs
+//               root once per base image: launchd only runs root-owned plists.
 //
 // Built and ad-hoc signed with the com.apple.security.virtualization
 // entitlement by scripts/build-vz-helper.sh; no developer identity needed.
@@ -143,7 +158,7 @@ func readConnect(_ fd: Int32) -> UInt32? {
 // MARK: the VM
 
 struct Options {
-  var kernel = "", rootfs = "", cmdline = "", vsock = "", serial = ""
+  var kernel = "", rootfs = "", cmdline = "", vsock = "", serial = "", macos = ""
   var cpus = 2, memoryMiB: UInt64 = 1024, net = "none"
   var share: (tag: String, dir: String)?
   var listen: [UInt32] = []
@@ -160,6 +175,7 @@ func parse(_ args: [String]) -> Options {
   while i < args.count {
     switch args[i] {
     case "--kernel": o.kernel = value()
+    case "--macos": o.macos = value()
     case "--rootfs": o.rootfs = value()
     case "--cmdline": o.cmdline = value()
     case "--vsock": o.vsock = value()
@@ -178,8 +194,9 @@ func parse(_ args: [String]) -> Options {
     }
     i += 1
   }
-  for (name, v) in [("--kernel", o.kernel), ("--rootfs", o.rootfs), ("--vsock", o.vsock), ("--serial", o.serial)]
+  for (name, v) in [("--rootfs", o.rootfs), ("--vsock", o.vsock), ("--serial", o.serial)]
   where v.isEmpty { die("\(name) is required") }
+  if o.macos.isEmpty && o.kernel.isEmpty { die("--kernel (Linux) or --macos (macOS) is required") }
   if o.net != "none" && o.net != "nat" { die("--net is none or nat") }
   return o
 }
@@ -195,9 +212,20 @@ final class Machine: NSObject, VZVirtualMachineDelegate, VZVirtioSocketListenerD
 
   func configuration() throws -> VZVirtualMachineConfiguration {
     let c = VZVirtualMachineConfiguration()
-    let boot = VZLinuxBootLoader(kernelURL: URL(fileURLWithPath: o.kernel))
-    boot.commandLine = o.cmdline
-    c.bootLoader = boot
+    if o.macos.isEmpty {
+      let boot = VZLinuxBootLoader(kernelURL: URL(fileURLWithPath: o.kernel))
+      boot.commandLine = o.cmdline
+      c.bootLoader = boot
+    } else {
+      #if arch(arm64)
+        c.platform = try macPlatform(o.macos, create: nil)
+        c.bootLoader = VZMacOSBootLoader()
+        // macOS needs a display even with nobody watching.
+        c.graphicsDevices = [macDisplay()]
+      #else
+        throw NSError(domain: "mirab-vz", code: 1, userInfo: [NSLocalizedDescriptionKey: "macOS guests need Apple silicon"])
+      #endif
+    }
     c.cpuCount = max(VZVirtualMachineConfiguration.minimumAllowedCPUCount,
                      min(o.cpus, VZVirtualMachineConfiguration.maximumAllowedCPUCount))
     c.memorySize = max(VZVirtualMachineConfiguration.minimumAllowedMemorySize, o.memoryMiB << 20)
@@ -293,6 +321,192 @@ final class Machine: NSObject, VZVirtualMachineDelegate, VZVirtioSocketListenerD
   }
 }
 
+// MARK: macOS guests (Apple silicon)
+
+#if arch(arm64)
+  func fail(_ m: String) -> NSError { NSError(domain: "mirab-vz", code: 1, userInfo: [NSLocalizedDescriptionKey: m]) }
+
+  /// The platform a macOS guest needs: its hardware model, a machine identifier
+  /// and its NVRAM. `create` makes them for a fresh install from the restore
+  /// image's model; otherwise they're read from DIR.
+  func macPlatform(_ dir: String, create model: VZMacHardwareModel?) throws -> VZMacPlatformConfiguration {
+    let d = URL(fileURLWithPath: dir)
+    let p = VZMacPlatformConfiguration()
+    if let model = model {
+      try model.dataRepresentation.write(to: d.appendingPathComponent("hardware-model"))
+      let id = VZMacMachineIdentifier()
+      try id.dataRepresentation.write(to: d.appendingPathComponent("machine-id"))
+      p.hardwareModel = model
+      p.machineIdentifier = id
+      p.auxiliaryStorage = try VZMacAuxiliaryStorage(
+        creatingStorageAt: d.appendingPathComponent("aux.img"), hardwareModel: model, options: [.allowOverwrite])
+    } else {
+      guard let model = VZMacHardwareModel(dataRepresentation: try Data(contentsOf: d.appendingPathComponent("hardware-model"))),
+        model.isSupported
+      else { throw fail("\(dir)/hardware-model is missing or not supported on this Mac") }
+      guard let id = VZMacMachineIdentifier(dataRepresentation: try Data(contentsOf: d.appendingPathComponent("machine-id")))
+      else { throw fail("\(dir)/machine-id is missing or invalid") }
+      p.hardwareModel = model
+      p.machineIdentifier = id
+      p.auxiliaryStorage = VZMacAuxiliaryStorage(url: d.appendingPathComponent("aux.img"))
+    }
+    return p
+  }
+
+  func macDisplay() -> VZMacGraphicsDeviceConfiguration {
+    let g = VZMacGraphicsDeviceConfiguration()
+    g.displays = [VZMacGraphicsDisplayConfiguration(widthInPixels: 1280, heightInPixels: 800, pixelsPerInch: 80)]
+    return g
+  }
+
+  /// Installs macOS from an .ipsw into DIR/disk.img (sparse, `gib` GiB).
+  final class Installer: NSObject {
+    var vm: VZVirtualMachine!
+    var installer: VZMacOSInstaller!
+    var watch: NSKeyValueObservation?
+
+    func run(ipsw: String, dir: String, gib: UInt64) {
+      VZMacOSRestoreImage.load(from: URL(fileURLWithPath: ipsw)) { result in
+        DispatchQueue.main.async {
+          do {
+            let image = try result.get()
+            guard let req = image.mostFeaturefulSupportedConfiguration, req.hardwareModel.isSupported
+            else { throw fail("this Mac can't run the macOS in \(ipsw)") }
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            let disk = URL(fileURLWithPath: dir).appendingPathComponent("disk.img")
+            FileManager.default.createFile(atPath: disk.path, contents: nil)
+            let h = try FileHandle(forWritingTo: disk)
+            try h.truncate(atOffset: gib << 30)
+            try h.close()
+            let c = VZVirtualMachineConfiguration()
+            c.platform = try macPlatform(dir, create: req.hardwareModel)
+            c.bootLoader = VZMacOSBootLoader()
+            c.cpuCount = max(req.minimumSupportedCPUCount, 2)
+            c.memorySize = max(req.minimumSupportedMemorySize, 4 << 30)
+            c.graphicsDevices = [macDisplay()]
+            c.storageDevices = [VZVirtioBlockDeviceConfiguration(
+              attachment: try VZDiskImageStorageDeviceAttachment(url: disk, readOnly: false))]
+            let n = VZVirtioNetworkDeviceConfiguration()
+            n.attachment = VZNATNetworkDeviceAttachment()
+            c.networkDevices = [n]
+            try c.validate()
+            self.vm = VZVirtualMachine(configuration: c)
+            self.installer = VZMacOSInstaller(virtualMachine: self.vm, restoringFromImageAt: URL(fileURLWithPath: ipsw))
+            var last = -1
+            self.watch = self.installer.progress.observe(\.fractionCompleted) { p, _ in
+              let pct = Int(p.fractionCompleted * 100)
+              if pct != last { last = pct; print("progress \(pct)") }
+            }
+            self.installer.install { r in
+              switch r {
+              case .success: print("installed"); exit(0)
+              case .failure(let e): die("install: \(e.localizedDescription)", 1)
+              }
+            }
+          } catch { die("install: \(error.localizedDescription)", 1) }
+        }
+      }
+    }
+  }
+#endif
+
+// MARK: provisioning a macOS disk before its first boot (root)
+
+@discardableResult
+func run(_ path: String, _ args: [String]) -> Data {
+  let p = Process()
+  p.executableURL = URL(fileURLWithPath: path)
+  p.arguments = args
+  let out = Pipe()
+  p.standardOutput = out
+  p.standardError = FileHandle.standardError
+  do { try p.run() } catch { die("\(path): \(error.localizedDescription)", 1) }
+  let data = out.fileHandleForReading.readDataToEndOfFile()
+  p.waitUntilExit()
+  if p.terminationStatus != 0 { die("\(path) \(args.joined(separator: " ")) exited \(p.terminationStatus)", 1) }
+  return data
+}
+
+func plist(_ d: Data) -> [String: Any] {
+  (try? PropertyListSerialization.propertyList(from: d, format: nil)) as? [String: Any] ?? [:]
+}
+
+/// The agent's LaunchDaemon: root, at boot, kept alive, listening on vsock 9002.
+let agentPlist = """
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+  <plist version="1.0"><dict>
+    <key>Label</key><string>gg.mirab.guest-agent</string>
+    <key>ProgramArguments</key><array>
+      <string>/usr/local/libexec/mirab-guest-agent</string><string>--vsock</string><string>9002</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardErrorPath</key><string>/var/log/mirab-guest-agent.log</string>
+  </dict></plist>
+
+  """
+
+func provision(dir: String, agent: String) {
+  if getuid() != 0 { die("macos-provision needs root (sudo), once per base image", 1) }
+  let disk = URL(fileURLWithPath: dir).appendingPathComponent("disk.img").path
+  guard FileManager.default.fileExists(atPath: disk) else { die("no \(disk) (run macos-install first)", 1) }
+  guard let agentBytes = FileManager.default.contents(atPath: agent) else { die("cannot read \(agent)", 1) }
+  let attached = plist(run("/usr/bin/hdiutil", ["attach", "-nomount", "-imagekey", "diskimage-class=CRawDiskImage", "-plist", disk]))
+  let entities = attached["system-entities"] as? [[String: Any]] ?? []
+  let devs = entities.compactMap { ($0["dev-entry"] as? String)?.replacingOccurrences(of: "/dev/", with: "") }
+  // The image's own disk carries the partition map; attaching also creates
+  // synthesized APFS container disks, which detach with it.
+  let partitioned = entities.first { ($0["content-hint"] as? String) == "GUID_partition_scheme" }
+  guard let whole = (partitioned?["dev-entry"] as? String)?.replacingOccurrences(of: "/dev/", with: "")
+    ?? devs.min(by: { $0.count < $1.count })
+  else { die("hdiutil attached nothing", 1) }
+  defer { run("/usr/bin/hdiutil", ["detach", "/dev/\(whole)"]) }
+  // The Data volume of the APFS container that lives on the attached image.
+  let containers = plist(run("/usr/sbin/diskutil", ["apfs", "list", "-plist"]))["Containers"] as? [[String: Any]] ?? []
+  var data: String?
+  for c in containers {
+    let stores = (c["PhysicalStores"] as? [[String: Any]] ?? []).compactMap { $0["DeviceIdentifier"] as? String }
+    guard stores.contains(where: { devs.contains($0) }) else { continue }
+    for v in c["Volumes"] as? [[String: Any]] ?? [] where (v["Roles"] as? [String] ?? []).contains("Data") {
+      data = v["DeviceIdentifier"] as? String
+    }
+  }
+  guard let volume = data else { die("no APFS Data volume on \(disk): is macOS installed there?", 1) }
+  let mount = "/private/var/tmp/mirab-macos-provision-\(getpid())"
+  try? FileManager.default.createDirectory(atPath: mount, withIntermediateDirectories: true)
+  run("/usr/sbin/diskutil", ["mount", "-mountPoint", mount, volume])
+  defer {
+    run("/usr/sbin/diskutil", ["unmount", mount])
+    try? FileManager.default.removeItem(atPath: mount)
+  }
+  run("/usr/sbin/diskutil", ["enableOwnership", mount])
+  let fm = FileManager.default
+  let root: [FileAttributeKey: Any] = [.ownerAccountID: 0, .groupOwnerAccountID: 0]
+  func dirs(_ path: String) {
+    do { try fm.createDirectory(atPath: mount + path, withIntermediateDirectories: true,
+                                attributes: root.merging([.posixPermissions: 0o755]) { $1 }) }
+    catch { die("mkdir \(path): \(error.localizedDescription)", 1) }
+  }
+  func file(_ path: String, _ bytes: Data, _ mode: Int) {
+    if !fm.createFile(atPath: mount + path, contents: bytes, attributes: root.merging([.posixPermissions: mode]) { $1 }) {
+      die("write \(path) failed", 1)
+    }
+  }
+  dirs("/private/var/db")
+  file("/private/var/db/.AppleSetupDone", Data(), 0o644)
+  dirs("/usr/local/libexec")
+  file("/usr/local/libexec/mirab-guest-agent", agentBytes, 0o755)
+  dirs("/Library/LaunchDaemons")
+  file("/Library/LaunchDaemons/gg.mirab.guest-agent.plist", agentPlist.data(using: .utf8)!, 0o644)
+  // A marker the unprivileged side can check, owned by whoever ran sudo.
+  let marker = URL(fileURLWithPath: dir).appendingPathComponent("provisioned").path
+  fm.createFile(atPath: marker, contents: "agent \(agentBytes.count) bytes\n".data(using: .utf8))
+  if let u = ProcessInfo.processInfo.environment["SUDO_UID"].flatMap(UInt32.init),
+     let g = ProcessInfo.processInfo.environment["SUDO_GID"].flatMap(UInt32.init) { chown(marker, u, g) }
+  print("provisioned \(volume): setup done, guest agent as gg.mirab.guest-agent on vsock 9002")
+}
+
 let args = Array(CommandLine.arguments.dropFirst())
 switch args.first {
 case "check":
@@ -305,6 +519,72 @@ case "clone":
   if clonefile(args[1], args[2], UInt32(CLONE_NOFOLLOW)) != 0 {
     die("clone \(args[1]): \(String(cString: strerror(errno)))", 1)
   }
+  exit(0)
+case "macos-restore-image":
+  #if arch(arm64)
+    let done: (Result<VZMacOSRestoreImage, Error>) -> Void = { result in
+      switch result {
+      case .success(let image):
+        let v = image.operatingSystemVersion
+        let version = v.patchVersion == 0 ? "\(v.majorVersion).\(v.minorVersion)" : "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+        let info: [String: Any] = [
+          "url": image.url.isFileURL ? image.url.path : image.url.absoluteString,
+          "version": version,
+          "build": image.buildVersion,
+          "supported": image.mostFeaturefulSupportedConfiguration?.hardwareModel.isSupported ?? false,
+        ]
+        let json = try! JSONSerialization.data(withJSONObject: info, options: [.sortedKeys])
+        print(String(data: json, encoding: .utf8)!)
+        exit(0)
+      case .failure(let e): die("restore image: \(e.localizedDescription)", 1)
+      }
+    }
+    if args.count == 3 && args[1] == "--ipsw" {
+      VZMacOSRestoreImage.load(from: URL(fileURLWithPath: args[2]), completionHandler: done)
+    } else if args.count == 1 {
+      VZMacOSRestoreImage.fetchLatestSupported(completionHandler: done)
+    } else {
+      die("usage: mirab-vz macos-restore-image [--ipsw P]")
+    }
+    dispatchMain()
+  #else
+    die("macOS guests need Apple silicon", 1)
+  #endif
+case "macos-install":
+  #if arch(arm64)
+    var ipsw = "", dir = "", gib: UInt64 = 64
+    var i = 1
+    while i < args.count {
+      let v = i + 1 < args.count ? args[i + 1] : ""
+      switch args[i] {
+      case "--ipsw": ipsw = v
+      case "--dir": dir = v
+      case "--disk-gib": gib = UInt64(v) ?? 0
+      default: die("unknown option \(args[i])")
+      }
+      i += 2
+    }
+    if ipsw.isEmpty || dir.isEmpty || gib < 32 { die("usage: mirab-vz macos-install --ipsw P --dir DIR [--disk-gib N >= 32]") }
+    let installer = Installer()
+    DispatchQueue.main.async { installer.run(ipsw: ipsw, dir: dir, gib: gib) }
+    withExtendedLifetime(installer) { dispatchMain() }
+  #else
+    die("macOS guests need Apple silicon", 1)
+  #endif
+case "macos-provision":
+  var dir = "", agent = ""
+  var j = 1
+  while j < args.count {
+    let v = j + 1 < args.count ? args[j + 1] : ""
+    switch args[j] {
+    case "--dir": dir = v
+    case "--agent": agent = v
+    default: die("unknown option \(args[j])")
+    }
+    j += 2
+  }
+  if dir.isEmpty || agent.isEmpty { die("usage: sudo mirab-vz macos-provision --dir DIR --agent PATH") }
+  provision(dir: dir, agent: agent)
   exit(0)
 case "run":
   let machine = Machine(parse(Array(args.dropFirst())))
@@ -325,5 +605,5 @@ case "run":
   DispatchQueue.main.async { machine.start() }
   withExtendedLifetime(sources) { dispatchMain() }
 default:
-  die("usage: mirab-vz check | clone <src> <dst> | run --kernel K --rootfs R --cmdline C --vsock SOCK --serial LOG [...]")
+  die("usage: mirab-vz check | clone <src> <dst> | run (--kernel K --cmdline C | --macos DIR) --rootfs R --vsock SOCK --serial LOG [...] | macos-restore-image [--ipsw P] | macos-install --ipsw P --dir DIR [--disk-gib N] | macos-provision --dir DIR --agent PATH")
 }

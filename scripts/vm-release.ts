@@ -7,6 +7,7 @@
 //                                                 (bzImage): one kernel, one rootfs
 //   bun scripts/vm-release.ts build arm64 <out>   darwin-arm64 (Image, arm64 rootfs)
 //   scripts/build-vz-helper.sh                    mirab-vz for each Mac (macOS)
+//   cargo build (guest-agent/, on Apple silicon)  mirab-guest-agent for macOS guests (darwin-arm64)
 //   gzip -n <out>/<platform>/*                    what is uploaded
 //   bun scripts/vm-release.ts manifest <vm dir>   <vm dir>/manifest.json from <vm dir>/<platform>/*.gz
 //

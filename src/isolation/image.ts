@@ -40,7 +40,7 @@ export const MIRAB_RELEASE: string = (() => {
   }
 })()
 
-/** Where the guest kernel, rootfs and (macOS) vz helper live, published or
+/** Where the guest kernel, rootfs, (macOS) vz helper and macOS guest agent live, published or
  *  built by `bun run vm:image`; `vm` uses them when isolation.json names no
  *  other files. */
 export function vmImagePaths(configDir: string) {
@@ -50,6 +50,8 @@ export function vmImagePaths(configDir: string) {
     kernel: join(dir, 'vmlinux'),
     rootfs: join(dir, 'rootfs.ext4'),
     vz: join(dir, 'mirab-vz'),
+    /** The guest agent macOS guests run (mirab image pull macos installs it). */
+    agent: join(dir, 'mirab-guest-agent-macos'),
     record: join(dir, 'image.json'),
   }
 }
@@ -58,10 +60,15 @@ export function vmImagePaths(configDir: string) {
 export const VM_PLATFORMS = {
   'linux-x64': { kernel: 'vmlinux', rootfs: 'rootfs.ext4' },
   'darwin-x64': { kernel: 'bzImage', rootfs: 'rootfs.ext4', vz: 'mirab-vz' },
-  'darwin-arm64': { kernel: 'Image', rootfs: 'rootfs.ext4', vz: 'mirab-vz' },
+  'darwin-arm64': {
+    kernel: 'Image',
+    rootfs: 'rootfs.ext4',
+    vz: 'mirab-vz',
+    agent: 'mirab-guest-agent',
+  },
 } as const
 export type VmPlatform = keyof typeof VM_PLATFORMS
-export type VmRole = 'kernel' | 'rootfs' | 'vz'
+export type VmRole = 'kernel' | 'rootfs' | 'vz' | 'agent'
 
 export const vmPlatform = (
   platform: string = process.platform,
@@ -93,7 +100,12 @@ export const vmManifestSchema = z.object({
       .object({ kernel: entry, rootfs: entry, vz: entry })
       .optional(),
     'darwin-arm64': z
-      .object({ kernel: entry, rootfs: entry, vz: entry })
+      .object({
+        kernel: entry,
+        rootfs: entry,
+        vz: entry,
+        agent: entry.optional(),
+      })
       .optional(),
   }),
 })
@@ -131,6 +143,12 @@ function readRecord(configDir: string): ImageRecord | 'local' | undefined {
 
 const rolesOf = (platform: VmPlatform) =>
   Object.keys(VM_PLATFORMS[platform]) as VmRole[]
+/** Roles a release may lack: releases before macOS guests have no agent,
+ *  and their image still runs Linux VMs (`mirab image pull macos` says why it
+ *  can't go on). */
+const OPTIONAL_ROLES: VmRole[] = ['agent']
+const requiredRoles = (platform: VmPlatform) =>
+  rolesOf(platform).filter((r) => !OPTIONAL_ROLES.includes(r))
 
 /** The published image for this CLI version and platform is installed and intact (cheap: sizes). */
 export function releaseImageInstalled(
@@ -147,7 +165,7 @@ export function releaseImageInstalled(
   )
     return false
   const paths = vmImagePaths(configDir)
-  return rolesOf(platform).every((role) => {
+  return requiredRoles(platform).every((role) => {
     try {
       return statSync(paths[role]).size === record.files[role]?.size
     } catch {
@@ -224,12 +242,12 @@ export async function ensureVmImage(
     )
   const files = manifest.platforms[platform] as
     Partial<Record<VmRole, VmFileEntry>> | undefined
-  const roles = rolesOf(platform)
-  if (!files || roles.some((r) => !files[r]))
+  if (!files || requiredRoles(platform).some((r) => !files[r]))
     throw new VmImageError(
       `the VM image manifest ${url} has no complete ${platform} image`,
     )
 
+  const roles = rolesOf(platform).filter((r) => files[r])
   const paths = vmImagePaths(o.configDir)
   await mkdir(paths.dir, { recursive: true, mode: 0o700 })
   const stage = await mkdtemp(join(paths.dir, '.download-'))
@@ -247,7 +265,10 @@ export async function ensureVmImage(
         log,
       )
     for (const role of roles) {
-      await chmod(join(stage, role), role === 'vz' ? 0o755 : 0o644)
+      await chmod(
+        join(stage, role),
+        role === 'vz' || role === 'agent' ? 0o755 : 0o644,
+      )
       await rename(join(stage, role), paths[role])
     }
     const record: ImageRecord = {

@@ -32,10 +32,16 @@ export function versionMatches(spec: string, version: string): boolean {
   return version === spec || version.startsWith(spec + '.')
 }
 
-const nodeArch = (p: RunnerPlatform) => (p === 'linux-arm64' ? 'arm64' : 'x64')
-const goArch = (p: RunnerPlatform) => (p === 'linux-arm64' ? 'arm64' : 'amd64')
+const arm = (p: RunnerPlatform) => p.endsWith('-arm64')
+const os = (p: RunnerPlatform) => (p.startsWith('darwin-') ? 'darwin' : 'linux')
+const nodeArch = (p: RunnerPlatform) => (arm(p) ? 'arm64' : 'x64')
+const goArch = (p: RunnerPlatform) => (arm(p) ? 'arm64' : 'amd64')
 const rustTriple = (p: RunnerPlatform) =>
-  p === 'linux-arm64' ? 'aarch64-unknown-linux-gnu' : 'x86_64-unknown-linux-gnu'
+  p === 'darwin-arm64'
+    ? 'aarch64-apple-darwin'
+    : arm(p)
+      ? 'aarch64-unknown-linux-gnu'
+      : 'x86_64-unknown-linux-gnu'
 /** The tool cache's arch directory (setup-node and setup-go use these). */
 export const cacheArch = nodeArch
 
@@ -52,7 +58,7 @@ export async function resolveNode(
   )
   if (!hit) throw new Error(`node ${spec}: no such release`)
   const version = hit.version.replace(/^v/, '')
-  const file = `node-v${version}-linux-${nodeArch(platform)}.tar.xz`
+  const file = `node-v${version}-${os(platform)}-${nodeArch(platform)}.tar.xz`
   const sums = await get(`https://nodejs.org/dist/v${version}/SHASUMS256.txt`)
   const sha256 = sums
     .split('\n')
@@ -93,10 +99,14 @@ export async function resolveGo(
   if (!hit) throw new Error(`go ${spec}: no such stable release`)
   const file = hit.files.find(
     (f) =>
-      f.os === 'linux' && f.arch === goArch(platform) && f.kind === 'archive',
+      f.os === os(platform) &&
+      f.arch === goArch(platform) &&
+      f.kind === 'archive',
   )
   if (!file || !SHA256.test(file.sha256))
-    throw new Error(`go ${hit.version}: no linux-${goArch(platform)} archive`)
+    throw new Error(
+      `go ${hit.version}: no ${os(platform)}-${goArch(platform)} archive`,
+    )
   return {
     tool: 'go',
     version: hit.version.replace(/^go/, ''),
@@ -140,9 +150,10 @@ export async function resolveTools(
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
-/** Download to the root disk (not tmpfs /tmp) and check the checksum first. */
-const fetchChecked = (t: ResolvedTool, to: string) =>
-  `curl -fsSL -o ${q(to)} ${q(t.url)} && echo ${q(`${t.sha256}  ${to}`)} | sha256sum -c -`
+/** Download to the root disk (not tmpfs /tmp) and check the checksum first.
+ *  macOS checks with shasum; it may not have sha256sum. */
+const fetchChecked = (t: ResolvedTool, to: string, platform: RunnerPlatform) =>
+  `curl -fsSL -o ${q(to)} ${q(t.url)} && echo ${q(`${t.sha256}  ${to}`)} | ${os(platform) === 'darwin' ? 'shasum -a 256 -c -' : 'sha256sum -c -'}`
 
 /** The build steps (root, in the build VM) for the resolved toolsets. */
 export function toolSteps(
@@ -158,7 +169,7 @@ export function toolSteps(
           '-euc',
           [
             `mkdir -p ${RUST_HOME}/dl`,
-            fetchChecked(t, `${RUST_HOME}/dl/rustup-init`),
+            fetchChecked(t, `${RUST_HOME}/dl/rustup-init`, platform),
             `chmod 755 ${RUST_HOME}/dl/rustup-init`,
             `RUSTUP_HOME=${RUST_HOME}/rustup CARGO_HOME=${RUST_HOME}/cargo ${RUST_HOME}/dl/rustup-init -y --no-modify-path --profile minimal --default-toolchain ${q(t.version)} -c clippy -c rustfmt`,
             `rm -rf ${RUST_HOME}/dl`,
@@ -173,7 +184,7 @@ export function toolSteps(
         '-euc',
         [
           `mkdir -p ${q(dir)}`,
-          fetchChecked(t, archive),
+          fetchChecked(t, archive, platform),
           `tar -xf ${q(archive)} -C ${q(dir)} --strip-components=1`,
           `rm -f ${q(archive)}`,
           `touch ${q(`${dir}.complete`)}`,

@@ -43,8 +43,13 @@ export interface VzConfig {
   /** Guest kernel with virtio-pci built in: the uncompressed arm64 `Image` on
    *  Apple silicon, a relocatable x86_64 `bzImage` on Intel Macs. */
   kernel: string
-  /** Base ext4 image; each VM boots an APFS clone of it. */
+  /** Base ext4 image; each VM boots an APFS clone of it. For a macOS guest,
+   *  the base macOS disk (`<macos>/disk.img`). */
   rootfs: string
+  /** A macOS guest (Apple silicon): the base directory `mirab-vz
+   *  macos-install` wrote (hardware-model, machine-id, aux.img, disk.img),
+   *  provisioned with the guest agent. `kernel` is unused then. */
+  macos?: string
   memoryMiB: number
   vcpus: number
   /** Guest vsock port the agent listens on. */
@@ -179,7 +184,10 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** The helper's `run` arguments; `share` null = no virtio-fs device at all. */
 export function vzRunArgs(o: {
-  cfg: Pick<VzConfig, 'kernel' | 'vcpus' | 'memoryMiB'>
+  cfg: Pick<VzConfig, 'kernel' | 'vcpus' | 'memoryMiB'> & {
+    /** This VM's own copy of the macOS platform files (see startVz). */
+    macos?: string
+  }
   root: string
   uds: string
   vmDir: string
@@ -188,14 +196,19 @@ export function vzRunArgs(o: {
   listen: number[]
   now?: Date
 }): string[] {
+  const boot = o.cfg.macos
+    ? ['--macos', o.cfg.macos]
+    : [
+        '--kernel',
+        o.cfg.kernel,
+        '--cmdline',
+        kernelCommandLine(o.net, o.now ?? new Date()),
+      ]
   return [
     'run',
-    '--kernel',
-    o.cfg.kernel,
+    ...boot,
     '--rootfs',
     o.root,
-    '--cmdline',
-    kernelCommandLine(o.net, o.now ?? new Date()),
     '--cpus',
     String(o.cfg.vcpus),
     '--memory',
@@ -250,12 +263,19 @@ export async function startVz(
   try {
     cloneTree(cfg.helper, cfg.rootfs, root)
     chmodSync(root, 0o600) // the base is usually read-only; its clone is this VM's disk
-    if (opts.rootGiB) await growDisk(root, opts.rootGiB)
+    // A macOS guest's NVRAM is written while it runs: each VM gets its own copy.
+    const macos = cfg.macos ? join(vmDir, 'macos') : undefined
+    if (cfg.macos && macos) {
+      await mkdir(macos, { mode: 0o700 })
+      for (const f of ['hardware-model', 'machine-id', 'aux.img'])
+        cloneTree(cfg.helper, join(cfg.macos, f), join(macos, f))
+      chmodSync(join(macos, 'aux.img'), 0o600)
+    } else if (opts.rootGiB) await growDisk(root, opts.rootGiB)
     // No work directory (a CI runner): no share, so nothing of the host's is inside.
     if (work !== null) cloneTree(cfg.helper, work, share)
     const timings: BootTimings = { imageMs: Date.now() - t0, bootToAgentMs: 0 }
     const args = vzRunArgs({
-      cfg,
+      cfg: { ...cfg, macos },
       root,
       uds,
       vmDir,
@@ -285,11 +305,12 @@ export async function startVz(
             `mirab-vz exited: ${stderr.trim()} ${serial.slice(-400)}`.trim(),
           )
         }
-        if (Date.now() - t1 > 20_000)
+        // A Linux microVM answers in about a second; macOS takes a minute or so.
+        if (Date.now() - t1 > (cfg.macos ? 180_000 : 20_000))
           throw new Error(
             'microVM agent did not come up: ' + (e as Error).message,
           )
-        await wait(5)
+        await wait(cfg.macos ? 500 : 5)
       }
     }
     timings.bootToAgentMs = Date.now() - t1

@@ -55,7 +55,9 @@ export declare function hostLabel(name?: string): string;
 export declare function redact(line: string, secrets: Iterable<string>): string;
 /** The env every job step gets: base, then the image's toolsets, then the
  *  forge's job env, then the step's own (later wins). PATH is composed. */
-export declare function jobEnv(def: RunnerDefinition, image: Pick<RunnerImage['meta'], 'env' | 'path'>, job: Record<string, string>, step?: Record<string, string>): Record<string, string>;
+export declare function jobEnv(def: RunnerDefinition, image: Pick<RunnerImage['meta'], 'env' | 'path'> & {
+    platform?: RunnerPlatform;
+}, job: Record<string, string>, step?: Record<string, string>): Record<string, string>;
 /** Lines longer than this are cut (host side, by guestExec's cutLines). */
 export declare const STEP_LINE_CHARS = 4000;
 /** The argv mirab really execs for a step: as the runner user unless asRoot.
@@ -63,7 +65,7 @@ export declare const STEP_LINE_CHARS = 4000;
  *  its output back (cut, and mawk without -W interactive, buffer off a
  *  terminal), and a job's "started" line must arrive while it runs, or an
  *  on-demand VM's idle timer ends the job. Long lines are cut on the host. */
-export declare function stepArgv(step: RunnerStep): string[];
+export declare function stepArgv(step: RunnerStep, platform?: RunnerPlatform): string[];
 /** Refuses a host that can't run these definitions safely. */
 export declare function admission(defs: RunnerDefinition[], o: {
     configDir: string;

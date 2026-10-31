@@ -23,8 +23,8 @@ import { networkState } from '../isolation/network'
 import type { Isolation } from '../isolation/session'
 import { vzNetworkState } from '../isolation/vz'
 import {
-  RUNNER_SETPRIV,
-  RUNNER_USER,
+  dropToRunner,
+  runnerUser,
   hostRunnerPlatform,
   platformLabel,
   type RunnerDefinition,
@@ -114,7 +114,11 @@ export function startRunnerVm(
   vmDir: string,
   log: (line: string) => void,
 ): Promise<Isolation> {
-  return startVm(vm, null, vmDir, log, undefined, { listen: [] })
+  // vm.macos here is this job's macOS image (serve sets it per image).
+  return startVm(vm, null, vmDir, log, undefined, {
+    listen: [],
+    macos: vm.macos,
+  })
 }
 
 /** A host name usable in a registration name. */
@@ -141,18 +145,22 @@ export function redact(line: string, secrets: Iterable<string>): string {
  *  forge's job env, then the step's own (later wins). PATH is composed. */
 export function jobEnv(
   def: RunnerDefinition,
-  image: Pick<RunnerImage['meta'], 'env' | 'path'>,
+  image: Pick<RunnerImage['meta'], 'env' | 'path'> & {
+    platform?: RunnerPlatform
+  },
   job: Record<string, string>,
   step: Record<string, string> = {},
 ): Record<string, string> {
-  const home = RUNNER_USER.home
+  const platform = image.platform ?? 'linux-x64'
+  const user = runnerUser(platform)
+  const home = user.home
   const basePath =
     '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
   return {
     HOME: home,
-    USER: RUNNER_USER.name,
-    LOGNAME: RUNNER_USER.name,
-    LANG: 'C.UTF-8',
+    USER: user.name,
+    LOGNAME: user.name,
+    LANG: platform.startsWith('darwin-') ? 'en_US.UTF-8' : 'C.UTF-8',
     // /tmp is a RAM disk in the guest; temp files go on the job's disk.
     TMPDIR: `${home}/tmp`,
     CARGO_BUILD_JOBS: String(def.vm.vcpus),
@@ -171,8 +179,11 @@ export const STEP_LINE_CHARS = 4000
  *  its output back (cut, and mawk without -W interactive, buffer off a
  *  terminal), and a job's "started" line must arrive while it runs, or an
  *  on-demand VM's idle timer ends the job. Long lines are cut on the host. */
-export function stepArgv(step: RunnerStep): string[] {
-  return step.asRoot ? step.argv : [...RUNNER_SETPRIV, ...step.argv]
+export function stepArgv(
+  step: RunnerStep,
+  platform: RunnerPlatform = 'linux-x64',
+): string[] {
+  return step.asRoot ? step.argv : [...dropToRunner(platform), ...step.argv]
 }
 
 /** Refuses a host that can't run these definitions safely. */
@@ -422,6 +433,8 @@ async function serveOne(def: RunnerDefinition, ctx: ServeContext) {
         {
           ...o.vm,
           rootfs: image.rootfs,
+          // A macOS image boots macOS; any other boots the host's Linux guest.
+          macos: image.macos,
           vcpus: def.vm.vcpus,
           memoryMiB: def.vm.memoryMiB,
           egress: 'allow',
@@ -437,7 +450,7 @@ async function serveOne(def: RunnerDefinition, ctx: ServeContext) {
       })
       ticketed = true
       for (const v of Object.values(ticket.secret)) secrets.add(v)
-      const job = def.forge.guest.job(ticket)
+      const job = def.forge.guest.job(ticket, recipe.platform)
       for (const f of job.files) {
         if (f.secret) secrets.add(f.content)
         await iso.put(f.path, f.content, f.mode)
@@ -540,8 +553,8 @@ async function runJob(
   try {
     for (const step of job.steps) {
       if (ctl.signal.aborted) break
-      const code = await iso.exec(stepArgv(step), {
-        cwd: step.asRoot ? '/' : RUNNER_USER.home,
+      const code = await iso.exec(stepArgv(step, image.meta.platform), {
+        cwd: step.asRoot ? '/' : runnerUser(image.meta.platform).home,
         env: jobEnv(def, image.meta, job.env, step.env),
         cutLines: STEP_LINE_CHARS,
         // A backstop: the timers above end it first.

@@ -34,6 +34,7 @@ export declare const hostConfigSchema: (configDir: string) => z.ZodObject<{
             auto: "auto";
             block: "block";
         }>>;
+        macos: z.ZodOptional<z.ZodString>;
     }, z.core.$strict>>;
     container: z.ZodOptional<z.ZodObject<{
         engine: z.ZodDefault<z.ZodString>;

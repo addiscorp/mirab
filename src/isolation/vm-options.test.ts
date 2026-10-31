@@ -55,3 +55,23 @@ test('a root disk grows sparse to the size asked, and never shrinks', async () =
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('vz: a macOS guest boots from its platform files, with no kernel or command line', () => {
+  const mac = vzRunArgs({
+    cfg: { ...cfg, macos: '/d/macos' },
+    root: '/r',
+    uds: '/u',
+    vmDir: '/d',
+    share: null,
+    net: 'nat',
+    listen: [],
+  })
+  expect(mac.slice(0, 3)).toEqual(['run', '--macos', '/d/macos'])
+  expect(mac).not.toContain('--kernel')
+  expect(mac).not.toContain('--cmdline')
+  expect(mac[mac.indexOf('--rootfs') + 1]).toBe('/r')
+  // Linux keeps its kernel and command line.
+  const linux = args(null, [])
+  expect(linux).toContain('--kernel')
+  expect(linux).not.toContain('--macos')
+})

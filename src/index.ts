@@ -5,9 +5,13 @@ export { loadManifest, manifestSchema, parseManifest } from './agent/manifest'
 export type { Manifest } from './agent/manifest'
 export {
   defineRunner,
+  dropToRunner,
+  isDarwin,
   RUNNER_PLATFORMS,
   RUNNER_SETPRIV,
   RUNNER_USER,
+  runnerUser,
+  secretDir,
   TOOLSETS,
 } from './runner/define'
 export type {

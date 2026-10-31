@@ -11,10 +11,12 @@ import {
   ensureVmImage,
   MIRAB_RELEASE,
   MIRAB_VERSION,
+  releaseImageInstalled,
   VM_PLATFORMS,
   vmImagePaths,
   vmPlatform,
   type VmPlatform,
+  type VmRole,
 } from './image'
 import {
   assertCanIsolate,
@@ -91,6 +93,59 @@ beforeAll(async () => {
 afterAll(() => server.stop(true))
 
 describe('published VM image', () => {
+  test('a release from before macOS guests (no darwin-arm64 agent) still installs and runs Linux VMs', async () => {
+    const tag = `${MIRAB_RELEASE}-noagent`
+    const dir = join(root, 'bucket', tag)
+    const arm = VM_PLATFORMS['darwin-arm64'] as Record<string, string>
+    await mkdir(join(dir, 'darwin-arm64'), { recursive: true })
+    const bytes = (role: string) =>
+      Buffer.from(`${role} arm bytes `.repeat(1000))
+    for (const [role, name] of Object.entries(arm))
+      await writeFile(
+        join(dir, 'darwin-arm64', `${name}.gz`),
+        gzipSync(bytes(role)),
+      )
+    await writeVmManifest(dir, { version: tag, commit: 'old' })
+    // What 0.2.0 published: the same image, without the agent.
+    const manifest = JSON.parse(
+      await readFile(join(dir, 'manifest.json'), 'utf8'),
+    )
+    delete manifest.platforms['darwin-arm64'].agent
+    const files = new Map<string, Buffer>([
+      ['vm/manifest.json', Buffer.from(JSON.stringify(manifest))],
+    ])
+    for (const [role, name] of Object.entries(arm))
+      if (role !== 'agent')
+        files.set(
+          `vm/darwin-arm64/${name}.gz`,
+          await readFile(join(dir, 'darwin-arm64', `${name}.gz`)),
+        )
+    releases.set(tag, files)
+    const config = await configDir()
+    expect(
+      await ensureVmImage({
+        configDir: config,
+        base,
+        platform: 'darwin-arm64',
+        version: tag,
+      }),
+    ).toBe('downloaded')
+    expect(releaseImageInstalled(config, tag, 'darwin-arm64')).toBe(true)
+    expect(existsSync(vmImagePaths(config).agent)).toBe(false)
+    expect((await readFile(vmImagePaths(config).vz)).equals(bytes('vz'))).toBe(
+      true,
+    )
+    // Installed: the next use stays offline.
+    expect(
+      await ensureVmImage({
+        configDir: config,
+        base: offline,
+        platform: 'darwin-arm64',
+        version: tag,
+      }),
+    ).toBe('installed')
+  })
+
   test('first use downloads, verifies and installs it; later uses stay offline', async () => {
     await publish(MIRAB_RELEASE)
     const dir = await configDir()
@@ -107,9 +162,7 @@ describe('published VM image', () => {
     const paths = vmImagePaths(dir)
     for (const role of Object.keys(roles))
       expect(
-        (await readFile(paths[role as 'kernel' | 'rootfs' | 'vz'])).equals(
-          contents[role]!,
-        ),
+        (await readFile(paths[role as VmRole])).equals(contents[role]!),
       ).toBe(true)
     expect(requests[0]).toBe(`${MIRAB_RELEASE}/vm/manifest.json`)
     expect(lines.join('\n')).toMatch(/downloading the VM image .*%/s)

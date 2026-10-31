@@ -79,6 +79,9 @@ export const hostConfigSchema = (configDir: string) =>
         memoryMiB: z.number().int().min(128).default(1024),
         vcpus: z.number().int().min(1).default(2),
         egress: z.enum(['auto', 'block', 'allow']).default('auto'),
+        /** macOS guests (Apple silicon): a provisioned base directory;
+         *  by default the newest one `mirab image pull macos` made. */
+        macos: z.string().optional(),
       })
       .optional(),
     container: z
@@ -127,16 +130,29 @@ export function startVm(
   platform: NodeJS.Platform = process.platform,
   opts: VmStartOptions = {},
 ): Promise<Isolation> {
+  // `vm.macos` names where the host's macOS base is; a VM boots macOS only
+  // when its caller asks for it (opts.macos).
+  const { macos: _base, ...linux } = vm
   if (vmBackend(platform) === 'vz')
     return startVz(
-      { ...vm, helper: vm.vz, port: 9002 },
+      opts.macos
+        ? {
+            ...linux,
+            helper: vm.vz,
+            port: 9002,
+            macos: opts.macos,
+            rootfs: join(opts.macos, 'disk.img'),
+          }
+        : { ...linux, helper: vm.vz, port: 9002 },
       work,
       vmDir,
       log,
       undefined,
       opts,
     )
-  const cfg: FirecrackerConfig = { ...vm, port: 9002 }
+  if (opts.macos)
+    throw new Error('macOS guests need a Mac with Apple silicon (vz)')
+  const cfg: FirecrackerConfig = { ...linux, port: 9002 }
   return startFirecracker(cfg, work, vmDir, log, opts)
 }
 

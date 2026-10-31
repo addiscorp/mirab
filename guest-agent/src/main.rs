@@ -469,15 +469,37 @@ fn run_pty(
     let _ = send(&w, &Reply::Exit { code, timed_out: false });
 }
 
-#[cfg(not(target_os = "linux"))]
+/// vsock addresses, per guest OS: Linux's `struct sockaddr_vm`, or Darwin's
+/// (<sys/vsock.h>: a length byte, a one-byte family, packed).
+#[cfg(target_os = "linux")]
+mod vm {
+    #[repr(C)]
+    pub struct SockaddrVm { family: u16, reserved: u16, port: u32, cid: u32, flags: u8, zero: [u8; 3] }
+    pub const AF_VSOCK: libc::c_int = libc::AF_VSOCK;
+    pub const CID_ANY: u32 = libc::VMADDR_CID_ANY;
+    pub fn addr(port: u32, cid: u32) -> SockaddrVm {
+        SockaddrVm { family: AF_VSOCK as u16, reserved: 0, port, cid, flags: 0, zero: [0; 3] }
+    }
+}
+#[cfg(target_os = "macos")]
+mod vm {
+    #[repr(C, packed)]
+    pub struct SockaddrVm { len: u8, family: u8, reserved: u16, port: u32, cid: u32 }
+    /// <sys/socket.h> AF_VSOCK; the libc crate doesn't name it for Apple targets.
+    pub const AF_VSOCK: libc::c_int = 40;
+    pub const CID_ANY: u32 = u32::MAX;
+    pub fn addr(port: u32, cid: u32) -> SockaddrVm {
+        SockaddrVm { len: std::mem::size_of::<SockaddrVm>() as u8, family: AF_VSOCK as u8, reserved: 0, port, cid }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn hook(_args: &[String]) {}
 
 /// `mirab-guest-agent hook --session ID [--agent A] [json]`: the hook command inside the guest.
 /// Forwards the payload to the host over vsock (CID 2, port 9100); never fails the agent.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn hook(args: &[String]) {
-    #[repr(C)]
-    struct SockaddrVm { family: u16, reserved: u16, port: u32, cid: u32, flags: u8, zero: [u8; 3] }
     let get = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
     let raw = match args.last() {
         Some(l) if l.starts_with('{') => l.clone(),
@@ -489,12 +511,12 @@ fn hook(args: &[String]) {
     };
     let msg = serde_json::json!({"op":"hook","session":get("--session"),"agent":get("--agent").unwrap_or_else(|| "claude".into()),"raw":raw});
     unsafe {
-        let fd = libc::socket(libc::AF_VSOCK, libc::SOCK_STREAM, 0);
+        let fd = libc::socket(vm::AF_VSOCK, libc::SOCK_STREAM, 0);
         if fd < 0 { return }
         let tv = libc::timeval { tv_sec: 1, tv_usec: 0 };
         libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_SNDTIMEO, &tv as *const _ as *const _, std::mem::size_of::<libc::timeval>() as u32);
-        let addr = SockaddrVm { family: libc::AF_VSOCK as u16, reserved: 0, port: 9100, cid: 2, flags: 0, zero: [0; 3] };
-        if libc::connect(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<SockaddrVm>() as u32) == 0 {
+        let addr = vm::addr(9100, 2);
+        if libc::connect(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<vm::SockaddrVm>() as u32) == 0 {
             use std::os::fd::FromRawFd;
             let mut f = std::fs::File::from_raw_fd(fd);
             let body = serde_json::to_vec(&msg).unwrap_or_default();
@@ -540,22 +562,20 @@ fn shutdown_write(file: &std::fs::File) {
     unsafe { libc::shutdown(file.as_raw_fd(), libc::SHUT_WR); }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn vsock_connect_host(_port: u32) -> std::io::Result<std::fs::File> {
-    Err(std::io::Error::other("vsock is only available inside a Linux guest"))
+    Err(std::io::Error::other("vsock is only available inside a Linux or macOS guest"))
 }
 
 /// Connects to the host (CID 2) on `port`.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn vsock_connect_host(port: u32) -> std::io::Result<std::fs::File> {
-    #[repr(C)]
-    struct SockaddrVm { family: u16, reserved: u16, port: u32, cid: u32, flags: u8, zero: [u8; 3] }
     use std::os::fd::FromRawFd;
     unsafe {
-        let fd = libc::socket(libc::AF_VSOCK, libc::SOCK_STREAM, 0);
+        let fd = libc::socket(vm::AF_VSOCK, libc::SOCK_STREAM, 0);
         if fd < 0 { return Err(std::io::Error::last_os_error()) }
-        let addr = SockaddrVm { family: libc::AF_VSOCK as u16, reserved: 0, port, cid: 2, flags: 0, zero: [0; 3] };
-        if libc::connect(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<SockaddrVm>() as u32) < 0 {
+        let addr = vm::addr(port, 2);
+        if libc::connect(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<vm::SockaddrVm>() as u32) < 0 {
             let e = std::io::Error::last_os_error();
             libc::close(fd);
             return Err(e);
@@ -564,20 +584,18 @@ fn vsock_connect_host(port: u32) -> std::io::Result<std::fs::File> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn vsock_listen(_port: u32) -> std::io::Result<i32> {
-    Err(std::io::Error::other("vsock is only available inside a Linux guest"))
+    Err(std::io::Error::other("vsock is only available inside a Linux or macOS guest"))
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn vsock_listen(port: u32) -> std::io::Result<i32> {
-    #[repr(C)]
-    struct SockaddrVm { family: u16, reserved: u16, port: u32, cid: u32, flags: u8, zero: [u8; 3] }
     unsafe {
-        let fd = libc::socket(libc::AF_VSOCK, libc::SOCK_STREAM, 0);
+        let fd = libc::socket(vm::AF_VSOCK, libc::SOCK_STREAM, 0);
         if fd < 0 { return Err(std::io::Error::last_os_error()) }
-        let addr = SockaddrVm { family: libc::AF_VSOCK as u16, reserved: 0, port, cid: libc::VMADDR_CID_ANY, flags: 0, zero: [0; 3] };
-        if libc::bind(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<SockaddrVm>() as u32) < 0
+        let addr = vm::addr(port, vm::CID_ANY);
+        if libc::bind(fd, &addr as *const _ as *const libc::sockaddr, std::mem::size_of::<vm::SockaddrVm>() as u32) < 0
             || libc::listen(fd, 16) < 0
         {
             return Err(std::io::Error::last_os_error());
@@ -653,6 +671,18 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn darwin_vsock_address_matches_sys_vsock_h() {
+        // struct sockaddr_vm { u8 svm_len; u8 svm_family; u16 reserved; u32 port; u32 cid } packed: 12 bytes.
+        let a = super::vm::addr(9002, 2);
+        let b: [u8; 12] = unsafe { std::mem::transmute(a) };
+        assert_eq!(b[0], 12, "svm_len");
+        assert_eq!(b[1], 40, "AF_VSOCK");
+        assert_eq!(u32::from_ne_bytes(b[4..8].try_into().unwrap()), 9002, "port");
+        assert_eq!(u32::from_ne_bytes(b[8..12].try_into().unwrap()), 2, "cid");
+    }
 
     #[test]
     fn ping_reply_carries_the_shared_protocol_number() {

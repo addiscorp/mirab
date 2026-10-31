@@ -119,3 +119,31 @@ test('install steps check the checksum before unpacking, in the tool-cache layou
   expect(env.RUNNER_TOOL_CACHE).toBe('/opt/hostedtoolcache')
   expect(path).toEqual(['/opt/hostedtoolcache/node/24.21.1/arm64/bin'])
 })
+
+test('macOS: node, rust and go resolve their darwin downloads, checked with shasum', async () => {
+  const get = fake({
+    'https://nodejs.org/dist/index.json': JSON.stringify([
+      { version: 'v24.21.1' },
+    ]),
+    'https://nodejs.org/dist/v24.21.1/SHASUMS256.txt': `${B}  node-v24.21.1-linux-arm64.tar.xz\n${A}  node-v24.21.1-darwin-arm64.tar.xz\n`,
+    'https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init.sha256': `${A}  rustup-init\n`,
+  })
+  const node = await resolveNode('24', 'darwin-arm64', get)
+  expect(node.url).toBe(
+    'https://nodejs.org/dist/v24.21.1/node-v24.21.1-darwin-arm64.tar.xz',
+  )
+  expect(node.sha256).toBe(A)
+  const rust = await resolveRust('1.99.1', 'darwin-arm64', get)
+  expect(rust.url).toBe(
+    'https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init',
+  )
+  const steps = toolSteps([node, rust], 'darwin-arm64').map((s) =>
+    s.argv.join(' '),
+  )
+  expect(steps.every((s) => s.includes('shasum -a 256 -c -'))).toBe(true)
+  expect(steps.some((s) => s.includes('sha256sum'))).toBe(false)
+  // Linux keeps sha256sum.
+  expect(toolSteps([node], 'linux-arm64')[0]!.argv.join(' ')).toContain(
+    'sha256sum -c -',
+  )
+})

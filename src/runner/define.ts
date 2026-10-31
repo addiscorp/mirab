@@ -5,15 +5,22 @@
 import { z } from 'zod'
 
 /** The guests a runner can run. */
-export const RUNNER_PLATFORMS = ['linux-x64', 'linux-arm64'] as const
+export const RUNNER_PLATFORMS = [
+  'linux-x64',
+  'linux-arm64',
+  'darwin-arm64',
+] as const
 export type RunnerPlatform = (typeof RUNNER_PLATFORMS)[number]
+
+export const isDarwin = (p: RunnerPlatform) => p.startsWith('darwin-')
 
 /** Every runner carries `mirab-<os>-<arch>` (e.g. `mirab-linux-arm64`), so a
  *  job asks for a fresh VM of a platform with one label. */
 export const platformLabel = (platform: RunnerPlatform) => `mirab-${platform}`
 
 /** One command in the VM. Steps run as the unprivileged `runner` user unless
- *  `asRoot` (then the step is responsible for dropping to it, with RUNNER_SETPRIV). */
+ *  `asRoot` (then the step is responsible for dropping to it, with
+ *  `dropToRunner(platform)`). */
 export interface RunnerStep {
   argv: string[]
   env?: Record<string, string>
@@ -21,7 +28,7 @@ export interface RunnerStep {
 }
 
 /** A file put into the VM before the job's steps. `secret` files are never
- *  logged; they should live on tmpfs (/run) and be removed once read. */
+ *  logged; they should live in `secretDir(platform)` and be removed once read. */
 export interface RunnerFile {
   path: string
   mode: number
@@ -57,7 +64,10 @@ export interface Forge {
     buildEgress: string[]
     /** One job: files put first, then the steps in order; the last one is
      *  the runner, which takes one job and exits. */
-    job(ticket: RunnerTicket): {
+    job(
+      ticket: RunnerTicket,
+      platform: RunnerPlatform,
+    ): {
       files: RunnerFile[]
       steps: RunnerStep[]
       env: Record<string, string>
@@ -104,6 +114,9 @@ export const runnerSchema = z.strictObject({
       'name is [a-z0-9-], up to 40 characters, no leading or trailing -',
     ),
   forge: forgeSchema,
+  /** The guest: the host's Linux by default; `darwin-arm64` boots macOS
+   *  (Apple silicon hosts, a provisioned macOS base: `vm.macos`). */
+  platform: z.enum(RUNNER_PLATFORMS).optional(),
   /** Extra labels, after `platformLabel`'s, passed to the adapter as they are. */
   labels: z.array(z.string().regex(LABEL)).max(32).default([]),
   image: z
@@ -185,7 +198,11 @@ export function defineRunner(input: RunnerInput): RunnerDefinition {
 /** The unprivileged user every job step runs as (created in the runner image). */
 export const RUNNER_USER = { name: 'runner', uid: 1001, home: '/home/runner' }
 
-/** Prefix that drops a root command to the runner user, keeping its env. */
+/** The runner user on a platform: macOS keeps homes under /Users. */
+export const runnerUser = (p: RunnerPlatform) =>
+  isDarwin(p) ? { ...RUNNER_USER, home: '/Users/runner' } : RUNNER_USER
+
+/** Prefix that drops a root command to the runner user, keeping its env (Linux). */
 export const RUNNER_SETPRIV = [
   'setpriv',
   `--reuid=${RUNNER_USER.uid}`,
@@ -193,7 +210,20 @@ export const RUNNER_SETPRIV = [
   '--init-groups',
 ]
 
-/** The guest platform a VM on this host runs. */
+/** Prefix that drops a root command to the runner user, keeping its env.
+ *  macOS has no setpriv; root's sudo keeps the env with -E. */
+export const dropToRunner = (p: RunnerPlatform): string[] =>
+  isDarwin(p)
+    ? ['/usr/bin/sudo', '-E', '-H', '-u', RUNNER_USER.name, '--']
+    : RUNNER_SETPRIV
+
+/** Where one-job secrets go: tmpfs on Linux; macOS has no /run, and its
+ *  per-job disk is thrown away with the VM. */
+export const secretDir = (p: RunnerPlatform) =>
+  isDarwin(p) ? '/private/var/run/mirab' : '/run/mirab'
+
+/** The Linux guest platform a VM on this host runs (a definition may ask for
+ *  a macOS guest instead with `platform: 'darwin-arm64'`). */
 export function hostRunnerPlatform(
   arch: string = process.arch,
 ): RunnerPlatform {
