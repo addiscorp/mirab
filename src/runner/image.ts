@@ -40,6 +40,7 @@ import {
   toolSteps,
   type Fetcher,
   type ResolvedTool,
+  type ByteFetcher,
 } from './toolsets'
 
 /** Bump when the build recipe below changes in a way that needs new images. */
@@ -79,7 +80,11 @@ export interface RunnerRecipe {
 /** Everything that decides an image, resolved: the key is the hash of it. */
 export async function runnerRecipe(
   def: RunnerDefinition,
-  o: { platform?: RunnerPlatform; fetch?: Fetcher } = {},
+  o: {
+    platform?: RunnerPlatform
+    fetch?: Fetcher
+    fetchBytes?: ByteFetcher
+  } = {},
 ): Promise<RunnerRecipe> {
   const platform = def.platform ?? o.platform ?? hostRunnerPlatform()
   if (isDarwin(platform) && def.image.packages.length)
@@ -95,8 +100,14 @@ export async function runnerRecipe(
       steps: install.steps,
       egress: def.forge.guest.buildEgress,
     },
-    tools: await resolveTools(def.image.tools, platform, o.fetch),
-    packages: [...new Set(def.image.packages)].sort(),
+    tools: await resolveTools(def.image.tools, platform, o.fetch, o.fetchBytes),
+    // The aws toolset verifies AWS's signature (gnupg) and unpacks a zip.
+    packages: [
+      ...new Set([
+        ...def.image.packages,
+        ...(def.image.tools.aws ? ['gnupg', 'unzip'] : []),
+      ]),
+    ].sort(),
     diskGiB: def.vm.diskGiB,
   }
 }

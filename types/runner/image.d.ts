@@ -1,6 +1,6 @@
 import { type VmConfig } from '../isolation';
 import { type RunnerDefinition, type RunnerPlatform, type RunnerStep } from './define';
-import { type Fetcher, type ResolvedTool } from './toolsets';
+import { type Fetcher, type ResolvedTool, type ByteFetcher } from './toolsets';
 export declare const runnerImagesDir: (configDir: string) => string;
 export interface RunnerImageMeta {
     key: string;
@@ -39,6 +39,7 @@ export interface RunnerRecipe {
 export declare function runnerRecipe(def: RunnerDefinition, o?: {
     platform?: RunnerPlatform;
     fetch?: Fetcher;
+    fetchBytes?: ByteFetcher;
 }): Promise<RunnerRecipe>;
 export declare function runnerImageKey(base: string, r: RunnerRecipe): string;
 /** Xcode's command line tools (compilers, git, make), headless: softwareupdate

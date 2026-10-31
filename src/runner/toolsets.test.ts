@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
+import { AWS_CLI_KEY_FINGERPRINT } from './aws-key'
 import {
+  resolveAws,
   resolveGo,
   resolveNode,
   resolveRust,
@@ -146,4 +149,92 @@ test('macOS: node, rust and go resolve their darwin downloads, checked with shas
   expect(toolSteps([node], 'linux-arm64')[0]!.argv.join(' ')).toContain(
     'sha256sum -c -',
   )
+})
+
+/** A binary detached signature, the way AWS serves it (an OpenPGP packet). */
+const SIG = new Uint8Array([0x89, ...Array.from({ length: 100 }, (_, i) => i)])
+const bytes = (pages: Record<string, Uint8Array>) => async (url: string) => {
+  if (!(url in pages)) throw new Error(`unexpected fetch ${url}`)
+  return pages[url]!
+}
+const CHANGELOG = `=========\nCHANGELOG\n=========\n\n2.31.20\n=======\n\n* api-change: x\n\n2.31.19\n=======\n\n2.30.4\n======\n`
+
+test("aws: the newest 2.x from AWS's changelog, this architecture's zip, keyed by its signature", async () => {
+  const zip =
+    'https://awscli.amazonaws.com/awscli-exe-linux-aarch64-2.31.20.zip'
+  const get = fake({
+    'https://raw.githubusercontent.com/aws/aws-cli/v2/CHANGELOG.rst': CHANGELOG,
+  })
+  const t = await resolveAws(
+    '2',
+    'linux-arm64',
+    get,
+    bytes({ [`${zip}.sig`]: SIG }),
+  )
+  expect(t).toMatchObject({
+    tool: 'aws',
+    version: '2.31.20',
+    url: zip,
+    hosts: ['awscli.amazonaws.com'],
+  })
+  expect(t.sha256).toBe(createHash('sha256').update(SIG).digest('hex'))
+  const x64 = fake({
+    'https://raw.githubusercontent.com/aws/aws-cli/v2/CHANGELOG.rst': CHANGELOG,
+  })
+  const sigs = bytes({
+    'https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.30.4.zip.sig': SIG,
+    'https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.31.20.zip.sig':
+      new TextEncoder().encode('<html>Access Denied</html>'.repeat(5)),
+  })
+  expect((await resolveAws('2.30', 'linux-x64', x64, sigs)).url).toContain(
+    'linux-x86_64-2.30.4.zip',
+  )
+  await expect(resolveAws('2.31', 'linux-x64', x64, sigs)).rejects.toThrow(
+    /no signature/,
+  )
+  await expect(resolveAws('2.99', 'linux-x64', x64, sigs)).rejects.toThrow(
+    /no such AWS CLI v2 release/,
+  )
+  await expect(resolveAws('2', 'darwin-arm64', get, sigs)).rejects.toThrow(
+    /Linux images/,
+  )
+})
+
+test('aws: installs only on a good signature by exactly the AWS CLI key, and adds nothing to PATH', async () => {
+  const zip = 'https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.31.20.zip'
+  const t = await resolveAws(
+    '2',
+    'linux-x64',
+    fake({
+      'https://raw.githubusercontent.com/aws/aws-cli/v2/CHANGELOG.rst':
+        CHANGELOG,
+    }),
+    bytes({ [`${zip}.sig`]: SIG }),
+  )
+  const script = toolSteps([t], 'linux-x64')[0]!.argv.at(-1)!
+  const verify = script.indexOf(`VALIDSIG ${AWS_CLI_KEY_FINGERPRINT} `)
+  expect(verify).toBeGreaterThan(-1)
+  // the signature is the one the host resolved; verified before anything is unpacked or installed
+  expect(script.indexOf('sha256sum -c -')).toBeLessThan(verify)
+  expect(verify).toBeLessThan(script.indexOf('unzip'))
+  expect(script.indexOf('unzip')).toBeLessThan(script.indexOf('/aws/install'))
+  // The check itself, through sh: only the AWS key's VALIDSIG line passes.
+  const check = script.slice(script.indexOf('| grep') + 1).split(' && ')[0]!
+  const run = (status: string) =>
+    Bun.spawnSync(['sh', '-c', `printf '%s\\n' "$S" | ${check}`], {
+      env: { ...process.env, S: status },
+    }).exitCode
+  expect(
+    run(
+      `[GNUPG:] GOODSIG A6310ACC4672475C AWS CLI Team\n[GNUPG:] VALIDSIG ${AWS_CLI_KEY_FINGERPRINT} 2026-10-30 1793383820 0 4 0 1 10 00 ${AWS_CLI_KEY_FINGERPRINT}`,
+    ),
+  ).toBe(0)
+  expect(
+    run(
+      '[GNUPG:] VALIDSIG 0123456789ABCDEF0123456789ABCDEF01234567 2026-10-30 1 0 4 0 1 10 00 0123456789ABCDEF0123456789ABCDEF01234567',
+    ),
+  ).toBe(1)
+  expect(run('[GNUPG:] BADSIG A6310ACC4672475C AWS CLI Team')).toBe(1)
+  expect(script).toContain('BEGIN PGP PUBLIC KEY BLOCK')
+  expect(toolEnv([t], 'linux-x64').path).toEqual([])
 })

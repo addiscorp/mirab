@@ -3,15 +3,19 @@
 // the upstream checksum. Laid out the way GitHub's hosted images do
 // (<tool cache>/<tool>/<version>/<arch>/ plus a sibling <arch>.complete), so
 // actions/setup-node and setup-go find them and skip their download.
+import { createHash } from 'node:crypto'
+import { AWS_CLI_KEY, AWS_CLI_KEY_FINGERPRINT } from './aws-key'
 import type { RunnerPlatform, RunnerStep } from './define'
 
 export const TOOL_CACHE = '/opt/hostedtoolcache'
 export const RUST_HOME = '/opt/rust'
 
 export interface ResolvedTool {
-  tool: 'rust' | 'node' | 'go'
+  tool: 'rust' | 'node' | 'go' | 'aws'
   version: string
   url: string
+  /** The archive's sha256; for aws, the sha256 of its detached signature
+   *  (the signature itself is checked against AWS's key in the build VM). */
   sha256: string
   /** Hosts the build VM fetches from. */
   hosts: string[]
@@ -136,15 +140,61 @@ export async function resolveRust(
   }
 }
 
-export async function resolveTools(
-  tools: { rust?: string; node?: string; go?: string },
+/** AWS CLI v2: the newest release matching `spec`, from AWS's changelog. The
+ *  build VM checks the zip's PGP signature against the AWS CLI team's key. */
+export type ByteFetcher = (url: string) => Promise<Uint8Array>
+
+const defaultFetchBytes: ByteFetcher = async (url) => {
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) })
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`)
+  return new Uint8Array(await res.arrayBuffer())
+}
+
+/** AWS CLI v2: the newest release matching `spec`, from AWS's changelog. The
+ *  build VM checks the zip's (binary, detached) PGP signature against the AWS
+ *  CLI team's key; the image key holds the signature's sha256. */
+export async function resolveAws(
+  spec: string,
   platform: RunnerPlatform,
   get: Fetcher = defaultFetch,
+  getBytes: ByteFetcher = defaultFetchBytes,
+): Promise<ResolvedTool> {
+  if (os(platform) !== 'linux')
+    throw new Error(
+      `aws ${spec}: the aws toolset is for Linux images (AWS ships macOS as a .pkg)`,
+    )
+  const changelog = await get(
+    'https://raw.githubusercontent.com/aws/aws-cli/v2/CHANGELOG.rst',
+  )
+  const version = [...changelog.matchAll(/^(2\.\d+\.\d+)\s*$/gm)]
+    .map((m) => m[1]!)
+    .find((v) => versionMatches(spec, v))
+  if (!version) throw new Error(`aws ${spec}: no such AWS CLI v2 release`)
+  const url = `https://awscli.amazonaws.com/awscli-exe-linux-${arm(platform) ? 'aarch64' : 'x86_64'}-${version}.zip`
+  const sig = await getBytes(`${url}.sig`)
+  // An OpenPGP packet (high bit set), not an error page.
+  if (sig.length < 64 || !(sig[0]! & 0x80))
+    throw new Error(`aws ${version}: no signature at ${url}.sig`)
+  return {
+    tool: 'aws',
+    version,
+    url,
+    sha256: createHash('sha256').update(sig).digest('hex'),
+    hosts: ['awscli.amazonaws.com'],
+  }
+}
+
+export async function resolveTools(
+  tools: { rust?: string; node?: string; go?: string; aws?: string },
+  platform: RunnerPlatform,
+  get: Fetcher = defaultFetch,
+  getBytes: ByteFetcher = defaultFetchBytes,
 ): Promise<ResolvedTool[]> {
   const out: ResolvedTool[] = []
   if (tools.rust) out.push(await resolveRust(tools.rust, platform, get))
   if (tools.node) out.push(await resolveNode(tools.node, platform, get))
   if (tools.go) out.push(await resolveGo(tools.go, platform, get))
+  if (tools.aws) out.push(await resolveAws(tools.aws, platform, get, getBytes))
   return out
 }
 
@@ -162,6 +212,30 @@ export function toolSteps(
 ): RunnerStep[] {
   const arch = cacheArch(platform)
   return tools.map((t) => {
+    if (t.tool === 'aws')
+      return {
+        argv: [
+          'sh',
+          '-euc',
+          [
+            'd=/opt/aws-cli/dl',
+            'mkdir -p "$d" "$d/gnupg"',
+            'chmod 700 "$d/gnupg"',
+            `curl -fsSL -o "$d/aws.zip" ${q(t.url)}`,
+            `curl -fsSL -o "$d/aws.zip.sig" ${q(`${t.url}.sig`)}`,
+            // The signature the host resolved, and no other.
+            `echo ${q(`${t.sha256}  `)}"$d/aws.zip.sig" | sha256sum -c -`,
+            `printf '%s' ${q(AWS_CLI_KEY)} > "$d/aws.asc"`,
+            'gpg --batch --homedir "$d/gnupg" --import "$d/aws.asc" 2>/dev/null',
+            // Install only on a good signature by exactly the AWS CLI team's key.
+            `gpg --batch --homedir "$d/gnupg" --status-fd 1 --verify "$d/aws.zip.sig" "$d/aws.zip" 2>/dev/null | grep -qF '[GNUPG:] VALIDSIG ${AWS_CLI_KEY_FINGERPRINT} '`,
+            'unzip -q "$d/aws.zip" -d "$d"',
+            '"$d/aws/install" --install-dir /opt/aws-cli/v2 --bin-dir /usr/local/bin --update',
+            'rm -rf "$d"',
+            'aws --version',
+          ].join(' && '),
+        ],
+      }
     if (t.tool === 'rust')
       return {
         argv: [
@@ -210,7 +284,9 @@ export function toolEnv(
       env.RUSTUP_HOME = `${RUST_HOME}/rustup`
       env.CARGO_HOME = `${RUST_HOME}/cargo`
       path.push(`${RUST_HOME}/cargo/bin`)
-    } else path.push(`${TOOL_CACHE}/${t.tool}/${t.version}/${arch}/bin`)
+    } else if (t.tool !== 'aws')
+      // aws installs itself to /usr/local/bin, already on PATH.
+      path.push(`${TOOL_CACHE}/${t.tool}/${t.version}/${arch}/bin`)
   }
   return { env, path }
 }
