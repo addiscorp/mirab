@@ -45,6 +45,16 @@ export interface PullOptions {
     agent?: string;
     /** `<os>-<arch>` of this machine (tests pretend). */
     host?: string;
+    /** Live progress of the long steps (the CLI draws it as one line on a
+     *  terminal); without it, they log a line every few percent. */
+    progress?: (p: PullProgress | null) => void;
+}
+/** A long step: `fraction` is 0..1, or absent while it can't say yet (Apple's
+ *  installer prepares for a minute or so first). `null` ends the step. */
+export interface PullProgress {
+    step: string;
+    fraction?: number;
+    detail?: string;
 }
 /** Fetch, install and provision the newest macOS this Mac runs (or `ipsw`);
  *  a base that is already here is returned as it is. */

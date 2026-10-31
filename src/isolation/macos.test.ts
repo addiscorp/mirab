@@ -22,6 +22,7 @@ import {
   newestMacosBase,
   pullMacos,
   type Elevate,
+  type PullProgress,
 } from './macos'
 
 const IPSW = Buffer.from('restore image bytes '.repeat(50_000))
@@ -157,6 +158,46 @@ describe('mirab image pull macos', () => {
     expect(again.dir).toBe(final)
     expect(served).toHaveLength(0)
     expect(calls).toHaveLength(1)
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  test('with a progress callback, the long steps report through it: preparing first, then how far, then their end', async () => {
+    const dir = await configDir()
+    const tools = await fakeTools(dir)
+    const events: (PullProgress | null)[] = []
+    const lines: string[] = []
+    await pullMacos({
+      configDir: dir,
+      ...tools,
+      elevate: fakeElevate().elevate,
+      host: 'darwin-arm64',
+      log: (l) => lines.push(l),
+      progress: (p) => events.push(p),
+    })
+    const steps = (step: string) =>
+      events.filter((e) => e?.step === step) as PullProgress[]
+    // The download: fractions that only grow, to 1, then the step ends.
+    const dl = steps('downloading').map((e) => e.fraction!)
+    expect(dl.length).toBeGreaterThan(0)
+    expect(dl).toEqual([...dl].sort((a, b) => a - b))
+    expect(dl.at(-1)).toBe(1)
+    // The install: 'preparing' (no fraction) before the installer says
+    // anything, then its own numbers.
+    const inst = steps('installing')
+    expect(inst[0]).toEqual({ step: 'installing', detail: 'preparing' })
+    expect(inst.map((e) => e.fraction).filter((f) => f !== undefined)).toEqual([
+      0.5, 1,
+    ])
+    // Each step ends (null) before the next starts; nothing is left open
+    // when the administrator prompt comes.
+    expect(events.filter((e) => e === null)).toHaveLength(2)
+    expect(events.at(-1)).toBeNull()
+    // The percentages go to the live line, not the log.
+    expect(lines.some((l) => /installing: \d+%/.test(l))).toBe(false)
+    // Every step says what it's doing before it starts.
+    expect(lines.join('\n')).toMatch(
+      /checking mirab's helper[\s\S]*asking Apple[\s\S]*macOS 27\.2 \(26B123\)[\s\S]*installing macOS 27\.2/,
+    )
     await rm(dir, { recursive: true, force: true })
   })
 

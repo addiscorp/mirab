@@ -275,10 +275,14 @@ imageCmd
         )
       const configDir =
         program.opts().configDir ?? join(homedir(), '.config', 'mirab')
-      const log = (line: string) => console.error(line)
+      const { progressLine } = await import('./progress-line')
+      // On a terminal, the long steps draw one live line; else plain lines.
+      const live = progressLine()
+      const log = live?.log ?? ((line: string) => console.error(line))
       const { requireVm } = await import('./spawn-vm')
       const { pullMacos } = await import('./isolation/macos')
       // The helper and the macOS guest agent come with mirab's VM image.
+      log("checking mirab's VM image (the helper and guest agent come with it)")
       await requireVm(configDir, log)
       const base = await pullMacos({
         configDir,
@@ -286,6 +290,7 @@ imageCmd
         diskGiB: gib,
         keepIpsw: opts.keepIpsw,
         log,
+        progress: live?.progress,
       })
       console.log(JSON.stringify({ kind: 'macos', ...base }, null, 2))
     },
