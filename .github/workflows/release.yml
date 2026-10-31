@@ -135,8 +135,9 @@ jobs:
       # `mirab image pull macos` installs it into the base.
       - name: macOS guest agent
         if: matrix.platform == 'darwin-arm64'
-        env:
-          MACOSX_DEPLOYMENT_TARGET: '13.0'
+        # No MACOSX_DEPLOYMENT_TARGET: Rust's default (11.0) already covers every
+        # macOS guest, and with Xcode 27's linker a 13.0 target makes proc-macro
+        # dylibs dyld refuses ("mis-aligned LINKEDIT string pool").
         run: |
           cargo build --locked --release --manifest-path guest-agent/Cargo.toml
           cp guest-agent/target/release/mirab-guest-agent out/darwin-arm64/mirab-guest-agent
