@@ -91,15 +91,14 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile --ignore-scripts
-      # A Mac host runner builds Linux images in Colima's Linux VM.
+      # A Mac host runner builds Linux images in Colima's Linux VM. It runs
+      # all the time on [simien] (other orgs' Docker jobs use it too): start
+      # it only if it isn't, never stop it.
       - name: Docker (Colima) on a Mac
         if: runner.os == 'macOS'
-        run: colima start --cpu 2 --memory 3 --disk 60
+        run: colima status >/dev/null 2>&1 || colima start --cpu 2 --memory 3 --disk 60
       - name: Build
         run: bun scripts/vm-release.ts build ${{ matrix.arch }} out
-      - name: Stop Colima
-        if: always() && runner.os == 'macOS'
-        run: colima stop
       - name: Compress
         run: |
           set -euo pipefail
