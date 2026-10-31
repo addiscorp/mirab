@@ -27,7 +27,7 @@ env:
 jobs:
   promote:
     name: Promote canary to stable
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
     environment: release
     env:
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
