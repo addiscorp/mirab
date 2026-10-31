@@ -144,7 +144,7 @@ export function planVzNetwork(
     }
   if (egress === 'allow')
     throw new Error(
-      `egress: allow needs the vz network filter (${state.reason}). Needs Sami: ${VZ_SETUP_COMMAND}`,
+      `egress: allow needs the vz network filter (${state.reason}). set it up with: ${VZ_SETUP_COMMAND}`,
     )
   return {
     net: 'none',

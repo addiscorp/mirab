@@ -42,11 +42,11 @@ test('network state: ready only with the bridge and taps owned by this user', ()
 test('not set up: auto and block give a VM no network device, allow is an error naming the fix', () => {
   expect(planNetwork('auto', none, lock()).net).toBeUndefined()
   expect(planNetwork('auto', none, lock()).note).toContain(
-    'sudo scripts/vm-network-setup.sh',
+    'sudo mirab vm network setup --user',
   )
   expect(planNetwork('block', none, lock()).net).toBeUndefined()
   expect(() => planNetwork('allow', none, lock())).toThrow(
-    /Needs Sami: sudo scripts\/vm-network-setup\.sh/,
+    /set it up with: sudo mirab vm network setup --user/,
   )
 })
 
@@ -84,7 +84,7 @@ test('container network follows the same rule', () => {
   expect(containerNetwork('block', true)).toBe('none')
   expect(containerNetwork('auto', true)).toBe('mirab-egress')
   expect(containerNetwork('allow', true)).toBe('mirab-egress')
-  expect(() => containerNetwork('allow', false)).toThrow(/Needs Sami/)
+  expect(() => containerNetwork('allow', false)).toThrow(/To fix/)
 })
 
 test('--persist unit runs only a root-owned installed copy, never a path in the checkout', async () => {

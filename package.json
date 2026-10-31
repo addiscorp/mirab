@@ -54,6 +54,7 @@
     "!src/**/*.test.ts",
     "!src/**/*.e2e.test.ts",
     "types",
+    "scripts/firecracker.json",
     "README.md",
     "LICENSE"
   ]

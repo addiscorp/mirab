@@ -1,5 +1,5 @@
 // Network for `vm` isolation. Set up once by the owner with
-// `sudo scripts/vm-network-setup.sh`: a bridge `mirabbr0`, a pool of tap devices
+// `sudo mirab vm network setup --user <name>` (linux-network-setup.ts): a bridge `mirabbr0`, a pool of tap devices
 // `mirabtap0..N` owned by the runner user, and nftables rules that allow the
 // internet but deny the host, the LAN, 100.64/10 and the metadata address.
 // Without that setup a VM has no network device at all.
@@ -16,7 +16,7 @@ import {
 import { join } from 'node:path'
 
 export const BRIDGE = 'mirabbr0'
-export const SETUP_COMMAND = 'sudo scripts/vm-network-setup.sh'
+export const SETUP_COMMAND = `sudo mirab vm network setup --user ${process.env.USER ?? '<name>'}`
 // Not gild's 172.31.255/24 (or its docker network's 172.31.254/24): both can
 // run on one host.
 const PREFIX = '172.31.250'
@@ -154,7 +154,7 @@ export function planNetwork(
   if (!state.ready) {
     if (mode === 'allow')
       throw new Error(
-        `egress is set to allow but the VM network is not set up (${state.reason}). Needs Sami: ${SETUP_COMMAND}`,
+        `egress is set to allow but the VM network is not set up (${state.reason}). set it up with: ${SETUP_COMMAND}`,
       )
     return { release() {}, note: networkStatusLine(mode, state) }
   }

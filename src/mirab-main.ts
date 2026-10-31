@@ -550,33 +550,65 @@ vmCmd
 const vmNetwork = vmCmd
   .command('network')
   .description(
-    'filtered egress for vz VMs on this Mac: internet yes, the Mac, LAN and tailnet no',
+    "filtered egress for this machine's VMs: internet yes, the host, LAN and tailnet no",
   )
 
 vmNetwork
   .command('setup')
   .description(
-    'install the pf filter and its LaunchDaemon (root, once; safe to rerun)',
+    'install the filter and keep it across reboots (root, once; safe to rerun). Linux: a bridge and taps for --user; macOS: a pf anchor',
+  )
+  .option(
+    '--user <name>',
+    'Linux: the user whose VMs use the network (default: the one running sudo)',
+  )
+  .option(
+    '--slots <n>',
+    'Linux: tap devices, one per VM that can run at once',
+    '16',
   )
   .option('--dry-run', 'print what would be written and run, change nothing')
-  .action(async (o: { dryRun?: boolean }) => {
+  .action(async (o: { user?: string; slots: string; dryRun?: boolean }) => {
+    if (process.platform === 'linux') {
+      const { setupLinuxNetwork } =
+        await import('./isolation/linux-network-setup')
+      return setupLinuxNetwork({
+        user: o.user,
+        slots: Number(o.slots),
+        dryRun: o.dryRun,
+      })
+    }
     const { setupVzNetwork } = await import('./isolation/vz-network-setup')
     setupVzNetwork({ dryRun: o.dryRun })
   })
 
 vmNetwork
   .command('remove')
-  .description('undo setup: vz VMs get no network afterwards')
+  .description('undo setup: VMs get no network afterwards')
   .option('--dry-run', 'print what would be removed, change nothing')
   .action(async (o: { dryRun?: boolean }) => {
+    if (process.platform === 'linux') {
+      const { removeLinuxNetwork } =
+        await import('./isolation/linux-network-setup')
+      return removeLinuxNetwork({ dryRun: o.dryRun })
+    }
     const { removeVzNetwork } = await import('./isolation/vz-network-setup')
     removeVzNetwork({ dryRun: o.dryRun })
   })
 
 vmNetwork
   .command('status')
-  .description('the network mirab spawn --vm gives a vz VM here')
+  .description('the network mirab spawn --vm gives a VM here')
   .action(async () => {
+    if (process.platform === 'linux') {
+      const { networkState } = await import('./isolation/network')
+      const s = networkState()
+      return console.log(
+        s.ready
+          ? `network: ready, ${s.slots.length} tap slots for this user (filtered egress)`
+          : `network: none (${s.reason}); set it up with: sudo mirab vm network setup --user ${process.env.USER ?? '<name>'}`,
+      )
+    }
     const { vzNetworkState, vzNetworkStatusLine } =
       await import('./isolation/vz')
     console.log(vzNetworkStatusLine('auto', vzNetworkState()))

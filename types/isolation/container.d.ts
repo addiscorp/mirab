@@ -18,7 +18,7 @@ export declare const EGRESS_NETWORK = "mirab-egress";
 /** Network the container joins: the filtered bridge, or none. `allow` without setup is an error. */
 export declare function containerNetwork(mode: OciConfig['egress'], ready: boolean, setup?: string): "mirab-egress" | "none";
 export declare const GUEST_WORK = "/workspace";
-export declare const NETWORK_SETUP = "sudo scripts/vm-network-setup.sh";
+export declare const NETWORK_SETUP: string;
 /** The same script, run inside Colima's VM, where the containers' network lives. */
 export declare const COLIMA_NETWORK_SETUP = "colima ssh -- sudo sh -s up < scripts/vm-network-setup.sh";
 export declare function ociAvailable(engine: string, agent: string, host?: string): boolean;

@@ -25,13 +25,25 @@ host still needs `/dev/kvm` (read and write for your user) and `mke2fs`
 
 ## Network, git and getting work out
 
-A Firecracker guest has **no network device** unless the owner ran
-`sudo scripts/vm-network-setup.sh` once (a `mirabbr0` bridge and tap devices
-that allow the internet and deny the host, the LAN and metadata addresses);
-`mirab spawn --vm` prints which one applies:
+A Firecracker guest has **no network device** until the owner runs, once,
+from the installed binary:
+
+```sh
+sudo mirab vm network setup --user <name>   # the user whose VMs use it
+mirab vm network status
+```
+
+It creates a `mirabbr0` bridge and `--slots` (default 16) tap devices owned by
+that user and isolated from each other, with nftables rules that allow the
+internet and deny the host, the LAN, the tailnet and metadata addresses. The
+rules load before any device exists. A systemd unit (`mirab-vm-network`)
+recreates it all at boot; `sudo mirab vm network remove` undoes it, and
+`--dry-run` prints every file and command first. It needs iproute2, nftables
+and systemd. On NixOS, `/etc` comes from the configuration, so enable it
+declaratively instead. Until then `mirab spawn --vm` says so:
 
 ```
-mirab: vm network: none, egress blocked (no mirabbr0 bridge; enable with: sudo scripts/vm-network-setup.sh)
+mirab: vm network: none, egress blocked (no mirabbr0 bridge; enable with: sudo mirab vm network setup --user <you>)
 ```
 
 A `vz` guest on a Mac is the same: no network device until the owner runs,

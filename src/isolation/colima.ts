@@ -95,7 +95,7 @@ export function detectColima(p: ColimaProbe): ColimaState {
     return {
       running: false,
       reason: 'Colima is not installed',
-      fix: `Needs Sami: ${COLIMA_INSTALL}`,
+      fix: `To fix: ${COLIMA_INSTALL}`,
     }
   const out = p.status()
   let s: Record<string, unknown> | undefined

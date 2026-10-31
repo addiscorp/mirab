@@ -99,7 +99,7 @@ export const setupCommand = (user: string, owner: string) =>
 
 /** Is the host tier for `user` set up, and set up safely? Never runs sudo. */
 export function hostUserState(user: string, probe: HostProbe): HostUserState {
-  const fix = `Needs Sami: ${setupCommand(user, probe.me.name)}`
+  const fix = `To fix: ${setupCommand(user, probe.me.name)}`
   const no = (reason: string): HostUserState => ({ ok: false, reason, fix })
   const raw = probe.marker(user)
   if (!raw) return no(`${user} is not set up (no ${MARKER_DIR}/${user}.json)`)
@@ -215,7 +215,7 @@ export async function startHostUser(
       await guestPing(open)
     } catch (e) {
       throw new Error(
-        `cannot run the agent as ${marker.user}: ${(e as Error).message}. Needs Sami: ${setupCommand(marker.user, marker.owner)}`,
+        `cannot run the agent as ${marker.user}: ${(e as Error).message}. To fix: ${setupCommand(marker.user, marker.owner)}`,
       )
     }
     log(`steps run as OS user ${marker.user} in ${staged}`)

@@ -32,7 +32,7 @@ test('not installed: says what Sami has to install', () => {
   const s = detectColima(probe({ installed: () => false }))
   expect(s).toMatchObject({ running: false, reason: 'Colima is not installed' })
   expect(!s.running && s.fix).toBe(
-    'Needs Sami: brew install colima docker && colima start --vm-type vz --mount-type virtiofs',
+    'To fix: brew install colima docker && colima start --vm-type vz --mount-type virtiofs',
   )
 })
 
