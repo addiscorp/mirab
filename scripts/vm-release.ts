@@ -52,16 +52,32 @@ export function buildGuest(work: string) {
 
 /** Every platform's image this runner's architecture builds. */
 async function build(arch: 'x64' | 'arm64', out: string) {
-  const want = arch === 'x64' ? 'x64' : 'arm64'
-  if (process.platform !== 'linux' || process.arch !== want)
-    throw new Error(`the ${arch} images build on ${want} Linux with Docker`)
+  // Linux with Docker, or a Mac whose Docker (Colima) runs this architecture.
+  const docker = spawnSync(
+    'docker',
+    ['info', '--format', '{{.Architecture}}'],
+    {
+      encoding: 'utf8',
+    },
+  ).stdout.trim()
+  const want = arch === 'x64' ? 'x86_64' : 'aarch64'
+  if (docker !== want)
+    throw new Error(
+      `the ${arch} images build with a ${want} Docker (this one: ${docker || 'none'})`,
+    )
   const work = join(out, '.guest')
   buildGuest(work)
   const take = async (platform: VmPlatform, name: string, from: string) => {
     await mkdir(join(out, platform), { recursive: true })
     if (!existsSync(join(work, from)))
       throw new Error(`build-vm-guest.sh produced no ${from}`)
-    run(['cp', '--sparse=always', join(work, from), join(out, platform, name)])
+    // GNU cp keeps the rootfs sparse; on a Mac, an APFS clone does.
+    run([
+      'cp',
+      process.platform === 'darwin' ? '-c' : '--sparse=always',
+      join(work, from),
+      join(out, platform, name),
+    ])
   }
   if (arch === 'x64') {
     await take('linux-x64', 'vmlinux', 'vmlinux')

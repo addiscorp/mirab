@@ -604,7 +604,33 @@ fn vsock_listen(port: u32) -> std::io::Result<i32> {
     }
 }
 
+/// In a microVM the agent is PID 1 (init-mirab.sh execs it), and every
+/// orphan in the guest is handed to PID 1. Nothing reaped them, so a job's
+/// daemons and killed process trees stayed zombies until the VM ended. Here
+/// PID 1 forks: the child goes on as the agent, the parent reaps every child
+/// it is handed (as tini does), and ends with the agent's exit code. The
+/// agent's own waitpid calls keep their children, since orphans go to PID 1.
+#[cfg(target_os = "linux")]
+fn reap_as_init() {
+    if unsafe { libc::getpid() } != 1 { return }
+    let agent = unsafe { libc::fork() };
+    if agent < 0 { eprintln!("mirab-guest-agent: fork: {}", std::io::Error::last_os_error()); return }
+    if agent == 0 { return }
+    loop {
+        let mut status = 0;
+        let pid = unsafe { libc::waitpid(-1, &mut status, 0) };
+        if pid == agent {
+            let code = if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 128 + libc::WTERMSIG(status) };
+            std::process::exit(code)
+        }
+        if pid < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) { std::process::exit(1) }
+    }
+}
+
 fn main() {
+    // Before any thread starts: fork() copies only the calling thread.
+    #[cfg(target_os = "linux")]
+    reap_as_init();
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("hook") => hook(&args[2..]),

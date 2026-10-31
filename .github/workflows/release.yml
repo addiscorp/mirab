@@ -29,7 +29,7 @@ env:
 jobs:
   resolve:
     name: Resolve the canary
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
@@ -78,9 +78,12 @@ jobs:
         include:
           - arch: x64
             runner: ubuntu-24.04
+            host: host-linux-x64
           - arch: arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+            # Linux arm64 under Colima (started and stopped by the job).
+            host: host-macos-arm64
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && matrix.host || matrix.runner }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -88,8 +91,15 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile --ignore-scripts
+      # A Mac host runner builds Linux images in Colima's Linux VM.
+      - name: Docker (Colima) on a Mac
+        if: runner.os == 'macOS'
+        run: colima start --cpu 2 --memory 3 --disk 60
       - name: Build
         run: bun scripts/vm-release.ts build ${{ matrix.arch }} out
+      - name: Stop Colima
+        if: always() && runner.os == 'macOS'
+        run: colima stop
       - name: Compress
         run: |
           set -euo pipefail
@@ -113,9 +123,11 @@ jobs:
         include:
           - platform: darwin-arm64
             runner: macos-15
+            host: host-macos-arm64
           - platform: darwin-x64
             runner: macos-15-intel
-    runs-on: ${{ matrix.runner }}
+            host: host-macos-x64
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && matrix.host || matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: scripts/build-vz-helper.sh "out/${{ matrix.platform }}/mirab-vz"
@@ -143,7 +155,7 @@ jobs:
       fail-fast: false
       matrix:
         platform: [linux-x64, darwin-x64, darwin-arm64]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -167,11 +179,14 @@ jobs:
         include:
           - platform: linux-x64
             runner: ubuntu-24.04
+            host: host-linux-x64
           - platform: darwin-x64
             runner: macos-15-intel
+            host: host-macos-x64
           - platform: darwin-arm64
             runner: macos-15
-    runs-on: ${{ matrix.runner }}
+            host: host-macos-arm64
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && matrix.host || matrix.runner }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -199,7 +214,7 @@ jobs:
   publish:
     name: Publish to R2
     needs: [resolve, images, vz, smoke]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
     environment: release
     permissions:
       contents: write
