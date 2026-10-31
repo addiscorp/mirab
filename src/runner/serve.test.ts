@@ -297,6 +297,22 @@ describe('runner pieces', () => {
     expect(groups).toBeLessThan(steps.indexOf('useradd'))
   })
 
+  test('the macOS image hands files to the runner by name, never by UID (sysadminctl can pick another)', async () => {
+    const r = await runnerRecipe(
+      defineRunner({
+        name: 'mac',
+        platform: 'darwin-arm64',
+        forge: fakeForge().forge,
+      }),
+      { platform: 'darwin-arm64' },
+    )
+    const chowns = buildSteps(r)
+      .flatMap((s) => s.argv.at(-1)!.split(' && '))
+      .filter((c) => c.startsWith('chown'))
+    expect(chowns.length).toBeGreaterThan(0)
+    for (const c of chowns) expect(c).toMatch(/^chown -R runner:staff /)
+  })
+
   test('steps drop to the runner user unless asRoot', () => {
     const argv = stepArgv({ argv: ['make', 'test'] })
     expect(argv).toEqual([
