@@ -43,7 +43,7 @@ import {
 } from './toolsets'
 
 /** Bump when the build recipe below changes in a way that needs new images. */
-const RECIPE_VERSION = 2
+const RECIPE_VERSION = 3
 
 export const runnerImagesDir = (configDir: string) =>
   join(configDir, 'runner-images')
@@ -154,9 +154,11 @@ export function darwinBuildSteps(r: RunnerRecipe): RunnerStep[] {
         '/bin/sh',
         '-euc',
         [
-          `chown -R ${u.uid} ${u.home} ${TOOL_CACHE}`,
+          // By name: sysadminctl may not give the user the UID it was asked
+          // for (it made runner 501 on macOS 27).
+          `chown -R ${u.name}:staff ${u.home} ${TOOL_CACHE}`,
           r.tools.some((t) => t.tool === 'rust')
-            ? `chown -R ${u.uid} ${RUST_HOME}`
+            ? `chown -R ${u.name}:staff ${RUST_HOME}`
             : 'true',
           'sync',
         ].join(' && '),
