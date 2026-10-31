@@ -313,6 +313,39 @@ describe('runner pieces', () => {
     for (const c of chowns) expect(c).toMatch(/^chown -R runner:staff /)
   })
 
+  test('an image with the aws toolset also gets gnupg (to verify its signature) and unzip', async () => {
+    const pages: Record<string, string> = {
+      'https://raw.githubusercontent.com/aws/aws-cli/v2/CHANGELOG.rst':
+        '2.31.20\n=======\n',
+    }
+    const r = await runnerRecipe(
+      defineRunner({
+        name: 'aws',
+        forge: fakeForge().forge,
+        image: { tools: { aws: '2' }, packages: ['jq'] },
+      }),
+      {
+        platform: 'linux-arm64',
+        fetch: async (u: string) => {
+          if (!(u in pages)) throw new Error(u)
+          return pages[u]!
+        },
+        fetchBytes: async (u: string) => {
+          if (
+            u !==
+            'https://awscli.amazonaws.com/awscli-exe-linux-aarch64-2.31.20.zip.sig'
+          )
+            throw new Error(u)
+          return new Uint8Array([0x89, ...new Array(100).fill(1)])
+        },
+      },
+    )
+    expect(r.packages).toEqual(['gnupg', 'jq', 'unzip'])
+    expect(r.tools.map((t) => `${t.tool} ${t.version}`)).toEqual([
+      'aws 2.31.20',
+    ])
+  })
+
   test('steps drop to the runner user unless asRoot', () => {
     const argv = stepArgv({ argv: ['make', 'test'] })
     expect(argv).toEqual([

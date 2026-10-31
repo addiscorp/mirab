@@ -121,7 +121,7 @@ export const runnerSchema = z.strictObject({
   labels: z.array(z.string().regex(LABEL)).max(32).default([]),
   image: z
     .strictObject({
-      /** Pinned versions: rust `1.91.0` or `1.91`; node `24` or `24.21.0`; go `1.25` or `1.25.3`. */
+      /** Pinned versions: rust `1.91.0` or `1.91`; node `24` or `24.21.0`; go `1.25` or `1.25.3`; aws `2` or `2.31.20`. */
       tools: z
         .strictObject({
           rust: z
@@ -135,6 +135,11 @@ export const runnerSchema = z.strictObject({
           go: z
             .string()
             .regex(/^\d+\.\d+(\.\d+)?$/)
+            .optional(),
+          /** AWS CLI v2: `2` (newest 2.x), `2.31` or `2.31.20` (Linux images). */
+          aws: z
+            .string()
+            .regex(/^2(\.\d+){0,2}$/)
             .optional(),
         })
         .default({}),

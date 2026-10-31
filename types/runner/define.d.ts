@@ -85,6 +85,7 @@ export declare const runnerSchema: z.ZodObject<{
             rust: z.ZodOptional<z.ZodString>;
             node: z.ZodOptional<z.ZodString>;
             go: z.ZodOptional<z.ZodString>;
+            aws: z.ZodOptional<z.ZodString>;
         }, z.core.$strict>>;
         packages: z.ZodDefault<z.ZodArray<z.ZodString>>;
     }, z.core.$strict>>;
