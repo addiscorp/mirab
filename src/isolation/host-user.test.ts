@@ -107,7 +107,7 @@ describe('host tier detection never runs sudo and refuses unsafe setups', () => 
   test('the missing-setup fix is the exact setup command', () => {
     const s = hostUserState('mirab-runner', probe({ marker: undefined }))
     expect(!s.ok && s.fix).toBe(
-      'Needs Sami: sudo scripts/host-user-setup.sh mirab-runner sami --agent <mirab-guest-agent for this OS>',
+      'To fix: sudo scripts/host-user-setup.sh mirab-runner sami --agent <mirab-guest-agent for this OS>',
     )
   })
 

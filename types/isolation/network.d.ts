@@ -1,5 +1,5 @@
 export declare const BRIDGE = "mirabbr0";
-export declare const SETUP_COMMAND = "sudo scripts/vm-network-setup.sh";
+export declare const SETUP_COMMAND: string;
 export interface NetworkState {
     ready: boolean;
     /** Tap slots this user can use. */

@@ -57,13 +57,13 @@ export function containerNetwork(
   if (mode === 'block' || (!ready && mode === 'auto')) return 'none'
   if (!ready)
     throw new Error(
-      `egress is set to allow but the ${EGRESS_NETWORK} network is not set up. Needs Sami: ${setup}`,
+      `egress is set to allow but the ${EGRESS_NETWORK} network is not set up. To fix: ${setup}`,
     )
   return EGRESS_NETWORK
 }
 
 export const GUEST_WORK = '/workspace'
-export const NETWORK_SETUP = 'sudo scripts/vm-network-setup.sh'
+export const NETWORK_SETUP = `sudo mirab vm network setup --user ${process.env.USER ?? '<name>'}`
 /** The same script, run inside Colima's VM, where the containers' network lives. */
 export const COLIMA_NETWORK_SETUP =
   'colima ssh -- sudo sh -s up < scripts/vm-network-setup.sh'

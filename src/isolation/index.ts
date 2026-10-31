@@ -397,7 +397,7 @@ export async function startIsolation(
     if (!colimaMountFor(work, colima.mounts, true))
       throw new Error(
         `container: ${work} is not inside a writable Colima mount (${colima.mounts.map((m) => m.location).join(', ')}). ` +
-          `Needs Sami: add it under mounts in ~/.colima/default/colima.yaml, then colima restart`,
+          `To fix: add it under mounts in ~/.colima/default/colima.yaml, then colima restart`,
       )
     return startOci(
       { ...c, host: colima.socket, where: `Colima ${colima.vmType} VM` },

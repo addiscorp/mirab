@@ -55,7 +55,7 @@ function machine(have: {
         : {
             ok: false,
             reason: 'mirab-runner is not set up',
-            fix: 'Needs Sami: sudo scripts/host-user-setup.sh mirab-runner sami --agent <…>',
+            fix: 'To fix: sudo scripts/host-user-setup.sh mirab-runner sami --agent <…>',
           },
   }
 }
@@ -153,7 +153,7 @@ describe('mirab status reports each backend honestly', () => {
   test('host tier not configured says what Sami has to run', () => {
     const text = statusLines(everything, {}, machine({ vm: true })).join('\n')
     expect(text).toContain('host tier: not configured')
-    expect(text).toContain('Needs Sami: sudo scripts/host-user-setup.sh')
+    expect(text).toContain('To fix: sudo scripts/host-user-setup.sh')
     expect(text).toContain('isolation: vm (firecracker)')
   })
 
@@ -212,6 +212,6 @@ describe('mirab status reports each backend honestly', () => {
         undefined,
         p,
       ),
-    ).rejects.toThrow(/not inside a writable Colima mount.*Needs Sami/s)
+    ).rejects.toThrow(/not inside a writable Colima mount.*To fix/s)
   })
 })

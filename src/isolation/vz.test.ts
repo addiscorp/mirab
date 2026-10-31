@@ -27,7 +27,7 @@ describe('vz network: NAT only behind the pf anchor', () => {
   })
   test('allow without the filter is refused, never unfiltered NAT', () => {
     expect(() => planVzNetwork('allow', open)).toThrow(
-      /Needs Sami: sudo ~\/.mirab\/bin\/mirab vm network setup/,
+      /set it up with: sudo ~\/.mirab\/bin\/mirab vm network setup/,
     )
     expect(planVzNetwork('allow', filtered).net).toBe('nat')
   })
