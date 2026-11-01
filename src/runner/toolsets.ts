@@ -232,7 +232,8 @@ export function toolSteps(
             'unzip -q "$d/aws.zip" -d "$d"',
             '"$d/aws/install" --install-dir /opt/aws-cli/v2 --bin-dir /usr/local/bin --update',
             'rm -rf "$d"',
-            'aws --version',
+            // Build steps run with a minimal PATH: name the installed binary.
+            '/usr/local/bin/aws --version',
           ].join(' && '),
         ],
       }
