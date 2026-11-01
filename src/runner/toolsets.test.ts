@@ -236,5 +236,7 @@ test('aws: installs only on a good signature by exactly the AWS CLI key, and add
   ).toBe(1)
   expect(run('[GNUPG:] BADSIG A6310ACC4672475C AWS CLI Team')).toBe(1)
   expect(script).toContain('BEGIN PGP PUBLIC KEY BLOCK')
+  // The last check works under the build's minimal PATH (no /usr/local/bin).
+  expect(script.split(' && ').at(-1)).toBe('/usr/local/bin/aws --version')
   expect(toolEnv([t], 'linux-x64').path).toEqual([])
 })
