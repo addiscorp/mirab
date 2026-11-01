@@ -12,7 +12,7 @@
 //!   {"t":"out","d":"<base64>"} / {"t":"err","d":"<base64>"}   (exec, streamed)
 //!   {"t":"exit","code":0,"timed_out":false}                   (exec, last frame)
 //!   {"t":"ok"} / {"t":"error","message":".."}                 (put; last frame of list/get)
-//!   {"t":"ok","protocol":2,"agent":"0.2.0"}                   (ping)
+//!   {"t":"ok","protocol":2,"agent":"0.2.1"}                   (ping)
 //!
 //! Handshake: the host pings before anything else and refuses an agent whose
 //! `protocol` differs from its own (an agent without the field is protocol 1:
