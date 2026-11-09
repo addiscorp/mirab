@@ -235,4 +235,4 @@ mirab's packaging will put there.
 
 ## License
 
-[Apache-2.0](LICENSE)
+[MIT](LICENSE)

@@ -30,7 +30,7 @@
     "typescript": "^7.0.2"
   },
   "description": "Agents in VMs on your own machine",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/addiscorp/mirab.git"
