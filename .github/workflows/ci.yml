@@ -14,9 +14,9 @@ concurrency:
 
 jobs:
   test:
-    # Without host runners: mirab-linux-x64 (APS 11). [simien] no longer hosts
-    # mirab-linux-arm64 VMs (addiscorp/infra#34).
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'mirab-linux-x64' }}
+    # Without host runners: GitHub-hosted, as every other job here. mirab is
+    # public and self-hosted runners refuse public repos (addiscorp/infra#34).
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
