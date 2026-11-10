@@ -11,6 +11,11 @@
 #   canary.json                         the newest canary's release.json
 #   latest.json                         the newest stable's (promote.yml)
 #   install.sh                          the installer, from this repo
+#
+# Runners: releases build on our hardware, in the ci-release runner group that
+# admits this public repo (addiscorp/infra#34): host-linux-x64, and the
+# darwin-arm64 / darwin-x64 Macs (host-macos-arm64, host-macos-x64). CI
+# (ci.yml) stays on GitHub-hosted runners.
 name: Release (canary)
 
 on:
@@ -29,7 +34,7 @@ env:
 jobs:
   resolve:
     name: Resolve the canary
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
+    runs-on: host-linux-x64
     outputs:
       tag: ${{ steps.resolve.outputs.tag }}
       version: ${{ steps.resolve.outputs.version }}
@@ -77,13 +82,12 @@ jobs:
       matrix:
         include:
           - arch: x64
-            runner: ubuntu-24.04
-            host: host-linux-x64
+            runner: host-linux-x64
           - arch: arm64
-            runner: ubuntu-24.04-arm
-            # Linux arm64 under Colima (started and stopped by the job).
-            host: host-macos-arm64
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && matrix.host || matrix.runner }}
+            # Needs an aarch64 Docker (scripts/vm-release.ts checks): Colima's
+            # Linux VM on [simien], started on demand and stopped by the job.
+            runner: host-macos-arm64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -91,12 +95,19 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile --ignore-scripts
-      # A Mac host runner builds Linux images in Colima's Linux VM. It runs
-      # all the time on [simien] (other orgs' Docker jobs use it too): start
-      # it only if it isn't, never stop it.
+      # A Mac host runner builds Linux images in Colima's Linux VM. Colima is
+      # off by default on [simien] (its RAM runs a local model): start it if
+      # it isn't running, and stop it at the end only if this job started it.
       - name: Docker (Colima) on a Mac
+        id: colima
         if: runner.os == 'macOS'
-        run: colima status >/dev/null 2>&1 || colima start --cpu 2 --memory 3 --disk 60
+        run: |
+          if colima status >/dev/null 2>&1; then
+            echo "started=false" >> "$GITHUB_OUTPUT"
+          else
+            colima start --cpu 2 --memory 3 --disk 60
+            echo "started=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Build
         run: bun scripts/vm-release.ts build ${{ matrix.arch }} out
       - name: Compress
@@ -110,6 +121,9 @@ jobs:
           name: vm-${{ matrix.arch }}
           path: out/
           retention-days: 1
+      - name: Stop Colima
+        if: always() && steps.colima.outputs.started == 'true'
+        run: colima stop
 
   vz:
     # The vz helper for each Mac, signed ad hoc with its entitlement, and the
@@ -121,12 +135,10 @@ jobs:
       matrix:
         include:
           - platform: darwin-arm64
-            runner: macos-15
-            host: host-macos-arm64
+            runner: host-macos-arm64
           - platform: darwin-x64
-            runner: macos-15-intel
-            host: host-macos-x64
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && matrix.host || matrix.runner }}
+            runner: host-macos-x64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: scripts/build-vz-helper.sh "out/${{ matrix.platform }}/mirab-vz"
@@ -155,7 +167,7 @@ jobs:
       fail-fast: false
       matrix:
         platform: [linux-x64, darwin-x64, darwin-arm64]
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
+    runs-on: host-linux-x64
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -178,15 +190,12 @@ jobs:
       matrix:
         include:
           - platform: linux-x64
-            runner: ubuntu-24.04
-            host: host-linux-x64
+            runner: host-linux-x64
           - platform: darwin-x64
-            runner: macos-15-intel
-            host: host-macos-x64
+            runner: host-macos-x64
           - platform: darwin-arm64
-            runner: macos-15
-            host: host-macos-arm64
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && matrix.host || matrix.runner }}
+            runner: host-macos-arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -214,7 +223,9 @@ jobs:
   publish:
     name: Publish to R2
     needs: [resolve, images, vz, smoke]
-    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
+    # Uploads to R2 and dispatches publish.yml; npm itself publishes from
+    # publish.yml on a GitHub-hosted runner (trusted publishing, APS 11).
+    runs-on: host-linux-x64
     environment: release
     permissions:
       contents: write
