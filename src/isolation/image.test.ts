@@ -3,10 +3,10 @@
 // workflow uploads it, with the manifest written by the same function.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { gzipSync } from 'node:zlib'
-import { writeVmManifest } from '../../scripts/vm-release'
+import { promoteVmManifest, writeVmManifest } from '../../scripts/vm-release'
 import {
   ensureVmImage,
   MIRAB_RELEASE,
@@ -71,6 +71,11 @@ async function publish(
     )
   await writeVmManifest(dir, { commit: 'abc123', ...manifest })
   await tamper(dir)
+  await serve(tag, dir)
+}
+
+/** Put `<dir>` (manifest.json, <platform>/*.gz) on the fake bucket as `<tag>/vm/`. */
+async function serve(tag: string, dir: string) {
   const files = new Map<string, Buffer>()
   files.set('vm/manifest.json', await readFile(join(dir, 'manifest.json')))
   for (const name of Object.values(roles))
@@ -259,6 +264,56 @@ describe('published VM image', () => {
     expect(await ensureVmImage({ configDir: dir, base, platform })).toBe(
       'downloaded',
     )
+  })
+
+  test('a promoted release carries the canary image, named for the stable version', async () => {
+    const canary = '9.9.9-canary-abc1234',
+      stable = '9.9.9'
+    await publish(canary, undefined, { version: canary })
+    // promote.yml: the canary's vm/ copied to the stable directory, its
+    // manifest rewritten for the stable release.
+    const from = join(root, 'bucket', canary),
+      to = join(root, 'bucket', stable)
+    await cp(from, to, { recursive: true })
+    const promoted = await promoteVmManifest(to, stable)
+    await serve(stable, to)
+    const before = JSON.parse(
+      await readFile(join(from, 'manifest.json'), 'utf8'),
+    )
+    expect(promoted).toEqual({ ...before, version: stable })
+    // A mirab (or a consumer following latest.json) at the stable version
+    // installs it; the canary's own copy still names the canary.
+    const config = await configDir()
+    expect(
+      await ensureVmImage({
+        configDir: config,
+        base,
+        platform,
+        version: stable,
+      }),
+    ).toBe('downloaded')
+    expect(releaseImageInstalled(config, stable, platform)).toBe(true)
+    expect(
+      (await readFile(vmImagePaths(config).kernel)).equals(contents.kernel!),
+    ).toBe(true)
+    expect(before.version).toBe(canary)
+  })
+
+  test('promotion refuses files that are not the bytes the canary recorded', async () => {
+    const canary = '9.9.8-canary-abc1234'
+    await publish(canary, undefined, { version: canary })
+    const to = join(root, 'bucket', '9.9.8')
+    await cp(join(root, 'bucket', canary), to, { recursive: true })
+    await writeFile(
+      join(to, platform, `${roles.rootfs}.gz`),
+      gzipSync(contents.rootfs!, { level: 1 }),
+    )
+    await expect(promoteVmManifest(to, '9.9.8')).rejects.toThrow(
+      /rootfs\.ext4\.gz is not the file the canary recorded/,
+    )
+    // The canary's manifest is left as it was.
+    const left = JSON.parse(await readFile(join(to, 'manifest.json'), 'utf8'))
+    expect(left.version).toBe(canary)
   })
 
   test('a hand-built image (bun run vm:image) is never overwritten', async () => {

@@ -85,20 +85,28 @@ mirab from npm, where mirab isn't published. `--vm` refuses with that reason.
 ## Published images (nothing to build)
 
 Every release publishes the guest image for each VM platform next to the CLI
-binaries, built by `.github/workflows/release.yml` on GitHub's hosted runners:
+binaries on `https://mirab-releases.addis.gg` (`<releases>`), built by
+`.github/workflows/release.yml` on our release runners:
 
 | platform | files | built on |
 |---|---|---|
-| `linux-x64` (Firecracker) | `vmlinux`, `rootfs.ext4` | `ubuntu-24.04`: `bun scripts/vm-release.ts build x64` (one kernel compile gives this `vmlinux` and darwin-x64's `bzImage`) |
-| `darwin-arm64` (vz) | `Image`, `rootfs.ext4`, `mirab-vz` | `ubuntu-24.04-arm`: `scripts/build-vm-guest.sh`; `macos-15`: `scripts/build-vz-helper.sh` (ad hoc signed) |
+| `linux-x64` (Firecracker) | `vmlinux`, `rootfs.ext4` | `host-linux-x64`: `bun scripts/vm-release.ts build x64` (one kernel compile gives this `vmlinux` and darwin-x64's `bzImage`) |
+| `darwin-x64` (vz) | `bzImage`, `rootfs.ext4`, `mirab-vz` | the same x64 build; `host-macos-x64`: `scripts/build-vz-helper.sh` (ad hoc signed) |
+| `darwin-arm64` (vz) | `Image`, `rootfs.ext4`, `mirab-vz`, `mirab-guest-agent` | `host-macos-arm64`: `bun scripts/vm-release.ts build arm64` (Colima), `scripts/build-vz-helper.sh`, the macOS guest agent |
 
 ```
-<releases>/cli/v<version>/vm/manifest.json         version, guest protocol, commit, sha256 of every file
-<releases>/cli/v<version>/vm/<platform>/<name>.gz
+<releases>/<version>/vm/manifest.json         version, guest protocol, commit, sha256 of every file
+<releases>/<version>/vm/<platform>/<name>.gz
 ```
 
-mirab doesn't publish images yet (`<releases>` is still gild's, whose images
-use gild's names), so build the guest locally with the recipe below.
+`<version>` has no `v`: `0.2.1-canary-b0b093c` for a canary, `0.2.1` once
+promoted.
+
+Every canary publishes them, and a promotion (`.github/workflows/promote.yml`)
+copies the canary's `vm/` to the stable `<version>/vm/` unchanged, with the
+manifest rewritten to name the stable version. To follow the latest stable,
+read `version` from `<releases>/latest.json` and fetch
+`<releases>/<version>/vm/manifest.json`; check every file against its sha256.
 
 On first VM use (`--vm`, `--isolation vm`, a job or host default asking for
 `vm`) mirab downloads the image for its own version and platform into
@@ -138,7 +146,7 @@ It writes:
 
 | file | what |
 |---|---|
-| `vm/vmlinux` | mirab's kernel (Linux 6.12.112, `guest-agent/kernel-x86_64.config`): the same compile Intel Macs boot as `bzImage` under vz |
+| `vm/vmlinux` | mirab's kernel (Linux 6.12.112, `guest-agent/kernel-x86_64.config`, with Landlock and seccomp filters for sandboxes in the guest): the same compile Intel Macs boot as `bzImage` under vz |
 | `vm/rootfs.ext4` | `guest-agent/rootfs.Dockerfile` (one recipe for every platform): Ubuntu 24.04 with bash, git, curl, python3, ripgrep, Node 24, Bun and Claude Code (pinned by sha256), plus the guest agent compiled from this checkout |
 | `vm/image.json` | protocol, agent version, commit and sha256 of both files |
 

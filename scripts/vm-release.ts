@@ -10,13 +10,16 @@
 //   cargo build (guest-agent/, on Apple silicon)  mirab-guest-agent for macOS guests (darwin-arm64)
 //   gzip -n <out>/<platform>/*                    what is uploaded
 //   bun scripts/vm-release.ts manifest <vm dir>   <vm dir>/manifest.json from <vm dir>/<platform>/*.gz
+//   bun scripts/vm-release.ts promote <vm dir> <X.Y.Z>
+//                                                 promote.yml: checks a copy of a canary's vm/
+//                                                 and names the stable release in its manifest
 //
 // `bun run vm:image` (scripts/build-vm-image.ts) builds the guest with the
 // same recipe for a local install.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { createReadStream, existsSync } from 'node:fs'
-import { mkdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -157,6 +160,35 @@ export async function writeVmManifest(
   return manifest
 }
 
+/** A promotion (promote.yml): `<dir>` is a copy of the canary's vm/. Every
+ *  file the canary's manifest lists must still be the bytes it recorded;
+ *  then the manifest names the stable release, so a mirab or consumer at that
+ *  version (latest.json) accepts it. Nothing is rebuilt. */
+export async function promoteVmManifest(
+  dir: string,
+  version: string,
+): Promise<VmManifest> {
+  const path = join(dir, 'manifest.json')
+  const canary = vmManifestSchema.parse(
+    JSON.parse(await readFile(path, 'utf8')),
+  )
+  for (const files of Object.values(canary.platforms))
+    for (const e of Object.values(files ?? {}) as (VmFileEntry | undefined)[]) {
+      if (!e) continue
+      const got = await digest(join(dir, e.file))
+      if (
+        got.sha256 !== e.sha256 ||
+        got.size !== e.size ||
+        got.unpacked.sha256 !== e.unpacked.sha256 ||
+        got.unpacked.size !== e.unpacked.size
+      )
+        throw new Error(`${e.file} is not the file the canary recorded`)
+    }
+  const stable = vmManifestSchema.parse({ ...canary, version })
+  await writeFile(path, JSON.stringify(stable, null, 2) + '\n')
+  return stable
+}
+
 if (import.meta.main) {
   const [command, a, b] = process.argv.slice(2)
   try {
@@ -174,9 +206,13 @@ if (import.meta.main) {
           2,
         ),
       )
+    else if (command === 'promote' && a && b)
+      console.log(
+        JSON.stringify(await promoteVmManifest(resolve(a), b), null, 2),
+      )
     else
       throw new Error(
-        'usage: vm-release.ts build <x64|arm64> <out> | manifest <vm dir> [release]',
+        'usage: vm-release.ts build <x64|arm64> <out> | manifest <vm dir> [release] | promote <vm dir> <stable version>',
       )
   } catch (e) {
     console.error(`vm-release: ${(e as Error).message}`)
