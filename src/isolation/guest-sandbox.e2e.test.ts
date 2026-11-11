@@ -111,10 +111,16 @@ describe.skipIf(!testConfig)('guest kernel sandboxes, live', () => {
         'mount -t securityfs securityfs /sys/kernel/security 2>/dev/null; cat /sys/kernel/security/lsm',
       )
       expect(lsm.out).toContain('landlock')
-      // The VM generation ID driver, which reseeds the RNG after a snapshot restore.
-      expect(
-        (await sh(iso, 'test -d /sys/bus/acpi/drivers/vmgenid')).code,
-      ).toBe(0)
+      // The VM generation ID driver, which reseeds the RNG after a snapshot
+      // restore, bound to the VMM's device where there is one (Firecracker's
+      // VMGENCTR; vz has none).
+      const vmgenid = await sh(
+        iso,
+        'test -d /sys/bus/platform/drivers/vmgenid || exit 1; ' +
+          'for d in /sys/bus/acpi/devices/VMGENCTR:*; do [ -e "$d" ] || exit 0; ' +
+          'readlink "$d/physical_node/driver" | grep -q /vmgenid$ || exit 2; done',
+      )
+      expect(vmgenid.code).toBe(0)
       const status = await sh(iso, 'grep ^Seccomp: /proc/self/status')
       expect(status.out).toMatch(/^Seccomp:\s+0$/m)
 
