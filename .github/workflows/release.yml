@@ -335,12 +335,16 @@ jobs:
           VERSION="${{ needs.resolve.outputs.version }}"
           TAG="${{ needs.resolve.outputs.tag }}"
           files="release/${VERSION}/release.json release/${VERSION}/mirab-*.tar.gz"
+          # The X.Y.Z section of CHANGELOG.md as it stands at this commit, marked as a canary.
+          bun scripts/changelog.ts notes "${{ needs.resolve.outputs.base_version }}" CHANGELOG.md \
+            --canary "$TAG" "$GITHUB_SHA" > canary-notes.md
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" $files --repo "${{ github.repository }}" --clobber
+            gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file canary-notes.md
           else
             gh release create "$TAG" $files --repo "${{ github.repository }}" \
               --title "mirab ${VERSION} (canary)" --prerelease \
-              --notes "Canary build of ${GITHUB_SHA}. Install it: curl -fsSL https://mirab-releases.addis.gg/install.sh | sh -s -- --canary"
+              --notes-file canary-notes.md
           fi
       # The npm library follows the release: same version, dist-tag canary.
       # publish.yml checks the release is on R2 and built from this tag.
