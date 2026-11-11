@@ -1,7 +1,7 @@
 // Sandboxes inside the guest, live: the x86_64 guest kernel
 // (guest-agent/kernel-x86_64.config) has Landlock and seccomp, so a program in
 // the VM can restrict itself (gelada, Docker's default profile, systemd's
-// SystemCallFilter=). Needs a VM guest image described in
+// SystemCallFilter=), and the VM generation ID driver. Needs a VM guest image described in
 // $TEST_VM_CONFIG_DIR/isolation.json; the arm64 vz kernel has neither yet.
 import { describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
@@ -111,6 +111,10 @@ describe.skipIf(!testConfig)('guest kernel sandboxes, live', () => {
         'mount -t securityfs securityfs /sys/kernel/security 2>/dev/null; cat /sys/kernel/security/lsm',
       )
       expect(lsm.out).toContain('landlock')
+      // The VM generation ID driver, which reseeds the RNG after a snapshot restore.
+      expect(
+        (await sh(iso, 'test -d /sys/bus/acpi/drivers/vmgenid')).code,
+      ).toBe(0)
       const status = await sh(iso, 'grep ^Seccomp: /proc/self/status')
       expect(status.out).toMatch(/^Seccomp:\s+0$/m)
 
