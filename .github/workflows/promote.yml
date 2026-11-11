@@ -3,8 +3,9 @@
 # tag (vX.Y.Z-canary-<sha>).
 #
 # Checks the canary's release.json names the tagged commit, copies
-# <canary>/ to <X.Y.Z>/ in mirab-releases, rewrites that release.json for the
-# stable channel, points latest.json at it, tags vX.Y.Z on the canary's commit
+# <canary>/ to <X.Y.Z>/ in mirab-releases (guest images in vm/ included),
+# rewrites that release.json and vm/manifest.json for the stable channel,
+# reads every file back, points latest.json at it, tags vX.Y.Z on the canary's commit
 # and makes the GitHub release. A version is promoted once; the next needs a
 # bump (scripts/bump-version.sh).
 name: Promote
@@ -23,6 +24,7 @@ permissions:
 
 env:
   R2_BUCKET_RELEASES: mirab-releases
+  BUN_VERSION: 1.4.3
 
 jobs:
   promote:
@@ -39,6 +41,10 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: Release keys are present
         run: |
           if [ -z "${R2_ENDPOINT:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; then
@@ -82,10 +88,15 @@ jobs:
           set -euo pipefail
           V="${{ steps.validate.outputs.v }}"
           mkdir -p "stable/${V}"
-          # The tarballs and release.json; the guest images stay in the canary's
-          # directory, where the shipped mirab (stamped with that release) looks.
+          # Everything, guest images (vm/) included. The canary's directory
+          # keeps its own copy, where the shipped mirab (stamped with that
+          # release) looks; X.Y.Z/vm/ is what the npm library at X.Y.Z and
+          # anyone following latest.json fetch.
           aws s3 cp --recursive "s3://${R2_BUCKET_RELEASES}/${{ steps.validate.outputs.canary_dir }}/" "stable/${V}/" \
-            --endpoint-url="${R2_ENDPOINT}" --exclude "vm/*"
+            --endpoint-url="${R2_ENDPOINT}"
+          # The same image bytes, checked against the canary's manifest, which
+          # then names X.Y.Z (src/isolation/image.ts refuses another version's).
+          bun scripts/vm-release.ts promote "stable/${V}/vm" "$V"
           python3 - "stable/${V}/release.json" "$V" "${{ steps.validate.outputs.canary }}" <<'PY'
           import hashlib, json, os, sys
           path, v, canary = sys.argv[1:4]
@@ -100,6 +111,29 @@ jobs:
               f.write("\n")
           PY
           aws s3 sync "stable/${V}/" "s3://${R2_BUCKET_RELEASES}/${V}/" --endpoint-url="${R2_ENDPOINT}"
+      - name: Read it back from mirab-releases.addis.gg
+        run: |
+          set -euo pipefail
+          V="${{ steps.validate.outputs.v }}"
+          base="https://mirab-releases.addis.gg/${V}"
+          curl -fsSL "$base/release.json" -o served.json
+          cmp served.json "stable/${V}/release.json"
+          for platform in linux-x64 darwin-x64 darwin-arm64; do
+            want="$(python3 -c "import json; print(json.load(open('served.json'))['binaries']['${platform}']['sha256'])")"
+            got="$(curl -fsSL "$base/mirab-${platform}.tar.gz" | sha256sum | cut -d' ' -f1)"
+            [ "$want" = "$got" ] || { echo "::error::mirab-${platform}.tar.gz served from R2 does not match its sha256"; exit 1; }
+          done
+          curl -fsSL "$base/vm/manifest.json" -o vm.json
+          cmp vm.json "stable/${V}/vm/manifest.json"
+          python3 -c "import json; m=json.load(open('vm.json')); [print(e['file'], e['sha256']) for r in m['platforms'].values() for e in r.values()]" |
+            while read -r file want; do
+              got="$(curl -fsSL "$base/vm/$file" | sha256sum | cut -d' ' -f1)"
+              [ "$want" = "$got" ] || { echo "::error::vm/$file served from R2 does not match vm/manifest.json"; exit 1; }
+            done
+          echo "${V}: every binary and guest image file matches its manifest"
+      - name: Point latest.json at it
+        run: |
+          V="${{ steps.validate.outputs.v }}"
           aws s3 cp "stable/${V}/release.json" "s3://${R2_BUCKET_RELEASES}/latest.json" \
             --endpoint-url="${R2_ENDPOINT}" --cache-control "no-cache"
       - name: Tag vX.Y.Z and make the GitHub release
@@ -130,6 +164,7 @@ jobs:
           {
             echo "### mirab ${V} is stable"
             echo "- https://mirab-releases.addis.gg/${V}/release.json (from ${{ steps.validate.outputs.canary }})"
+            echo "- https://mirab-releases.addis.gg/${V}/vm/manifest.json (the canary's guest images, read back)"
             echo "- latest.json points here"
             echo "- npm: mirab@${V} on dist-tag latest (publish.yml, dispatched)"
           } >> "$GITHUB_STEP_SUMMARY"
