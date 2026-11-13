@@ -23,6 +23,19 @@ version; CI checks it (`scripts/changelog.ts check`), and the `no-changelog`
 label skips the check for CI-only or docs-only changes. The version bump PR
 opens the next section.
 
+## 0.2.2 (unreleased)
+
+### Fixed
+
+- **Linux guests have `/dev/fd`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr`
+  and a tmpfs `/dev/shm`** (`guest-agent/init-mirab.sh`, every Firecracker
+  and vz guest: `mirab spawn --vm`, agent sessions and runner VMs). The guest
+  mounted a bare devtmpfs, so bash process substitution (`<(...)`) failed
+  with `/dev/fd/63: No such file or directory`, and POSIX shared memory and
+  Chromium had no `/dev/shm`. Runner images are rebuilt from the new base
+  image on their own (their cache key includes it); jobs that worked around
+  the missing links can drop the workaround.
+
 ## 0.2.1
 
 ### Breaking
