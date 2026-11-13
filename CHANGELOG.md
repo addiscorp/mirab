@@ -23,7 +23,7 @@ version; CI checks it (`scripts/changelog.ts check`), and the `no-changelog`
 label skips the check for CI-only or docs-only changes. The version bump PR
 opens the next section.
 
-## 0.2.2 (unreleased)
+## 0.2.2
 
 ### Fixed
 
