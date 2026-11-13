@@ -2,6 +2,15 @@
 /bin/mount -t tmpfs tmpfs /tmp
 /bin/mount -t tmpfs tmpfs /run
 /bin/mount -t devtmpfs none /dev
+# A bare devtmpfs has only device nodes. The links and /dev/shm that udev or
+# an initramfs make on a stock system: bash process substitution opens
+# /dev/fd/N, and Chromium and POSIX shared memory need a writable /dev/shm.
+/bin/ln -sfn /proc/self/fd /dev/fd
+/bin/ln -sf /proc/self/fd/0 /dev/stdin
+/bin/ln -sf /proc/self/fd/1 /dev/stdout
+/bin/ln -sf /proc/self/fd/2 /dev/stderr
+/bin/mkdir -p /dev/shm
+/bin/mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
 /bin/mkdir -p /dev/pts
 /bin/mount -t devpts devpts /dev/pts
 /bin/mount -t proc proc /proc

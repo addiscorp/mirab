@@ -1,6 +1,6 @@
 [package]
 name = "mirab-guest-agent"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Guest side of mirab isolation: runs steps inside a microVM or container and streams their output"
 
