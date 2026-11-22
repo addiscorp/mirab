@@ -1,8 +1,9 @@
 //! The client against small stand-in `mirab` programs, and against the real
 //! `mirab control` from this checkout (no VM).
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use mirab::{ControlErrorCode, Error, Event, Mirab, PROTOCOL};
@@ -13,12 +14,26 @@ const HELLO: &str =
     r#"read -r line; printf '{"id":1,"ok":true,"result":{"protocol":1,"version":"9.9.9"}}\n'"#;
 
 fn stand_in(name: &str, body: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("mirab-client-{}-{name}", std::process::id()));
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("client-{}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join("mirab");
-    fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    // A short-lived child writes it, so this process never holds a write fd
+    // to the script. Tests run in parallel: a sibling's fork would inherit
+    // that fd, and exec of the script would fail on Linux with ETXTBSY.
+    let mut writer = Command::new("sh")
+        .args(["-c", r#"cat > "$1" && chmod 755 "$1""#, "sh"])
+        .arg(&path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = writer.stdin.take().unwrap();
+    stdin
+        .write_all(format!("#!/bin/sh\n{body}\n").as_bytes())
+        .unwrap();
+    drop(stdin);
+    assert!(writer.wait().unwrap().success());
     path
 }
 

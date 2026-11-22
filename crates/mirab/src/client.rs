@@ -10,6 +10,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
 use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
+use tokio::task::JoinHandle;
 
 use crate::error::Error;
 use crate::events::{EventStream, Queue};
@@ -21,6 +22,8 @@ const HELLO_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(120);
 /// How much of mirab's stderr is kept to explain a failure.
 const STDERR_LINES: usize = 20;
+/// How long a mirab that ended has to finish saying why.
+const STDERR_DRAIN: Duration = Duration::from_secs(2);
 
 #[derive(Deserialize)]
 struct Response {
@@ -174,7 +177,11 @@ fn route(shared: &Shared, line: &str) -> Result<(), Error> {
     Ok(())
 }
 
-async fn read_frames(shared: Arc<Shared>, stdout: impl AsyncRead + Unpin) {
+async fn read_frames(
+    shared: Arc<Shared>,
+    stdout: impl AsyncRead + Unpin,
+    stderr_read: JoinHandle<()>,
+) {
     let mut lines = BufReader::new(stdout).lines();
     while let Ok(Some(line)) = lines.next_line().await {
         if line.trim().is_empty() {
@@ -189,6 +196,9 @@ async fn read_frames(shared: Arc<Shared>, stdout: impl AsyncRead + Unpin) {
             }
         }
     }
+    // Why it ended is on stderr, which closes separately. Bounded: a process
+    // mirab left behind could hold that pipe open.
+    let _ = tokio::time::timeout(STDERR_DRAIN, stderr_read).await;
     let detail = shared.detail();
     let mut routes = shared.routes.lock().unwrap();
     routes.closed = true;
@@ -243,8 +253,8 @@ impl Client {
             stderr: Mutex::default(),
         });
         tokio::spawn(write_frames(stdin, lines));
-        tokio::spawn(read_frames(shared.clone(), stdout));
-        tokio::spawn(read_stderr(shared.clone(), stderr));
+        let stderr_read = tokio::spawn(read_stderr(shared.clone(), stderr));
+        tokio::spawn(read_frames(shared.clone(), stdout, stderr_read));
         let hello = shared.call(&HelloParams { protocol: PROTOCOL });
         let answer = tokio::time::timeout(HELLO_TIMEOUT, hello).await;
         let incompatible = |found: String, detail: String| Error::Incompatible {
