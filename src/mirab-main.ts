@@ -5,6 +5,7 @@ import pkg from '../package.json'
 import { profileCommands } from './agent-profiles'
 import { DEFAULT_MODEL, initAgent, initProblem } from './agent/init'
 import { agentNameProblem } from './agent/define'
+import { mirabInvocation } from './invocation'
 import { MULTIPASS_UNAVAILABLE, usesMultipass } from './isolation/multipass'
 import { localEvents, spawnCommands } from './spawn'
 
@@ -612,6 +613,32 @@ vmNetwork
     const { vzNetworkState, vzNetworkStatusLine } =
       await import('./isolation/vz')
     console.log(vzNetworkStatusLine('auto', vzNetworkState()))
+  })
+
+// ---------- control: the machine interface ----------
+
+program
+  .command('control')
+  .description(
+    'run agents for a program: JSON lines on stdin and stdout (protocol/control.v1.json)',
+  )
+  .action(async () => {
+    const configDir =
+      program.opts().configDir ?? join(homedir(), '.config', 'mirab')
+    const { serveControl } = await import('./control/server')
+    // Told to stop is the client going away: every VM is stopped first.
+    const stop = () => process.stdin.destroy()
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const)
+      process.on(signal, stop)
+    await serveControl({
+      input: process.stdin,
+      write: (line) => void process.stdout.write(line),
+      configDir,
+      version: pkg.version,
+      self: mirabInvocation(),
+      log: (line) => console.error(line),
+    })
+    process.exit(0)
   })
 
 // ---------- events ----------

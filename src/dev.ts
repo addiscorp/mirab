@@ -10,6 +10,7 @@ import { clearLine, createInterface, cursorTo } from 'node:readline'
 import { mkdtemp } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { MANIFEST_LINE } from './agent/guest'
+import { guestLoopSource } from './guest-bundle' with { type: 'macro' }
 import { bridgeAgent } from './channel/bridge'
 import { projectAgent } from 'rixse'
 import { printable } from './channel/wire'
@@ -24,35 +25,26 @@ import { parseManifest, type Manifest } from './agent/manifest'
 import { startVm, type Isolation, type VmConfig } from './isolation'
 import { agentImage } from './images'
 import { liveSync, type LiveSync } from './dev-sync'
-import { describeSync, hostManifest, syncBack } from './isolation/sync'
+import {
+  describeSync,
+  hostManifest,
+  syncBack,
+  type SyncResult,
+} from './isolation/sync'
 import type { PtyHandle } from './isolation/session'
 import { finishVmSync, guestEnvironment, requireVm } from './spawn-vm'
 import { privateSessionsDirectory } from './spawn-sessions'
 import type { StationConfig } from './station/config'
 import type { Upstream } from 'rixse'
-import { GUEST_PROXY, vmStation } from './station/gateway'
+import { GUEST_PROXY, vmStation, type VmStation } from './station/gateway'
 import { PLACEHOLDER, anthropicKeyRoute, guestRouteURL } from 'rixse'
 import { hararVault } from './station/vault'
 
 /** Where the loop lands in the guest (its tmpfs, never the workspace). */
 export const GUEST_LOOP = '/tmp/mirab/loop.js'
 
-let bundle: Promise<string> | undefined
-
 /** The agent loop and everything it needs, as one file for the guest's Bun. */
-export function guestLoop(): Promise<string> {
-  return (bundle ??= Bun.build({
-    entrypoints: [join(import.meta.dir, 'agent/guest.ts')],
-    target: 'bun',
-    minify: true,
-  }).then(async (built) => {
-    if (!built.success || built.outputs.length !== 1)
-      throw new Error(
-        `the agent loop didn't build: ${built.logs.map(String).join('; ')}`,
-      )
-    return built.outputs[0].text()
-  }))
-}
+export const guestLoop = async (): Promise<string> => guestLoopSource()
 
 export interface Dev {
   pty: PtyHandle
@@ -68,7 +60,12 @@ export interface Dev {
   agent: string
   /** Says `text` in the channel as the person. */
   say(text: string): Message
-  close(): Promise<void>
+  /** The VM's gateway: what it held, and a person's answers to it. */
+  gateway: Pick<VmStation, 'events' | 'decide'>
+  /** Whose held requests are this session's, in the gateway's inbox. */
+  gatewayAgent: string
+  /** Stops the agent and the VM; what came back from it, unless that failed. */
+  close(): Promise<SyncResult | undefined>
 }
 
 /** The person at this terminal, as a channel member: `station.json`'s
@@ -301,8 +298,9 @@ export async function startDev(o: {
       // What the agent changed comes back; where the person changed the same
       // path, theirs stays and the agent's is saved aside. Anything that
       // couldn't come back keeps the VM's disk for recovery.
+      let synced: SyncResult | undefined
       try {
-        const synced = await finishVmSync(
+        synced = await finishVmSync(
           () =>
             syncBack({
               root: project,
@@ -322,6 +320,7 @@ export async function startDev(o: {
         )
       }
       await closeStation()
+      return synced
     }
     return {
       pty,
@@ -333,6 +332,8 @@ export async function startDev(o: {
       person: person.name,
       agent: manifest.name,
       say: (text) => channel.post(person.name, text),
+      gateway: station,
+      gatewayAgent: projectAgent(project),
     }
   } catch (e) {
     await closeStation()

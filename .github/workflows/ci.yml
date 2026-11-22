@@ -44,6 +44,26 @@ jobs:
           fi
       - run: bun test --timeout 30000
 
+  rust-client:
+    # crates/mirab: its types are generated from src/control/protocol.ts, and
+    # it's tested against the real `mirab control` from this checkout.
+    runs-on: ${{ vars.HOST_RUNNERS == 'true' && 'host-linux-x64' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: The protocol's generated files are current
+        run: bun scripts/control-schema.ts --check
+      - run: rustup toolchain install stable --profile minimal --component clippy
+      - run: cargo check --locked --all-targets
+        working-directory: crates/mirab
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        working-directory: crates/mirab
+      - run: cargo test --locked
+        working-directory: crates/mirab
+      - run: cargo publish --dry-run --locked
+        working-directory: crates/mirab
+
   macos:
     # Descriptor-anchored sync and special files behave differently on each Mac.
     strategy:
@@ -100,6 +120,17 @@ jobs:
           mkdir -p .tmp
           export TMPDIR="$PWD/.tmp"
           bun test $(git ls-files 'src/*.e2e.test.ts') --timeout 300000
+      - run: rustup toolchain install stable --profile minimal
+      - name: The Rust client against real VMs
+        working-directory: crates/mirab
+        env:
+          TEST_VM_CONFIG_DIR: ${{ runner.temp }}/mirab
+        run: |
+          set -euo pipefail
+          bun build --compile ../../src/mirab.ts --outfile "$RUNNER_TEMP/mirab-compiled"
+          export TEST_MIRAB_BINARY="$RUNNER_TEMP/mirab-compiled"
+          export TMPDIR="$GITHUB_WORKSPACE/.tmp"
+          cargo test --locked --test live -- --ignored --test-threads=1
 
   vz-helper:
     # The macOS `vm` backend's launcher must compile and carry its entitlement.

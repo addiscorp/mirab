@@ -1,0 +1,85 @@
+# Publishes the `mirab` Rust client to crates.io, following a stable release
+# on mirab-releases (APS 9): the crate's version is always the name of a
+# promoted release, built from that release's commit. crates.io has no
+# dist-tags and never forgets a version, so canaries aren't published.
+#
+# Manual: run it with a promoted version. Rerunning is safe; a version already
+# on crates.io is left alone. The crate never carries the mirab binary (APS 13).
+#
+# crates.io trusted publishing (OIDC): crates.io trusts this workflow by its
+# filename (`publish-crate.yml`) in the `release` environment. There is no
+# CARGO_REGISTRY_TOKEN secret. Renaming this file breaks that trust.
+name: publish-crate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'A promoted release on mirab-releases: X.Y.Z'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crate-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # A release: on our hardware, in the ci-release group (addiscorp/infra#34).
+    # Cargo comes from a container, at the crate's minimum Rust version.
+    runs-on: host-linux-x64
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # OIDC: trusted publishing, no token
+    steps:
+      - name: The version is a promoted release
+        id: release
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::$VERSION is not X.Y.Z" >&2; exit 1; }
+          curl -fsS "https://mirab-releases.addis.gg/${VERSION}/release.json" -o release.json \
+            || { echo "::error::mirab-releases has no release ${VERSION}" >&2; exit 1; }
+          python3 - "$VERSION" <<'PY' >> "$GITHUB_OUTPUT"
+          import json, sys
+          release = json.load(open("release.json"))
+          if release.get("channel") != "stable" or release.get("version") != sys.argv[1]:
+              sys.exit(f"{sys.argv[1]} isn't a promoted release")
+          print(f"commit={release['commit']}")
+          PY
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+      - name: The crate at that commit is that version
+        id: check
+        working-directory: crates/mirab
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          crate=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["package"]["version"])')
+          [ "$crate" = "$VERSION" ] \
+            || { echo "::error::crates/mirab at this commit is $crate, not $VERSION" >&2; exit 1; }
+          status=$(curl -s -o /dev/null -w '%{http_code}' -A 'addiscorp/mirab publish workflow' "https://crates.io/api/v1/crates/mirab/$VERSION")
+          if [ "$status" = 200 ]; then
+            echo "mirab $VERSION is already on crates.io"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+        if: steps.check.outputs.published != 'true'
+        id: auth
+      - name: Publish
+        if: steps.check.outputs.published != 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e CARGO_REGISTRY_TOKEN -e CARGO_HOME=/tmp/cargo \
+            -v "$PWD:/work" -w /work/crates/mirab \
+            rust:1.88-slim cargo publish --locked

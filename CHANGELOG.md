@@ -25,8 +25,23 @@ opens the next section.
 
 ## 0.2.2
 
+### Added
+
+- **`mirab control`**: a versioned machine interface, JSON lines on stdin and
+  stdout, for programs that run agents: availability, manifests, sessions,
+  messages, typed events, held requests and their answers, guest files, and
+  sub-agents in VMs (`docs/control.md`). Its one definition is
+  `src/control/protocol.ts`; `protocol/control.v1.json` and the Rust types
+  are generated from it, and CI fails if they differ.
+- **The `mirab` Rust crate** (`crates/mirab`): a typed async client for the
+  installed mirab. It never bundles or downloads the binary.
+
 ### Fixed
 
+- **A compiled mirab can start agents.** `bun build --compile` binaries
+  stopped at the first use of the station's certificates (`reflect-metadata`
+  wasn't loaded first), and couldn't build the guest's agent loop from source
+  that isn't on disk. The loop is now embedded at build time.
 - **Linux guests have `/dev/fd`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr`
   and a tmpfs `/dev/shm`** (`guest-agent/init-mirab.sh`, every Firecracker
   and vz guest: `mirab spawn --vm`, agent sessions and runner VMs). The guest
