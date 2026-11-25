@@ -11,16 +11,26 @@
 #   canary.json                         the newest canary's release.json
 #   latest.json                         the newest stable's (promote.yml)
 #   install.sh                          the installer, from this repo
-#   staging/<run id>/<part>/            one run's build outputs on their way to publish
 #
-# No GitHub artifacts carry files between jobs. Each build stages its outputs
-# under staging/<run id>/<part>/ with files.json (path, size, sha256 of each),
-# through scripts/r2.ts (Bun's S3 client: the mirab image has no aws CLI).
-# smoke and publish fetch them back and refuse any file whose bytes differ.
-# publish removes staging/<run id>/ once the release is out. The prefix is the
-# run id, not the attempt, so "Re-run failed jobs" finds the jobs it didn't
-# re-run; a re-run job overwrites its own part, and its files.json is what counts.
-# Only the staging step of a job gets the R2 keys, never its build steps.
+# No GitHub artifacts carry files between jobs. They go through a second,
+# private bucket, mirab-staging (no public domain; its lifecycle rule expires
+# objects after 7 days):
+#   <run id>/<part>/<files>             one build's outputs on their way to publish
+#   <run id>/<part>/files.json          path, size and sha256 of each, written last
+# scripts/r2.ts (Bun's S3 client: the mirab image has no aws CLI) stages and
+# fetches them; smoke and publish refuse any file whose bytes differ from what
+# its build recorded. publish removes <run id>/ once the release is out. The
+# prefix is the run id, not the attempt, so "Re-run failed jobs" finds the
+# jobs it didn't re-run; a re-run job overwrites its own part, and its
+# files.json is what counts.
+#
+# Keys: two environments, both limited to main and v* tags.
+# - release-staging: STAGING_R2_* only, the mirab-staging key. The build and
+#   smoke jobs (Macs included) use it, on their one stage or fetch step.
+# - release: R2_* (mirab-releases) plus the same STAGING_R2_* copies. Only
+#   publish, on host-linux-x64, uses it. A job binds one environment, so
+#   publish reads staging through those copies; the Macs never hold the
+#   mirab-releases key.
 #
 # Runners: releases build on our hardware, in the ci-release runner group that
 # admits this public repo (addiscorp/infra#34): host-linux-x64, and the
@@ -40,7 +50,8 @@ permissions:
 env:
   R2_BUCKET_RELEASES: mirab-releases
   BUN_VERSION: 1.4.3
-  STAGING: staging/${{ github.run_id }}
+  STAGING_R2_BUCKET: mirab-staging
+  STAGING: ${{ github.run_id }}
 
 jobs:
   resolve:
@@ -99,7 +110,7 @@ jobs:
             # Linux VM on [simien], started on demand and stopped by the job.
             runner: host-macos-arm64
     runs-on: ${{ matrix.runner }}
-    environment: release # the R2 keys, for the staging step only
+    environment: release-staging # the mirab-staging key, for the staging step only
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -130,9 +141,9 @@ jobs:
           ls -la out/*/
       - name: Stage on R2
         env:
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          STAGING_R2_ENDPOINT: ${{ secrets.STAGING_R2_ENDPOINT }}
+          STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_R2_ACCESS_KEY_ID }}
+          STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_R2_SECRET_ACCESS_KEY }}
         run: bun scripts/r2.ts stage out "${STAGING}/vm-${{ matrix.arch }}/"
       - name: Stop Colima
         if: always() && steps.colima.outputs.started == 'true'
@@ -152,7 +163,7 @@ jobs:
           - platform: darwin-x64
             runner: host-macos-x64
     runs-on: ${{ matrix.runner }}
-    environment: release # the R2 keys, for the staging step only
+    environment: release-staging # the mirab-staging key, for the staging step only
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -173,9 +184,9 @@ jobs:
           gzip -n -9 out/darwin-arm64/mirab-guest-agent
       - name: Stage on R2
         env:
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          STAGING_R2_ENDPOINT: ${{ secrets.STAGING_R2_ENDPOINT }}
+          STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_R2_ACCESS_KEY_ID }}
+          STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_R2_SECRET_ACCESS_KEY }}
         run: bun scripts/r2.ts stage out "${STAGING}/vz-${{ matrix.platform }}/"
 
   package:
@@ -186,7 +197,7 @@ jobs:
       matrix:
         platform: [linux-x64, darwin-x64, darwin-arm64]
     runs-on: host-linux-x64
-    environment: release # the R2 keys, for the staging step only
+    environment: release-staging # the mirab-staging key, for the staging step only
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -195,9 +206,9 @@ jobs:
       - run: scripts/package.sh ${{ matrix.platform }} "${{ needs.resolve.outputs.version }}" dist
       - name: Stage on R2
         env:
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          STAGING_R2_ENDPOINT: ${{ secrets.STAGING_R2_ENDPOINT }}
+          STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_R2_ACCESS_KEY_ID }}
+          STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           mkdir -p stage
@@ -220,7 +231,7 @@ jobs:
           - platform: darwin-arm64
             runner: host-macos-arm64
     runs-on: ${{ matrix.runner }}
-    environment: release # the R2 keys, for the fetch step only
+    environment: release-staging # the mirab-staging key, for the fetch step only
     steps:
       # The checkout and Bun only fetch the tarball; the test below runs it
       # with an empty environment and PATH=/usr/bin:/bin.
@@ -230,9 +241,9 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - name: Fetch the tarball from R2 staging
         env:
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          STAGING_R2_ENDPOINT: ${{ secrets.STAGING_R2_ENDPOINT }}
+          STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_R2_ACCESS_KEY_ID }}
+          STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_R2_SECRET_ACCESS_KEY }}
         run: bun scripts/r2.ts fetch "${STAGING}/mirab-${{ matrix.platform }}/" dist
       - name: It runs, says its version, and makes an agent
         run: |
@@ -278,6 +289,10 @@ jobs:
       # recorded; one that differs stops the release here, before R2's
       # version folder is touched.
       - name: Fetch every build from R2 staging
+        env:
+          STAGING_R2_ENDPOINT: ${{ secrets.STAGING_R2_ENDPOINT }}
+          STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_R2_ACCESS_KEY_ID }}
+          STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           for part in mirab-linux-x64 mirab-darwin-x64 mirab-darwin-arm64 vm-x64 vm-arm64 vz-darwin-x64 vz-darwin-arm64; do
@@ -407,4 +422,8 @@ jobs:
       # Only after everything above succeeded; a failed run keeps its staging
       # for "Re-run failed jobs" (stale prefixes expire by the bucket's rule).
       - name: Remove this run's staging
+        env:
+          STAGING_R2_ENDPOINT: ${{ secrets.STAGING_R2_ENDPOINT }}
+          STAGING_AWS_ACCESS_KEY_ID: ${{ secrets.STAGING_R2_ACCESS_KEY_ID }}
+          STAGING_AWS_SECRET_ACCESS_KEY: ${{ secrets.STAGING_R2_SECRET_ACCESS_KEY }}
         run: bun scripts/r2.ts clean "${STAGING}/"

@@ -1,6 +1,7 @@
-// Hands release files from job to job through R2, never GitHub artifacts.
-// Bun's own S3 client: the mirab image has no aws CLI, and Bun is on every
-// runner of ours (the avacanada/ava scripts/r2.ts pattern).
+// Hands release files from job to job through R2, never GitHub artifacts:
+// the private mirab-staging bucket, never mirab-releases. Bun's own S3
+// client: the mirab image has no aws CLI, and Bun is on every runner of ours
+// (the avacanada/ava scripts/r2.ts pattern).
 //
 //   bun scripts/r2.ts stage <dir> <prefix/>     every file in the folder, then
 //                                               <prefix/>files.json: path, size, sha256
@@ -12,8 +13,10 @@
 // missing or its bytes differ from what stage recorded. Objects under the
 // prefix that files.json doesn't list (a re-run's leftovers) are ignored.
 //
-// Credentials and place come from the environment the workflow sets:
-// R2_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, R2_BUCKET_RELEASES.
+// Credentials and place come from the environment the workflow sets, all
+// STAGING_-prefixed so the publish job's own release keys (AWS_*, R2_*) are
+// never picked up by mistake: STAGING_R2_ENDPOINT, STAGING_AWS_ACCESS_KEY_ID,
+// STAGING_AWS_SECRET_ACCESS_KEY, STAGING_R2_BUCKET.
 import { S3Client } from 'bun'
 import { mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
@@ -34,10 +37,10 @@ function env(name: string): string {
 
 export function client(): S3Client {
   return new S3Client({
-    accessKeyId: env('AWS_ACCESS_KEY_ID'),
-    secretAccessKey: env('AWS_SECRET_ACCESS_KEY'),
-    endpoint: env('R2_ENDPOINT'),
-    bucket: env('R2_BUCKET_RELEASES'),
+    accessKeyId: env('STAGING_AWS_ACCESS_KEY_ID'),
+    secretAccessKey: env('STAGING_AWS_SECRET_ACCESS_KEY'),
+    endpoint: env('STAGING_R2_ENDPOINT'),
+    bucket: env('STAGING_R2_BUCKET'),
     region: 'auto',
   })
 }

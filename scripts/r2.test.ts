@@ -1,7 +1,7 @@
 // scripts/r2.ts against a local S3 stand-in: a path-style bucket in memory,
 // speaking the parts of the S3 API Bun's client uses (PUT, GET, HEAD, DELETE,
 // ListObjectsV2). The CLI runs as release.yml runs it: a separate `bun`
-// process with the R2_* / AWS_* environment.
+// process with the STAGING_* environment.
 import {
   afterAll,
   beforeAll,
@@ -22,7 +22,7 @@ import {
   type StagedFile,
 } from './r2'
 
-const BUCKET = 'mirab-releases'
+const BUCKET = 'mirab-staging'
 const objects = new Map<string, Uint8Array>()
 let server: ReturnType<typeof Bun.serve>
 let s3: S3Client
@@ -93,10 +93,10 @@ beforeAll(() => {
   })
   env = {
     PATH: process.env.PATH ?? '/usr/bin:/bin',
-    R2_ENDPOINT: endpoint,
-    AWS_ACCESS_KEY_ID: 'test',
-    AWS_SECRET_ACCESS_KEY: 'test',
-    R2_BUCKET_RELEASES: BUCKET,
+    STAGING_R2_ENDPOINT: endpoint,
+    STAGING_AWS_ACCESS_KEY_ID: 'test',
+    STAGING_AWS_SECRET_ACCESS_KEY: 'test',
+    STAGING_R2_BUCKET: BUCKET,
   }
   mkdirSync(tmpRoot, { recursive: true })
 })
@@ -243,17 +243,33 @@ describe('the CLI, as release.yml runs it', () => {
     expect(objects.size).toBe(0)
   })
 
-  test('without credentials the CLI exits 1 and names what is missing', async () => {
+  test('only the STAGING_ keys count: the release keys alone exit 1, naming what is missing', async () => {
+    // What the publish job has at job level: the mirab-releases keys. They
+    // must never be used to reach staging.
+    const objectsBefore = objects.size
     const p = Bun.spawn(
-      ['bun', join(import.meta.dir, 'r2.ts'), 'clean', 'staging/7/'],
+      [
+        'bun',
+        join(import.meta.dir, 'r2.ts'),
+        'stage',
+        buildOutput(),
+        'staging/7/',
+      ],
       {
-        env: { PATH: env.PATH },
+        env: {
+          PATH: env.PATH,
+          R2_ENDPOINT: env.STAGING_R2_ENDPOINT,
+          AWS_ACCESS_KEY_ID: 'release',
+          AWS_SECRET_ACCESS_KEY: 'release',
+          R2_BUCKET_RELEASES: 'mirab-releases',
+        },
         stdout: 'pipe',
         stderr: 'pipe',
       },
     )
     const err = await new Response(p.stderr).text()
     expect(await p.exited).toBe(1)
-    expect(err).toContain("AWS_ACCESS_KEY_ID isn't set")
+    expect(err).toContain("STAGING_AWS_ACCESS_KEY_ID isn't set")
+    expect(objects.size).toBe(objectsBefore)
   })
 })
