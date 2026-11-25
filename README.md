@@ -222,6 +222,13 @@ placeholder sent to any other host is refused. Bodies and URLs are never
 rewritten, and every other host stays a sealed tunnel. The model never sees a
 key, because the agent never has one.
 
+## From another program
+
+`mirab control` runs agents for a program, as JSON lines on a pipe
+([docs/control.md](docs/control.md)). From Rust, the `mirab` crate
+(`crates/mirab`) wraps it with typed requests and events, and talks to the
+mirab you have installed.
+
 ## Try it
 
 ```sh
@@ -229,9 +236,10 @@ bun install
 bun run src/mirab.ts --help
 ```
 
-Run it from source for now: a compiled `bun run build` binary can't start
-agents yet, because it needs the PTY module and Firecracker beside it, which
-mirab's packaging will put there.
+A compiled `bun run build` binary starts agents in VMs (`mirab dev`,
+`mirab control`) given `mirab-vz` or Firecracker and a guest image. Host-side
+PTY sessions (`mirab spawn` without `--vm`) still need the PTY module beside
+it, which the release's packaging puts there.
 
 ## License
 

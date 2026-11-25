@@ -3,7 +3,13 @@
 // knows nothing about VMs; this maps the guest's egress port to it, puts its
 // certificate authority where the guest's programs trust it, and passes its
 // environment on. Shared by `mirab spawn --vm` and `mirab dev`.
-import { gateway, type GatewayConfig, type Route, type Upstream } from 'rixse'
+import {
+  gateway,
+  type GatewayConfig,
+  type GatewaySession,
+  type Route,
+  type Upstream,
+} from 'rixse'
 import type { Isolation } from '../isolation/session'
 import { EGRESS_GUEST_PORT, EGRESS_HOST_PORT } from '../isolation/vz'
 import type { StationConfig } from './config'
@@ -24,6 +30,10 @@ export interface VmStation {
   notes: string[]
   /** Serves the VM's way out, and makes the guest trust the gateway's authority. */
   attach(iso: Isolation): Promise<void>
+  /** Held, asked, decided, sent, denied, as they happen. */
+  events: GatewaySession['events']
+  /** A person's answer to one of this session's held requests. */
+  decide: GatewaySession['decide']
   close(): Promise<void>
 }
 
@@ -70,6 +80,9 @@ export async function vmStation(o: {
   return {
     env: session.env,
     notes,
+    events: session.events,
+    decide: (id, decision, by, shown) =>
+      session.decide(id, decision, by, shown),
     async attach(iso) {
       await iso.onGuestConnect!(EGRESS_HOST_PORT, (socketPath) =>
         session.listen(socketPath),

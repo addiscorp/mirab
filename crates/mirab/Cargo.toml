@@ -1,0 +1,22 @@
+[package]
+name = "mirab"
+version = "0.2.2"
+edition = "2024"
+rust-version = "1.88"
+description = "Rust client for mirab: run and control agents in VMs on your own machine, through the mirab you have installed."
+license = "MIT"
+repository = "https://github.com/addiscorp/mirab"
+documentation = "https://docs.rs/mirab"
+readme = "README.md"
+keywords = ["agents", "vm", "sandbox", "client"]
+categories = ["api-bindings", "virtualization", "asynchronous"]
+include = ["src/**", "README.md", "LICENSE"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["io-util", "process", "rt", "sync", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,1581 @@
+{
+  "title": "mirab control protocol",
+  "protocol": 1,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "operations": {
+      "type": "object",
+      "properties": {
+        "hello": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "protocol": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "protocol"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "protocol": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "version": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "protocol",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "availability": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "available": {
+                  "type": "boolean"
+                },
+                "backend": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "not_configured",
+                    "image_missing",
+                    "backend_unavailable"
+                  ]
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "available",
+                "backend"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "file_put": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "mode": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 511
+                }
+              },
+              "required": [
+                "session",
+                "path",
+                "content"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "file_get": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session",
+                "path"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "content": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "content"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "file_list": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                },
+                "root": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session",
+                "root"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "entries": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/GuestEntry"
+                  }
+                }
+              },
+              "required": [
+                "entries"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "manifest": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "manifest": {
+                  "$ref": "#/$defs/Manifest"
+                },
+                "pending": {
+                  "$ref": "#/$defs/PendingReach"
+                }
+              },
+              "required": [
+                "manifest"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "start": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "project": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "$ref": "#/$defs/SessionInfo"
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "stop": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "sync": {
+                  "$ref": "#/$defs/SyncSummary"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "sessions": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "sessions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SessionInfo"
+                  }
+                }
+              },
+              "required": [
+                "sessions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "send": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session",
+                "text"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "requests": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "requests": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/HeldRequestEntry"
+                  }
+                }
+              },
+              "required": [
+                "requests"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "decide": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                },
+                "request": {
+                  "type": "string"
+                },
+                "decision": {
+                  "$ref": "#/$defs/Decision"
+                },
+                "hash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session",
+                "request",
+                "decision"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "spawn": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "agent": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent",
+                "args",
+                "cwd"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "spawned": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "sessions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/SpawnedSession"
+                  }
+                }
+              },
+              "required": [
+                "sessions"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "spawn_send": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session",
+                "text"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        "spawn_stop": {
+          "type": "object",
+          "properties": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "session": {
+                  "type": "string"
+                },
+                "grace_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 60000
+                }
+              },
+              "required": [
+                "session"
+              ],
+              "additionalProperties": false
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "recovery": {
+                  "$ref": "#/$defs/Recovery"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "params",
+            "result"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "hello",
+        "availability",
+        "file_put",
+        "file_get",
+        "file_list",
+        "manifest",
+        "start",
+        "stop",
+        "sessions",
+        "send",
+        "requests",
+        "decide",
+        "spawn",
+        "spawned",
+        "spawn_send",
+        "spawn_stop"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "$ref": "#/$defs/Event"
+    },
+    "error": {
+      "$ref": "#/$defs/ControlError"
+    }
+  },
+  "required": [
+    "operations",
+    "event",
+    "error"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "GuestEntry": {
+      "type": "object",
+      "properties": {
+        "p": {
+          "type": "string"
+        },
+        "k": {
+          "type": "string",
+          "enum": [
+            "f",
+            "d",
+            "l"
+          ]
+        },
+        "m": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "s": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "h": {
+          "type": "string"
+        },
+        "t": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "p",
+        "k",
+        "m"
+      ],
+      "additionalProperties": false
+    },
+    "Manifest": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+\\/[A-Za-z0-9._-]+$"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "file": {
+                    "type": "string",
+                    "pattern": "^tools\\/[a-zA-Z0-9_-]{1,64}\\.ts$"
+                  },
+                  "input": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "description",
+                  "file",
+                  "input"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "command": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "args": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "input": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  },
+                  "timeoutMs": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "description",
+                  "command",
+                  "input"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9](?:[a-zA-Z0-9._+-]{0,126}[a-zA-Z0-9+])?$"
+          }
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gateway": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "method": {
+                    "type": "string",
+                    "pattern": "^(\\*|[A-Za-z]+)$"
+                  },
+                  "path": {
+                    "type": "string",
+                    "format": "starts_with",
+                    "pattern": "^\\/.*"
+                  },
+                  "effect": {
+                    "type": "string",
+                    "enum": [
+                      "apply",
+                      "request",
+                      "forbidden"
+                    ]
+                  }
+                },
+                "required": [
+                  "host",
+                  "effect"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "secrets": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "approved": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "name",
+        "model",
+        "instructions",
+        "tools",
+        "packages",
+        "domains",
+        "channels",
+        "gateway"
+      ],
+      "additionalProperties": false
+    },
+    "PendingReach": {
+      "type": "object",
+      "properties": {
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "packages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "gateway": {
+          "type": "object",
+          "properties": {
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "host": {
+                    "type": "string"
+                  },
+                  "method": {
+                    "type": "string",
+                    "pattern": "^(\\*|[A-Za-z]+)$"
+                  },
+                  "path": {
+                    "type": "string",
+                    "format": "starts_with",
+                    "pattern": "^\\/.*"
+                  },
+                  "effect": {
+                    "type": "string",
+                    "enum": [
+                      "apply",
+                      "request",
+                      "forbidden"
+                    ]
+                  }
+                },
+                "required": [
+                  "host",
+                  "effect"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "secrets": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "approved": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "domains",
+        "packages"
+      ],
+      "additionalProperties": false,
+      "description": "What the agent asks for beyond what the person approved. Only `mirab manifest approve`, in their terminal, approves it."
+    },
+    "SessionInfo": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "person": {
+          "type": "string"
+        },
+        "channel": {
+          "type": "string"
+        },
+        "zone": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "agent",
+        "person",
+        "channel",
+        "zone",
+        "project"
+      ],
+      "additionalProperties": false
+    },
+    "SyncSummary": {
+      "type": "object",
+      "properties": {
+        "written": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deleted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SyncEntry"
+          }
+        },
+        "held": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SyncEntry"
+          }
+        },
+        "rejected": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SyncEntry"
+          }
+        },
+        "recovery": {
+          "$ref": "#/$defs/Recovery"
+        }
+      },
+      "required": [
+        "written",
+        "deleted",
+        "conflicts",
+        "held",
+        "rejected"
+      ],
+      "additionalProperties": false
+    },
+    "SyncEntry": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "saved": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "Recovery": {
+      "type": "object",
+      "properties": {
+        "directory": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "directory",
+        "note"
+      ],
+      "additionalProperties": false
+    },
+    "HeldRequestEntry": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "body": {
+          "type": "string"
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HeldRequestKey"
+          }
+        },
+        "hash": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "approval": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/HeldStatus"
+        }
+      },
+      "required": [
+        "id",
+        "agent",
+        "at",
+        "host",
+        "method",
+        "target",
+        "headers",
+        "body",
+        "keys",
+        "hash",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "HeldRequestKey": {
+      "type": "object",
+      "properties": {
+        "header": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "string"
+        },
+        "approved": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "header",
+        "secret"
+      ],
+      "additionalProperties": false
+    },
+    "HeldStatus": {
+      "type": "string",
+      "enum": [
+        "held",
+        "approved",
+        "declined",
+        "sent",
+        "expired"
+      ]
+    },
+    "Decision": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "no"
+      ]
+    },
+    "SpawnedSession": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "last_activity": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "started": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "agent",
+        "state",
+        "last_activity",
+        "cwd",
+        "started"
+      ],
+      "additionalProperties": false
+    },
+    "Event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "message"
+            },
+            "session": {
+              "type": "string"
+            },
+            "message": {
+              "$ref": "#/$defs/ChannelMessage"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "held"
+            },
+            "session": {
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/HeldRequest"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "request"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "asked"
+            },
+            "session": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "approval": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "request",
+            "approval"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "decided"
+            },
+            "session": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "decision": {
+              "$ref": "#/$defs/Decision"
+            },
+            "by": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "request",
+            "decision",
+            "by"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "sent"
+            },
+            "session": {
+              "type": "string"
+            },
+            "request": {
+              "type": "string"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "request",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "denied"
+            },
+            "session": {
+              "type": "string"
+            },
+            "host": {
+              "type": "string"
+            },
+            "method": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            },
+            "rule": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "host",
+            "method",
+            "target",
+            "rule"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "log"
+            },
+            "session": {
+              "type": "string"
+            },
+            "line": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "line"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "exited"
+            },
+            "session": {
+              "type": "string"
+            },
+            "code": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "code"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "spawn_state"
+            },
+            "session": {
+              "type": "string"
+            },
+            "agent": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "busy",
+                "idle",
+                "tool_start",
+                "tool_end",
+                "waiting",
+                "message"
+              ]
+            },
+            "tool": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "ts": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event",
+            "session",
+            "agent",
+            "state",
+            "ts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "type": "string",
+              "const": "spawn_exited"
+            },
+            "session": {
+              "type": "string"
+            },
+            "code": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "recovery": {
+              "$ref": "#/$defs/Recovery"
+            }
+          },
+          "required": [
+            "event",
+            "session"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ChannelMessage": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "note": {
+          "type": "boolean"
+        },
+        "answers": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "at",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "HeldRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "agent": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "body": {
+          "type": "string"
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HeldRequestKey"
+          }
+        },
+        "hash": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "approval": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "agent",
+        "at",
+        "host",
+        "method",
+        "target",
+        "headers",
+        "body",
+        "keys",
+        "hash"
+      ],
+      "additionalProperties": false
+    },
+    "ControlError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "bad_request",
+            "unsupported_protocol",
+            "not_ready",
+            "no_session",
+            "no_request",
+            "not_waiting",
+            "hash_mismatch",
+            "failed"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

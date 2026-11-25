@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// First, before anything loads tsyringe (through rixse's certificates): a
+// compiled mirab otherwise stops there.
+import 'reflect-metadata'
 import { runHook } from './spawn-hook'
 if (process.argv[2] === 'hook') {
   // Hook failures are intentionally silent and never change agent behavior.
