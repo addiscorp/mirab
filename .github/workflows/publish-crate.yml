@@ -28,9 +28,10 @@ concurrency:
 
 jobs:
   publish:
-    # A release: on our hardware, in the ci-release group (addiscorp/infra#34).
-    # Cargo comes from a container, at the crate's minimum Rust version.
-    runs-on: host-linux-x64
+    # Publishing only, nothing built for the release: on a GitHub-hosted
+    # runner (APS 11's publish jobs; publish.yml and gelada's do the same),
+    # whose OIDC token crates.io's trusted publishing is known to take.
+    runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: read
@@ -56,6 +57,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ steps.release.outputs.commit }}
+      - run: rustup toolchain install stable --profile minimal
       - name: The crate at that commit is that version
         id: check
         working-directory: crates/mirab
@@ -76,10 +78,7 @@ jobs:
         id: auth
       - name: Publish
         if: steps.check.outputs.published != 'true'
+        working-directory: crates/mirab
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: |
-          docker run --rm --user "$(id -u):$(id -g)" \
-            -e CARGO_REGISTRY_TOKEN -e CARGO_HOME=/tmp/cargo \
-            -v "$PWD:/work" -w /work/crates/mirab \
-            rust:1.88-slim cargo publish --locked
+        run: cargo publish --locked

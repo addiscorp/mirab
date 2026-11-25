@@ -5,6 +5,7 @@
 //! ```sh
 //! TEST_VM_CONFIG_DIR=<dir> cargo test --test live -- --ignored --test-threads=1
 //! ```
+use std::collections::HashSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -41,8 +42,26 @@ struct World {
     base: PathBuf,
     project: PathBuf,
     log: PathBuf,
-    helper: String,
+    /// VM processes that were running before this test started.
+    before: HashSet<u32>,
     mirab: Mirab,
+}
+
+/// Every VM process on this machine: vz's helper or Firecracker.
+fn vm_processes() -> HashSet<u32> {
+    let out = Command::new("ps")
+        .args(["-axww", "-o", "pid=,command="])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (pid, command) = line.trim().split_once(' ')?;
+            let program = command.split_whitespace().next()?;
+            let name = Path::new(program).file_name()?.to_str()?;
+            matches!(name, "mirab-vz" | "firecracker").then(|| pid.parse().ok())?
+        })
+        .collect()
 }
 
 impl World {
@@ -51,12 +70,24 @@ impl World {
             std::env::var_os("TEST_VM_CONFIG_DIR").expect("TEST_VM_CONFIG_DIR names a VM config"),
         );
         let isolation = fs::read_to_string(source.join("isolation.json")).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&isolation).unwrap();
-        let helper = parsed["vm"]["vz"]
-            .as_str()
-            .or(parsed["vm"]["rootfs"].as_str())
-            .unwrap_or("firecracker")
-            .to_owned();
+        let mut parsed: serde_json::Value = serde_json::from_str(&isolation).unwrap();
+        // Unset paths default to the config directory's own vm/ (as `bun run
+        // vm:image` leaves them). This test runs mirab with another config
+        // directory, so name them where they are.
+        let vm = parsed["vm"]
+            .as_object_mut()
+            .expect("isolation.json has a vm block");
+        for (key, file) in [
+            ("kernel", "vmlinux"),
+            ("rootfs", "rootfs.ext4"),
+            ("vz", "mirab-vz"),
+        ] {
+            let default = source.join("vm").join(file);
+            if !vm.contains_key(key) && default.exists() {
+                vm.insert(key.into(), default.to_string_lossy().into_owned().into());
+            }
+        }
+        let isolation = parsed.to_string();
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let repo = repo.canonicalize().unwrap();
         // A short path: the fixture's harar socket lives under it.
@@ -80,7 +111,7 @@ impl World {
             base,
             project,
             log,
-            helper,
+            before: vm_processes(),
             mirab,
         }
     }
@@ -98,27 +129,22 @@ impl World {
             .collect()
     }
 
-    /// VM processes started from this test's project.
-    fn vms(&self) -> Vec<String> {
-        let out = Command::new("ps")
-            .args(["-axww", "-o", "command="])
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter(|l| l.contains(&self.helper) && !l.contains("control-fixture"))
-            .map(str::to_owned)
-            .collect()
+    /// VM processes started since this test began (the live tests run one
+    /// at a time). Their pids are checked later even once reparented.
+    fn vms(&self) -> HashSet<u32> {
+        &vm_processes() - &self.before
     }
 
-    async fn assert_no_vm(&self) {
+    /// Waits for these VM processes to be gone.
+    async fn assert_gone(&self, vms: &HashSet<u32>) {
+        assert!(!vms.is_empty(), "no VM was seen running");
         for _ in 0..120 {
-            if self.vms().is_empty() {
+            if vms.is_disjoint(&vm_processes()) {
                 return;
             }
             sleep(Duration::from_millis(250)).await;
         }
-        panic!("a VM is still running: {:?}", self.vms());
+        panic!("a VM is still running: {:?}", vms & &vm_processes());
     }
 }
 
@@ -169,7 +195,8 @@ async fn a_turn_a_held_request_and_a_clean_stop() {
     assert_eq!(client.sessions().await.unwrap().len(), 1);
     let mut events = session.events().unwrap();
     assert!(matches!(session.events(), Err(Error::EventsTaken)));
-    assert!(!world.vms().is_empty(), "the session has a VM");
+    let vms = world.vms();
+    assert!(!vms.is_empty(), "the session has a VM");
 
     // A turn, streamed: the reply answers the message that asked.
     let asked = session.send("hello").await.unwrap();
@@ -246,10 +273,10 @@ async fn a_turn_a_held_request_and_a_clean_stop() {
     let stopped = timeout(STEP, session.stop()).await.unwrap().unwrap();
     assert!(stopped.sync.is_some());
     assert!(client.sessions().await.unwrap().is_empty());
-    world.assert_no_vm().await;
+    world.assert_gone(&vms).await;
     let status = timeout(STEP, client.shutdown()).await.unwrap().unwrap();
     assert!(status.success());
-    world.assert_no_vm().await;
+    assert!(world.vms().is_empty(), "{:?}", world.vms());
 }
 
 /// The shape a program ships: one compiled, signed `mirab` with no Bun and
@@ -284,7 +311,7 @@ async fn a_compiled_binary_boots_an_agent() {
         _ => None,
     })
     .await;
-    assert!(!world.vms().is_empty());
+    let vms = world.vms();
 
     // Guest files, through the same binary.
     session
@@ -314,7 +341,7 @@ async fn a_compiled_binary_boots_an_agent() {
         "hello"
     );
     client.shutdown().await.unwrap();
-    world.assert_no_vm().await;
+    world.assert_gone(&vms).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -326,10 +353,10 @@ async fn dropping_the_client_stops_its_vms() {
         .await
         .unwrap()
         .unwrap();
-    assert!(!world.vms().is_empty());
+    let vms = world.vms();
     drop(session);
     drop(client);
-    world.assert_no_vm().await;
+    world.assert_gone(&vms).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -346,7 +373,8 @@ async fn a_sub_agent_runs_in_a_vm_and_stops() {
     .unwrap()
     .unwrap();
     assert_eq!(agent.id(), name);
-    assert!(!world.vms().is_empty(), "the sub-agent has a VM");
+    let vms = world.vms();
+    assert!(!vms.is_empty(), "the sub-agent has a VM");
     let listed = client.spawned().await.unwrap();
     assert_eq!(listed.iter().filter(|s| s.session == name).count(), 1);
     let mut events = agent.events().unwrap();
@@ -358,7 +386,7 @@ async fn a_sub_agent_runs_in_a_vm_and_stops() {
         matches!(e, Event::SpawnExited { .. }).then_some(())
     })
     .await;
-    world.assert_no_vm().await;
+    world.assert_gone(&vms).await;
     assert!(client.spawned().await.unwrap().is_empty());
     client.shutdown().await.unwrap();
 }
